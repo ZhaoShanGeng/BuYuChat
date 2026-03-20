@@ -6,7 +6,11 @@
   import NavRail from "$components/layout/nav-rail.svelte";
   import ResourceSidebar from "$components/layout/resource-sidebar.svelte";
   import ChatWorkspace from "$components/chat/chat-workspace.svelte";
-  import WorkspacePlaceholder from "$components/shared/workspace-placeholder.svelte";
+  import AgentsWorkspace from "$components/agents/agents-workspace.svelte";
+  import PresetsWorkspace from "$components/presets/presets-workspace.svelte";
+  import LorebooksWorkspace from "$components/lorebooks/lorebooks-workspace.svelte";
+  import WorkflowsWorkspace from "$components/workflows/workflows-workspace.svelte";
+  import SettingsWorkspace from "$components/settings/settings-workspace.svelte";
   import {
     appShell,
     inspectorTabs,
@@ -161,45 +165,15 @@
       onToggleInspector={() => appShell.toggleMobileInspector()}
     />
   {:else if appShell.activeWorkspace === "agents"}
-    <WorkspacePlaceholder
-      eyebrow={i18n.t("nav.agents")}
-      title={i18n.t("ws.agents.title")}
-      description={i18n.t("ws.agents.desc")}
-      bullets={["角色卡编辑器", "问候语管理", "预设与世界书绑定"]}
-      cta="创建智能体"
-    />
+    <AgentsWorkspace />
   {:else if appShell.activeWorkspace === "presets"}
-    <WorkspacePlaceholder
-      eyebrow={i18n.t("nav.presets")}
-      title={i18n.t("ws.presets.title")}
-      description={i18n.t("ws.presets.desc")}
-      bullets={["条目排序", "角色与位置", "渠道绑定"]}
-      cta="创建预设"
-    />
+    <PresetsWorkspace />
   {:else if appShell.activeWorkspace === "lorebooks"}
-    <WorkspacePlaceholder
-      eyebrow={i18n.t("nav.lorebooks")}
-      title={i18n.t("ws.lorebooks.title")}
-      description={i18n.t("ws.lorebooks.desc")}
-      bullets={["条目浏览", "关键词匹配", "插入策略"]}
-      cta="创建世界书"
-    />
+    <LorebooksWorkspace />
   {:else if appShell.activeWorkspace === "workflows"}
-    <WorkspacePlaceholder
-      eyebrow={i18n.t("nav.workflows")}
-      title={i18n.t("ws.workflows.title")}
-      description={i18n.t("ws.workflows.desc")}
-      bullets={["图编辑器", "执行记录", "结果写回"]}
-      cta="创建工作流"
-    />
+    <WorkflowsWorkspace />
   {:else}
-    <WorkspacePlaceholder
-      eyebrow={i18n.t("nav.settings")}
-      title={i18n.t("ws.settings.title")}
-      description={i18n.t("ws.settings.desc")}
-      bullets={["API 渠道", "插件管理", "外观偏好"]}
-      cta="打开设置"
-    />
+    <SettingsWorkspace />
   {/if}
 
   {#snippet inspector()}
