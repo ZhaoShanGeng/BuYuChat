@@ -23,8 +23,8 @@
 </script>
 
 <div class="flex h-full flex-1">
-  <!-- Left nav -->
-  <div class="hidden w-48 flex-shrink-0 border-r border-[var(--border-soft)] bg-[var(--bg-sidebar)] py-3 md:block">
+  <!-- Left nav (desktop only) -->
+  <div class="hidden w-48 flex-shrink-0 border-r border-[var(--border-soft)] bg-[var(--bg-sidebar)] py-3 lg:block">
     <nav class="space-y-0.5 px-2">
       {#each sections as section}
         <button
@@ -44,6 +44,20 @@
     <header class="flex h-12 items-center gap-3 border-b border-[var(--border-soft)] px-4 pr-[140px]" data-tauri-drag-region>
       <h1 class="text-sm font-semibold text-[var(--ink-strong)]">{sections.find(s => s.id === activeSection)?.label ?? i18n.t("nav.settings")}</h1>
     </header>
+
+    <!-- Mobile section tabs -->
+    <div class="flex gap-1 border-b border-[var(--border-soft)] px-3 py-2 lg:hidden">
+      {#each sections as section}
+        <button
+          type="button"
+          class="inline-flex items-center gap-1.5 rounded-[var(--radius-full)] px-3 py-1.5 text-xs font-medium transition-colors {section.id === activeSection ? 'bg-[var(--brand)] text-white' : 'text-[var(--ink-muted)] hover:bg-[var(--bg-hover)]'}"
+          onclick={() => { activeSection = section.id; }}
+        >
+          <section.icon size={14} />
+          {section.label}
+        </button>
+      {/each}
+    </div>
 
     <div class="app-scrollbar flex-1 overflow-y-auto p-6">
       <div class="mx-auto max-w-2xl">

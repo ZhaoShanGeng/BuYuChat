@@ -48,7 +48,7 @@
         class={cn(
           "cursor-pointer inline-flex items-center gap-1 rounded-[var(--radius-full)] px-2.5 py-1 text-xs font-medium transition-colors duration-100",
           tab.id === activeTab
-            ? "bg-[var(--ink-strong)] text-white"
+            ? "bg-[var(--brand)] text-white"
             : "text-[var(--ink-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--ink-strong)]"
         )}
         onclick={() => onSelectTab(tab.id)}
