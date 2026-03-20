@@ -3,12 +3,15 @@ Thumbs.db
 
 .idea/
 .vscode/
+.codex/
+docs/
 
 node_modules/
 dist/
 .vite/
 
 target/
+target-ci/
 src-tauri/target/
 
 *.log

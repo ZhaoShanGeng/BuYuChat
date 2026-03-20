@@ -1,4 +1,15 @@
 {
+  "compilerOptions": {
+    "baseUrl": ".",
+    "paths": {
+      "$lib": ["src/lib"],
+      "$lib/*": ["src/lib/*"],
+      "$components": ["src/lib/components"],
+      "$components/*": ["src/lib/components/*"],
+      "$ui": ["src/lib/components/ui"],
+      "$ui/*": ["src/lib/components/ui/*"]
+    }
+  },
   "files": [],
   "references": [
     { "path": "./tsconfig.app.json" },

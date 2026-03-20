@@ -1,0 +1,215 @@
+@import url("https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap");
+@import "tailwindcss";
+
+:root {
+  color-scheme: light;
+  font-family: "Atkinson Hyperlegible", sans-serif;
+  background:
+    radial-gradient(circle at top left, rgba(37, 99, 235, 0.12), transparent 28rem),
+    radial-gradient(circle at top right, rgba(249, 115, 22, 0.14), transparent 24rem),
+    #f8fafc;
+  color: #1e293b;
+}
+
+html,
+body,
+#app {
+  min-height: 100%;
+}
+
+body {
+  margin: 0;
+  background: transparent;
+}
+
+button {
+  font: inherit;
+}
+
+.hero-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.75rem;
+  margin-top: 1rem;
+}
+
+.app-shell {
+  display: grid;
+  min-height: 100vh;
+  grid-template-columns: minmax(18rem, 24rem) 1fr;
+  gap: 1.5rem;
+  padding: 4vh 4vw;
+  box-sizing: border-box;
+}
+
+.sidebar,
+.hero-card,
+.panel {
+  border: 1px solid rgba(148, 163, 184, 0.25);
+  background: rgba(255, 255, 255, 0.86);
+  box-shadow: 0 20px 60px rgba(15, 23, 42, 0.08);
+  backdrop-filter: blur(18px);
+}
+
+.sidebar {
+  display: flex;
+  flex-direction: column;
+  gap: 1.75rem;
+  border-radius: 2rem;
+  padding: 1.5rem;
+}
+
+.brand-block h1,
+.hero-card h2,
+.panel header strong,
+.conversation-card h3 {
+  margin: 0;
+}
+
+.eyebrow {
+  margin: 0 0 0.5rem;
+  color: #2563eb;
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.lede {
+  margin: 0.75rem 0 0;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.sidebar-section {
+  display: flex;
+  flex-direction: column;
+  gap: 0.9rem;
+}
+
+.section-header,
+.panel header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+}
+
+.section-header h2,
+.panel header span {
+  margin: 0;
+  font-size: 0.9rem;
+  color: #475569;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+}
+
+.section-header button {
+  border: 0;
+  border-radius: 999px;
+  background: #1e293b;
+  color: white;
+  padding: 0.55rem 0.9rem;
+  cursor: pointer;
+  transition: background-color 200ms ease;
+}
+
+.section-header button:hover {
+  background: #0f172a;
+}
+
+.chip-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+}
+
+.chip-list li {
+  border-radius: 999px;
+  background: rgba(37, 99, 235, 0.1);
+  color: #1d4ed8;
+  padding: 0.55rem 0.85rem;
+  font-size: 0.95rem;
+  font-weight: 700;
+}
+
+.conversation-list {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.conversation-card {
+  border-radius: 1.35rem;
+  background: linear-gradient(160deg, rgba(255, 255, 255, 0.95), rgba(241, 245, 249, 0.88));
+  padding: 1rem 1.05rem;
+  transition:
+    transform 200ms ease,
+    box-shadow 200ms ease;
+  cursor: pointer;
+}
+
+.conversation-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 16px 30px rgba(37, 99, 235, 0.08);
+}
+
+.conversation-card p,
+.hero-card p,
+.panel p {
+  margin: 0.45rem 0 0;
+  color: #475569;
+  line-height: 1.6;
+}
+
+.workspace {
+  display: grid;
+  gap: 1.5rem;
+}
+
+.hero-card {
+  border-radius: 2rem;
+  padding: 1.5rem 1.6rem;
+}
+
+.panel-grid {
+  display: grid;
+  gap: 1.25rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.panel {
+  border-radius: 1.75rem;
+  padding: 1.25rem;
+}
+
+.panel-icon {
+  color: #2563eb;
+  margin-top: 0.9rem;
+}
+
+.panel-icon-light {
+  color: white;
+}
+
+.panel-accent {
+  background: linear-gradient(155deg, rgba(37, 99, 235, 0.95), rgba(59, 130, 246, 0.82));
+  color: white;
+}
+
+.panel-accent header span,
+.panel-accent p {
+  color: rgba(255, 255, 255, 0.84);
+}
+
+@media (max-width: 980px) {
+  .app-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .panel-grid {
+    grid-template-columns: 1fr;
+  }
+}
