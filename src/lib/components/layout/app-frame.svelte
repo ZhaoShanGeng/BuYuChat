@@ -3,6 +3,7 @@
 
   let {
     sidebarOpen = false,
+    sidebarHidden = false,
     inspectorOpen = false,
     onCloseSidebar = () => {},
     onCloseInspector = () => {},
@@ -13,6 +14,7 @@
     mobilebar
   }: {
     sidebarOpen?: boolean;
+    sidebarHidden?: boolean;
     inspectorOpen?: boolean;
     onCloseSidebar?: () => void;
     onCloseInspector?: () => void;
@@ -45,7 +47,7 @@
   <div class="app-shell-grid">
     {#if rail}{@render rail()}{/if}
 
-    <div class:sheet-open={sidebarOpen} class="app-sheet app-sheet-left">
+    <div class:sheet-open={sidebarOpen} class:sidebar-hidden={sidebarHidden} class="app-sheet app-sheet-left">
       {#if sidebar}{@render sidebar()}{/if}
     </div>
 

@@ -68,8 +68,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 46px;
-    height: 32px;
+    width: 36px;
+    height: 28px;
     border: none;
     background: transparent;
     color: var(--ink-muted);

@@ -133,6 +133,7 @@
 
 <AppFrame
   sidebarOpen={appShell.mobileSidebarOpen}
+  sidebarHidden={appShell.activeWorkspace === "settings"}
   inspectorOpen={appShell.mobileInspectorOpen}
   onCloseSidebar={() => appShell.closeMobileSidebar()}
   onCloseInspector={() => appShell.closeMobileInspector()}
@@ -142,15 +143,17 @@
   {/snippet}
 
   {#snippet sidebar()}
-    <ResourceSidebar
-      workspace={appShell.activeWorkspace}
-      items={activeSidebarItems}
-      activeId={appShell.activeSidebarItemId}
-      onSelect={(id) => void handleSidebarSelect(id)}
-      onCreateNew={appShell.activeWorkspace === "chat" ? () => void handleCreateConversation() : undefined}
-      onRename={appShell.activeWorkspace === "chat" ? (id, title) => void handleRenameConversation(id, title) : undefined}
-      onDelete={appShell.activeWorkspace === "chat" ? (id) => void handleDeleteConversation(id) : undefined}
-    />
+    {#if appShell.activeWorkspace !== "settings"}
+      <ResourceSidebar
+        workspace={appShell.activeWorkspace}
+        items={activeSidebarItems}
+        activeId={appShell.activeSidebarItemId}
+        onSelect={(id) => void handleSidebarSelect(id)}
+        onCreateNew={appShell.activeWorkspace === "chat" ? () => void handleCreateConversation() : undefined}
+        onRename={appShell.activeWorkspace === "chat" ? (id, title) => void handleRenameConversation(id, title) : undefined}
+        onDelete={appShell.activeWorkspace === "chat" ? (id) => void handleDeleteConversation(id) : undefined}
+      />
+    {/if}
   {/snippet}
 
   {#if appShell.activeWorkspace === "chat"}
