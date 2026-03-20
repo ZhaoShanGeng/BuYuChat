@@ -99,12 +99,26 @@ class AppShellState {
     this.mobileSidebarOpen = false;
   }
 
+  closeMobileSidebar() {
+    this.mobileSidebarOpen = false;
+  }
+
+  closeMobileInspector() {
+    this.mobileInspectorOpen = false;
+  }
+
   toggleMobileSidebar() {
     this.mobileSidebarOpen = !this.mobileSidebarOpen;
+    if (this.mobileSidebarOpen) {
+      this.mobileInspectorOpen = false;
+    }
   }
 
   toggleMobileInspector() {
     this.mobileInspectorOpen = !this.mobileInspectorOpen;
+    if (this.mobileInspectorOpen) {
+      this.mobileSidebarOpen = false;
+    }
   }
 }
 

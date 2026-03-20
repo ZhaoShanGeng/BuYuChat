@@ -11,11 +11,15 @@
     "tauri": "tauri"
   },
   "dependencies": {
+    "@fontsource/manrope": "^5.2.8",
+    "@fontsource/space-grotesk": "^5.2.10",
+    "@fontsource/syncopate": "^5.2.8",
     "@tauri-apps/api": "^2.8.0",
     "@tauri-apps/plugin-opener": "^2.4.0",
     "bits-ui": "^2.16.3",
     "clsx": "^2.1.1",
     "lucide-svelte": "^0.577.0",
+    "marked": "^17.0.5",
     "svelte": "^5.53.12",
     "tailwind-merge": "^3.5.0",
     "tailwind-variants": "^3.2.2"

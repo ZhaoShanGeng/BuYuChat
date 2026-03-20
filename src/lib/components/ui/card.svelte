@@ -1,14 +1,15 @@
 <script lang="ts">
   import { cn } from "$lib/utils";
 
-  export let className = "";
+  import type { Snippet } from "svelte";
+  let { className = "", children }: { className?: string; children?: Snippet } = $props();
 </script>
 
 <section
   class={cn(
-    "rounded-[1.75rem] border border-slate-200/70 bg-white/90 shadow-[0_20px_60px_rgba(15,23,42,0.08)] backdrop-blur-xl",
+    "rounded-[var(--radius-lg)] border border-[var(--border-soft)] bg-[var(--bg-surface)] shadow-[var(--shadow-sm)]",
     className
   )}
 >
-  <slot />
+  {#if children}{@render children()}{/if}
 </section>

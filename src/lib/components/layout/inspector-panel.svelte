@@ -1,67 +1,77 @@
 <script lang="ts">
-  import Badge from "$ui/badge.svelte";
-  import Button from "$ui/button.svelte";
   import { cn } from "$lib/utils";
+  import { Layers, GitBranch, FileText, Variable, Link, Workflow } from "lucide-svelte";
   import type { InspectorTabId } from "$lib/state/app-shell.svelte";
+  import { i18n } from "$lib/i18n.svelte";
 
-  export let tabs: { id: InspectorTabId; label: string }[] = [];
-  export let activeTab: InspectorTabId;
-  export let onSelectTab: (id: InspectorTabId) => void;
+  const tabIcons: Record<InspectorTabId, typeof Layers> = {
+    context: Layers,
+    versions: GitBranch,
+    summaries: FileText,
+    variables: Variable,
+    bindings: Link,
+    workflow: Workflow
+  };
+
+  const tabDescKeys: Record<InspectorTabId, string> = {
+    context: "inspector.context_desc",
+    versions: "inspector.versions_desc",
+    summaries: "inspector.summaries_desc",
+    variables: "inspector.variables_desc",
+    bindings: "inspector.bindings_desc",
+    workflow: "inspector.workflow_desc"
+  };
+
+  let {
+    tabs = [],
+    activeTab,
+    onSelectTab
+  }: {
+    tabs?: { id: InspectorTabId; label: string }[];
+    activeTab: InspectorTabId;
+    onSelectTab: (id: InspectorTabId) => void;
+  } = $props();
+
+  const ActiveIcon = $derived(tabIcons[activeTab]);
 </script>
 
-<aside class="flex h-full flex-col gap-4 border-l border-[var(--border-soft)] bg-white/76 px-4 py-5 backdrop-blur-xl">
-  <div class="space-y-1">
-    <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--brand)]">Inspector</p>
-    <h2 class="text-lg font-bold text-[var(--fg-primary)]">Active context</h2>
+<aside class="flex h-full flex-col border-l border-[var(--border-soft)] bg-[var(--bg-sidebar)]">
+  <div class="border-b border-[var(--border-soft)] px-4 py-3">
+    <h2 class="text-sm font-semibold text-[var(--ink-strong)]">{i18n.t("inspector.title")}</h2>
   </div>
 
-  <div class="flex flex-wrap gap-2">
+  <div class="flex flex-wrap gap-1 border-b border-[var(--border-soft)] px-3 py-2">
     {#each tabs as tab}
+      {@const Icon = tabIcons[tab.id]}
       <button
         type="button"
         class={cn(
-          "cursor-pointer rounded-full px-3 py-1.5 text-xs font-semibold transition-colors duration-200",
+          "cursor-pointer inline-flex items-center gap-1 rounded-[var(--radius-full)] px-2.5 py-1 text-xs font-medium transition-colors duration-100",
           tab.id === activeTab
-            ? "bg-[var(--fg-primary)] text-white"
-            : "bg-[var(--bg-soft)] text-[var(--fg-secondary)] hover:bg-white"
+            ? "bg-[var(--ink-strong)] text-white"
+            : "text-[var(--ink-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--ink-strong)]"
         )}
-        on:click={() => onSelectTab(tab.id)}
+        onclick={() => onSelectTab(tab.id)}
       >
+        {#if Icon}<Icon size={12} />{/if}
         {tab.label}
       </button>
     {/each}
   </div>
 
-  <div class="space-y-3 rounded-[1.5rem] border border-[var(--border-soft)] bg-[var(--bg-panel-strong)] p-4">
-    <div class="flex items-center justify-between gap-3">
-      <h3 class="text-sm font-semibold text-[var(--fg-primary)]">Live signals</h3>
-      <Badge className="bg-emerald-50 text-emerald-700">Stream ready</Badge>
-    </div>
-    <ul class="space-y-2 text-sm text-[var(--fg-secondary)]">
-      <li>Incremental patch reducer will own all upsert / replace / delete reconciliation.</li>
-      <li>Streaming replies append token deltas before final message version commit.</li>
-      <li>Large content remains lazy-loaded and never blocks workspace rendering.</li>
-    </ul>
-  </div>
-
-  <div class="grid gap-3">
-    <div class="rounded-[1.35rem] border border-[var(--border-soft)] bg-white p-4">
-      <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--fg-muted)]">Current tab</p>
-      <h3 class="mt-2 text-base font-semibold text-[var(--fg-primary)]">{tabs.find((tab) => tab.id === activeTab)?.label}</h3>
-      <p class="mt-2 text-sm leading-6 text-[var(--fg-secondary)]">
-        This panel will host bindings, summaries, variables, workflow status and version controls without forcing a full reload.
-      </p>
-    </div>
-
-    <div class="rounded-[1.35rem] border border-[var(--border-soft)] bg-white p-4">
-      <div class="flex items-center justify-between gap-2">
-        <h3 class="text-base font-semibold text-[var(--fg-primary)]">Quick actions</h3>
-        <Badge className="bg-orange-50 text-orange-700">Desktop first</Badge>
+  <div class="app-scrollbar flex-1 overflow-y-auto p-4">
+    <div class="rounded-[var(--radius-md)] border border-[var(--border-soft)] bg-[var(--bg-surface)] p-4">
+      <div class="flex items-center gap-2">
+        {#if ActiveIcon}
+          <div class="flex h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] bg-[var(--brand-soft)]">
+            <ActiveIcon size={16} class="text-[var(--brand)]" />
+          </div>
+        {/if}
+        <h3 class="text-sm font-semibold text-[var(--ink-strong)]">{tabs.find(t => t.id === activeTab)?.label ?? ""}</h3>
       </div>
-      <div class="mt-3 flex flex-wrap gap-2">
-        <Button variant="secondary" size="sm">Open summaries</Button>
-        <Button variant="secondary" size="sm">Inspect variables</Button>
-        <Button variant="secondary" size="sm">Run workflow</Button>
+      <p class="mt-3 text-sm leading-relaxed text-[var(--ink-muted)]">{i18n.t(tabDescKeys[activeTab])}</p>
+      <div class="mt-4 rounded-[var(--radius-sm)] border border-dashed border-[var(--border-medium)] bg-[var(--bg-app)] px-3 py-6 text-center text-xs text-[var(--ink-faint)]">
+        {i18n.t("inspector.select_msg")}
       </div>
     </div>
   </div>

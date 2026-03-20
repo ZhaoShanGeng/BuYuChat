@@ -2,6 +2,7 @@
   import { Bot, BookOpenText, Cable, MessagesSquare, SlidersHorizontal, Workflow } from "lucide-svelte";
   import { cn } from "$lib/utils";
   import type { NavItem, WorkspaceId } from "$lib/state/app-shell.svelte";
+  import { i18n } from "$lib/i18n.svelte";
 
   const icons = {
     chat: MessagesSquare,
@@ -12,27 +13,42 @@
     settings: Cable
   } satisfies Record<WorkspaceId, typeof MessagesSquare>;
 
-  export let items: NavItem[] = [];
-  export let active: WorkspaceId;
-  export let onSelect: (id: WorkspaceId) => void;
+  const labelKeys: Record<WorkspaceId, string> = {
+    chat: "nav.chat",
+    agents: "nav.agents",
+    presets: "nav.presets",
+    lorebooks: "nav.lorebooks",
+    workflows: "nav.workflows",
+    settings: "nav.settings"
+  };
+
+  let {
+    items = [],
+    active,
+    onSelect
+  }: {
+    items?: NavItem[];
+    active: WorkspaceId;
+    onSelect: (id: WorkspaceId) => void;
+  } = $props();
 </script>
 
-<nav class="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--border-soft)] bg-[color:rgba(255,255,255,0.92)] px-2 py-2 backdrop-blur-xl lg:hidden">
-  <div class="grid grid-cols-6 gap-1">
+<nav class="fixed inset-x-0 bottom-0 z-30 border-t border-[var(--border-soft)] bg-[var(--bg-surface)] px-1 pb-[env(safe-area-inset-bottom)] lg:hidden">
+  <div class="grid grid-cols-6">
     {#each items as item}
       {@const Icon = icons[item.id]}
       <button
         type="button"
         class={cn(
-          "flex cursor-pointer flex-col items-center gap-1 rounded-[1rem] px-1 py-2 text-[10px] font-semibold transition-colors duration-200",
+          "flex cursor-pointer flex-col items-center gap-0.5 py-2 text-[10px] font-medium transition-colors duration-100",
           item.id === active
-            ? "bg-[var(--fg-primary)] text-white"
-            : "text-[var(--fg-muted)] hover:bg-[var(--bg-soft)]"
+            ? "text-[var(--brand)]"
+            : "text-[var(--ink-faint)] hover:text-[var(--ink-muted)]"
         )}
-        on:click={() => onSelect(item.id)}
+        onclick={() => onSelect(item.id)}
       >
-        <Icon size={16} />
-        <span>{item.label}</span>
+        <Icon size={18} />
+        <span>{i18n.t(labelKeys[item.id])}</span>
       </button>
     {/each}
   </div>

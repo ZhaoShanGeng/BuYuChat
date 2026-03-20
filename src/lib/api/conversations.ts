@@ -57,10 +57,32 @@ export type ConversationDetail = {
   channel_bindings: ChannelBindingDetail[];
 };
 
+// ─── Queries ───
+
 export function listConversations() {
   return tauriInvoke<ConversationSummary[]>("list_conversations");
 }
 
 export function getConversationDetail(id: string) {
   return tauriInvoke<ConversationDetail>("get_conversation_detail", { id });
+}
+
+// ─── Mutations ───
+
+export type CreateConversationInput = {
+  title: string;
+  description?: string | null;
+  conversation_mode?: string;
+};
+
+export function createConversation(input: CreateConversationInput) {
+  return tauriInvoke<ConversationDetail>("create_conversation", { input });
+}
+
+export function renameConversation(id: string, title: string) {
+  return tauriInvoke<ConversationDetail>("rename_conversation", { id, title });
+}
+
+export function deleteConversation(id: string) {
+  return tauriInvoke<void>("delete_conversation", { id });
 }

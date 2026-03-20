@@ -1,63 +1,142 @@
 <script lang="ts">
-  import Button from "$ui/button.svelte";
-  import Badge from "$ui/badge.svelte";
-  import { PanelLeft, PanelRight, Search, Sparkles } from "lucide-svelte";
+  import { PanelLeft, PanelRight, Pencil, Check, X, Eraser, Download } from "lucide-svelte";
 
-  export let title = "Chat";
-  export let subtitle = "Workspace";
-  export let meta: string[] = [];
-  export let onToggleSidebar: () => void;
-  export let onToggleInspector: () => void;
+  let {
+    title = "Chat",
+    subtitle = "Workspace",
+    meta = [],
+    editable = false,
+    onToggleSidebar,
+    onToggleInspector,
+    onRename = undefined
+  }: {
+    title?: string;
+    subtitle?: string;
+    meta?: string[];
+    editable?: boolean;
+    onToggleSidebar: () => void;
+    onToggleInspector: () => void;
+    onRename?: ((title: string) => void) | undefined;
+  } = $props();
+
+  let editing = $state(false);
+  let editText = $state("");
+
+  function startEdit() {
+    if (!editable || !onRename) return;
+    editing = true;
+    editText = title;
+    requestAnimationFrame(() => {
+      const input = document.querySelector(".ctx-rename-input") as HTMLInputElement | null;
+      input?.focus();
+      input?.select();
+    });
+  }
+
+  function submitEdit() {
+    if (editText.trim() && onRename) {
+      onRename(editText.trim());
+    }
+    editing = false;
+  }
+
+  function cancelEdit() {
+    editing = false;
+    editText = "";
+  }
+
+  function handleKeydown(event: KeyboardEvent) {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      submitEdit();
+    }
+    if (event.key === "Escape") {
+      cancelEdit();
+    }
+  }
 </script>
 
-<header class="sticky top-0 z-20 border-b border-[var(--border-soft)] bg-[color:rgba(248,250,252,0.88)] px-4 py-3 backdrop-blur-xl md:px-6">
-  <div class="flex items-start justify-between gap-4">
-    <div class="flex min-w-0 items-center gap-3">
-      <button
-        type="button"
-        class="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-[1rem] border border-[var(--border-soft)] bg-white text-[var(--fg-primary)] shadow-[0_8px_20px_rgba(15,23,42,0.06)] lg:hidden"
-        on:click={onToggleSidebar}
-      >
-        <PanelLeft size={18} />
-      </button>
+<header
+  class="flex h-[var(--topbar-height)] items-center gap-3 border-b border-[var(--border-soft)] bg-[var(--bg-surface)]/80 px-4 backdrop-blur-sm"
+>
+  <!-- Mobile sidebar toggle -->
+  <button
+    type="button"
+    class="icon-hover inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--ink-strong)] lg:hidden"
+    onclick={onToggleSidebar}
+  >
+    <PanelLeft size={18} />
+  </button>
 
-      <div class="min-w-0">
-        <p class="text-[11px] font-bold uppercase tracking-[0.14em] text-[var(--brand)]">{subtitle}</p>
-        <div class="mt-1 flex min-w-0 items-center gap-2">
-          <h1 class="truncate text-xl font-black tracking-[-0.04em] text-[var(--fg-primary)] md:text-2xl">
-            {title}
-          </h1>
-          <Badge className="hidden bg-[var(--brand-soft)] text-[var(--brand)] md:inline-flex">
-            Incremental
-          </Badge>
-        </div>
+  <!-- Title area -->
+  <div class="flex min-w-0 flex-1 items-center gap-2">
+    {#if editing}
+      <div class="flex items-center gap-1.5">
+        <input
+          class="ctx-rename-input rounded-[var(--radius-sm)] border border-[var(--brand)] bg-[var(--bg-app)] px-2 py-0.5 text-sm font-semibold text-[var(--ink-strong)] outline-none shadow-[0_0_0_2px_var(--brand-glow)]"
+          style="width: {Math.max(editText.length * 8 + 24, 100)}px"
+          bind:value={editText}
+          onkeydown={handleKeydown}
+          onblur={submitEdit}
+        />
+        <button
+          type="button"
+          class="inline-flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-faint)] hover:text-[var(--ink-muted)]"
+          onclick={(e) => { e.preventDefault(); cancelEdit(); }}
+        >
+          <X size={14} />
+        </button>
       </div>
-    </div>
-
-    <div class="flex items-center gap-2">
-      <Button variant="secondary" size="sm" className="hidden md:inline-flex">
-        <Search size={16} />
-        <span class="ml-2">Search</span>
-      </Button>
-      <Button size="sm" className="hidden md:inline-flex">
-        <Sparkles size={16} />
-        <span class="ml-2">Command</span>
-      </Button>
+    {:else}
       <button
         type="button"
-        class="inline-flex h-10 w-10 cursor-pointer items-center justify-center rounded-[1rem] border border-[var(--border-soft)] bg-white text-[var(--fg-primary)] shadow-[0_8px_20px_rgba(15,23,42,0.06)] xl:hidden"
-        on:click={onToggleInspector}
+        class="group/title flex items-center gap-1.5 truncate"
+        ondblclick={startEdit}
+        title={editable ? "双击编辑标题" : ""}
       >
-        <PanelRight size={18} />
+        <h1 class="truncate text-sm font-semibold text-[var(--ink-strong)]">
+          {title}
+        </h1>
+        {#if editable}
+          <Pencil size={12} class="flex-shrink-0 text-[var(--ink-faint)] opacity-0 transition-opacity group-hover/title:opacity-100" />
+        {/if}
       </button>
-    </div>
+    {/if}
+    {#if meta.length > 0 && !editing}
+      {#each meta as tag}
+        <span class="hidden rounded-[var(--radius-full)] bg-[var(--bg-hover)] px-2 py-0.5 text-[11px] font-medium text-[var(--ink-muted)] md:inline-flex">
+          {tag}
+        </span>
+      {/each}
+    {/if}
   </div>
 
-  {#if meta.length > 0}
-    <div class="mt-3 flex flex-wrap gap-2">
-      {#each meta as item}
-        <Badge className="bg-white text-[var(--fg-secondary)]">{item}</Badge>
-      {/each}
-    </div>
-  {/if}
+  <!-- Right actions -->
+  <div class="flex items-center gap-1">
+    <!-- Placeholder tool buttons -->
+    <button
+      type="button"
+      title="清空对话"
+      class="icon-hover hidden h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--ink-muted)] sm:inline-flex"
+    >
+      <Eraser size={16} />
+    </button>
+    <button
+      type="button"
+      title="导出对话"
+      class="icon-hover hidden h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--ink-muted)] sm:inline-flex"
+    >
+      <Download size={16} />
+    </button>
+
+    <div class="mx-1 hidden h-5 w-px bg-[var(--border-soft)] sm:block"></div>
+
+    <button
+      type="button"
+      class="icon-hover inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--ink-strong)] xl:hidden"
+      onclick={onToggleInspector}
+    >
+      <PanelRight size={18} />
+    </button>
+  </div>
 </header>

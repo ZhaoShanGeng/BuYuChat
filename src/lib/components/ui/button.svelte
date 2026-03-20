@@ -3,17 +3,22 @@
   import { cn } from "$lib/utils";
 
   const buttonVariants = tv({
-    base: "inline-flex items-center justify-center rounded-full font-semibold transition-colors duration-200 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-slate-900 disabled:pointer-events-none disabled:opacity-50",
+    base: "inline-flex items-center justify-center font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:pointer-events-none disabled:opacity-50",
     variants: {
       variant: {
-        default: "bg-slate-900 text-white hover:bg-slate-800",
-        secondary: "bg-slate-100 text-slate-900 hover:bg-slate-200",
-        ghost: "bg-transparent text-slate-700 hover:bg-slate-100"
+        default:
+          "rounded-[var(--radius-md)] bg-[var(--brand)] text-white shadow-[var(--shadow-sm)] hover:bg-[var(--brand-strong)]",
+        secondary:
+          "rounded-[var(--radius-md)] border border-[var(--border-medium)] bg-[var(--bg-surface)] text-[var(--ink-strong)] hover:bg-[var(--bg-hover)]",
+        ghost:
+          "rounded-[var(--radius-md)] bg-transparent text-[var(--ink-muted)] hover:bg-[var(--bg-hover)] hover:text-[var(--ink-strong)]",
+        destructive:
+          "rounded-[var(--radius-md)] bg-[var(--danger)] text-white hover:bg-red-700"
       },
       size: {
-        sm: "h-9 px-3 text-sm",
-        md: "h-11 px-4 text-sm",
-        lg: "h-12 px-5 text-base"
+        sm: "h-8 gap-1.5 px-2.5 text-xs",
+        md: "h-9 gap-2 px-3 text-sm",
+        lg: "h-10 gap-2 px-4 text-sm"
       }
     },
     defaultVariants: {
@@ -22,12 +27,22 @@
     }
   });
 
-  export let variant: VariantProps<typeof buttonVariants>["variant"] = "default";
-  export let size: VariantProps<typeof buttonVariants>["size"] = "md";
-  export let type: "button" | "submit" | "reset" = "button";
-  export let className = "";
+  import type { Snippet } from "svelte";
+  let {
+    variant = "default",
+    size = "md",
+    type = "button",
+    className = "",
+    children
+  }: {
+    variant?: VariantProps<typeof buttonVariants>["variant"];
+    size?: VariantProps<typeof buttonVariants>["size"];
+    type?: "button" | "submit" | "reset";
+    className?: string;
+    children?: Snippet;
+  } = $props();
 </script>
 
 <button type={type} class={cn(buttonVariants({ variant, size }), className)}>
-  <slot />
+  {#if children}{@render children()}{/if}
 </button>

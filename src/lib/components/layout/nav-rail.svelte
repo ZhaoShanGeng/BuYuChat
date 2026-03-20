@@ -1,7 +1,9 @@
 <script lang="ts">
-  import { Bot, Cable, BookOpenText, MessagesSquare, SlidersHorizontal, Workflow } from "lucide-svelte";
+  import { Bot, Cable, BookOpenText, MessagesSquare, SlidersHorizontal, Workflow, Sun, Moon, Languages } from "lucide-svelte";
   import { cn } from "$lib/utils";
   import type { NavItem, WorkspaceId } from "$lib/state/app-shell.svelte";
+  import { i18n } from "$lib/i18n.svelte";
+  import { theme } from "$lib/theme.svelte";
 
   const icons = {
     chat: MessagesSquare,
@@ -12,32 +14,82 @@
     settings: Cable
   } satisfies Record<WorkspaceId, typeof MessagesSquare>;
 
-  export let items: NavItem[] = [];
-  export let active: WorkspaceId;
-  export let onSelect: (id: WorkspaceId) => void;
+  const labelKeys: Record<WorkspaceId, string> = {
+    chat: "nav.chat",
+    agents: "nav.agents",
+    presets: "nav.presets",
+    lorebooks: "nav.lorebooks",
+    workflows: "nav.workflows",
+    settings: "nav.settings"
+  };
+
+  let {
+    items = [],
+    active,
+    onSelect
+  }: {
+    items?: NavItem[];
+    active: WorkspaceId;
+    onSelect: (id: WorkspaceId) => void;
+  } = $props();
 </script>
 
-<aside class="hidden min-h-screen w-[88px] flex-col gap-5 border-r border-[var(--border-soft)] bg-white/72 px-4 py-6 backdrop-blur-xl lg:flex">
-  <div class="flex h-14 w-14 items-center justify-center rounded-[1.5rem] bg-[var(--fg-primary)] text-white shadow-[0_20px_40px_rgba(15,23,42,0.18)]">
-    <span class="text-lg font-black tracking-[-0.08em]">步语</span>
+<aside class="hidden h-screen w-[var(--rail-width)] flex-col items-center bg-[var(--bg-rail)] py-3 lg:flex">
+  <!-- Top: logo -->
+  <div class="mb-6 flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] bg-gradient-to-br from-[var(--brand)] to-[#3b82f6] shadow-lg">
+    <span class="text-sm font-bold text-white">步</span>
   </div>
 
-  <nav class="flex flex-1 flex-col gap-2">
+  <!-- Navigation icons -->
+  <nav class="flex flex-1 flex-col items-center gap-1">
     {#each items as item}
+      {#if item.id === "settings"}
+        <div class="flex-1"></div>
+      {/if}
       {@const Icon = icons[item.id]}
       <button
         type="button"
         class={cn(
-          "group flex cursor-pointer flex-col items-center gap-2 rounded-[1.4rem] px-2 py-3 text-[11px] font-semibold tracking-[0.04em] transition-all duration-200",
+          "rail-btn icon-hover relative flex h-10 w-10 cursor-pointer items-center justify-center rounded-[var(--radius-md)] transition-all duration-150",
           item.id === active
-            ? "bg-[var(--brand)] text-white shadow-[0_16px_32px_rgba(37,99,235,0.22)]"
-            : "text-[var(--fg-muted)] hover:bg-white hover:text-[var(--fg-primary)]"
+            ? "bg-white/15 text-white"
+            : "text-[var(--ink-on-dark-muted)] hover:bg-white/8 hover:text-[var(--ink-on-dark)]"
         )}
-        on:click={() => onSelect(item.id)}
+        onclick={() => onSelect(item.id)}
       >
-        <Icon size={18} />
-        <span>{item.label}</span>
+        {#if item.id === active}
+          <span class="absolute left-0 top-2 bottom-2 w-[3px] rounded-r-full bg-[var(--brand)]"></span>
+        {/if}
+        <Icon size={20} />
+        <span class="rail-tooltip">{i18n.t(labelKeys[item.id])}</span>
       </button>
     {/each}
   </nav>
+
+  <!-- Bottom tools -->
+  <div class="flex flex-col items-center gap-1 pt-2">
+    <!-- Language toggle -->
+    <button
+      type="button"
+      class="rail-btn icon-hover relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-[var(--radius-md)] text-[var(--ink-on-dark-muted)] transition-all duration-150 hover:bg-white/8 hover:text-[var(--ink-on-dark)]"
+      onclick={() => i18n.toggleLocale()}
+    >
+      <Languages size={17} />
+      <span class="rail-tooltip">{i18n.locale === "zh-CN" ? "English" : "中文"}</span>
+    </button>
+
+    <!-- Theme toggle -->
+    <button
+      type="button"
+      class="rail-btn icon-hover relative flex h-9 w-9 cursor-pointer items-center justify-center rounded-[var(--radius-md)] text-[var(--ink-on-dark-muted)] transition-all duration-150 hover:bg-white/8 hover:text-[var(--ink-on-dark)]"
+      onclick={() => theme.toggle()}
+    >
+      {#if theme.isDark}
+        <Sun size={17} />
+      {:else}
+        <Moon size={17} />
+      {/if}
+      <span class="rail-tooltip">{theme.isDark ? i18n.t("theme.light") : i18n.t("theme.dark")}</span>
+    </button>
+  </div>
 </aside>

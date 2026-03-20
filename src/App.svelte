@@ -1,7 +1,6 @@
 <script lang="ts">
   import { onMount } from "svelte";
   import AppFrame from "$components/layout/app-frame.svelte";
-  import ContextBar from "$components/layout/context-bar.svelte";
   import InspectorPanel from "$components/layout/inspector-panel.svelte";
   import MobileTabBar from "$components/layout/mobile-tab-bar.svelte";
   import NavRail from "$components/layout/nav-rail.svelte";
@@ -16,34 +15,31 @@
     type WorkspaceId
   } from "$lib/state/app-shell.svelte";
   import { conversationsState } from "$lib/state/conversations.svelte";
+  import { createConversation, renameConversation, deleteConversation } from "$lib/api/conversations";
   import { listenIncrementalPatches } from "$lib/events/patch-bus";
-
-  const workspaceMeta: Record<WorkspaceId, string[]> = {
-    chat: ["Agent-aware", "Patch-first", "Streaming replies"],
-    agents: ["Role cards", "Bindings", "Greetings"],
-    presets: ["Prompt entries", "Ordering", "Channel preferences"],
-    lorebooks: ["Entry rules", "Match keys", "Insert strategy"],
-    workflows: ["Execution graph", "Writeback", "Run traces"],
-    settings: ["API channels", "Plugins", "Diagnostics"]
-  };
+  import { i18n } from "$lib/i18n.svelte";
+  import { theme } from "$lib/theme.svelte";
 
   const activeSidebarItems = $derived(
     appShell.activeWorkspace === "chat"
       ? conversationsState.summaries.map((item) => ({
           id: item.id,
           title: item.title,
-          meta: item.description ?? `${item.conversation_mode} · ${new Date(item.updated_at).toLocaleDateString()}`
+          meta: new Date(item.updated_at).toLocaleDateString()
         }))
       : workspaceSidebarItems[appShell.activeWorkspace]
   );
 
   const activeTitle = $derived(
     appShell.activeWorkspace === "chat"
-      ? conversationsState.activeSummary?.title ?? "Chat"
+      ? conversationsState.activeSummary?.title ?? i18n.t("chat.new_conversation")
       : activeSidebarItems.find((item) => item.id === appShell.activeSidebarItemId)?.title ?? "BuYu"
   );
 
   onMount(() => {
+    // Apply theme on mount
+    theme.apply();
+
     let unlisten: (() => void) | undefined;
 
     void (async () => {
@@ -80,113 +76,141 @@
       await conversationsState.selectConversation(id);
     }
   }
+
+  async function handleCreateConversation() {
+    try {
+      const detail = await createConversation({
+        title: i18n.t("chat.new_conversation"),
+        conversation_mode: "chat"
+      });
+      await conversationsState.loadList();
+      appShell.setSidebarItem(detail.summary.id);
+      await conversationsState.selectConversation(detail.summary.id);
+    } catch (err) {
+      console.error("Failed to create conversation:", err);
+    }
+  }
+
+  async function handleRenameConversation(id: string, title: string) {
+    try {
+      await renameConversation(id, title);
+      await conversationsState.loadList();
+    } catch (err) {
+      console.error("Failed to rename conversation:", err);
+    }
+  }
+
+  async function handleDeleteConversation(id: string) {
+    try {
+      await deleteConversation(id);
+      await conversationsState.loadList();
+      if (conversationsState.activeConversationId === id) {
+        const next = conversationsState.summaries[0];
+        if (next) {
+          appShell.setSidebarItem(next.id);
+          await conversationsState.selectConversation(next.id);
+        }
+      }
+    } catch (err) {
+      console.error("Failed to delete conversation:", err);
+    }
+  }
+
+  function handleRenameTitle(title: string) {
+    if (conversationsState.activeConversationId) {
+      void handleRenameConversation(conversationsState.activeConversationId, title);
+    }
+  }
 </script>
 
 <svelte:head>
   <title>BuYu</title>
 </svelte:head>
 
-<AppFrame sidebarOpen={appShell.mobileSidebarOpen} inspectorOpen={appShell.mobileInspectorOpen}>
-  <svelte:fragment slot="rail">
+<AppFrame
+  sidebarOpen={appShell.mobileSidebarOpen}
+  inspectorOpen={appShell.mobileInspectorOpen}
+  onCloseSidebar={() => appShell.closeMobileSidebar()}
+  onCloseInspector={() => appShell.closeMobileInspector()}
+>
+  {#snippet rail()}
     <NavRail items={navItems} active={appShell.activeWorkspace} onSelect={(id) => void handleWorkspaceSelect(id)} />
-  </svelte:fragment>
+  {/snippet}
 
-  <svelte:fragment slot="sidebar">
+  {#snippet sidebar()}
     <ResourceSidebar
       workspace={appShell.activeWorkspace}
       items={activeSidebarItems}
       activeId={appShell.activeSidebarItemId}
       onSelect={(id) => void handleSidebarSelect(id)}
+      onCreateNew={appShell.activeWorkspace === "chat" ? () => void handleCreateConversation() : undefined}
+      onRename={appShell.activeWorkspace === "chat" ? (id, title) => void handleRenameConversation(id, title) : undefined}
+      onDelete={appShell.activeWorkspace === "chat" ? (id) => void handleDeleteConversation(id) : undefined}
     />
-  </svelte:fragment>
-
-  <svelte:fragment slot="topbar">
-    <ContextBar
-      title={activeTitle}
-      subtitle={appShell.activeWorkspace}
-      meta={workspaceMeta[appShell.activeWorkspace]}
-      onToggleSidebar={() => appShell.toggleMobileSidebar()}
-      onToggleInspector={() => appShell.toggleMobileInspector()}
-    />
-  </svelte:fragment>
+  {/snippet}
 
   {#if appShell.activeWorkspace === "chat"}
     <ChatWorkspace
-      conversationTitle={conversationsState.activeSummary?.title ?? "Chat"}
+      conversationTitle={activeTitle}
+      conversationId={conversationsState.activeConversationId ?? ""}
       loading={conversationsState.loadingConversation || conversationsState.loadingList}
       messages={conversationsState.activeMessages}
+      editable={!!conversationsState.activeConversationId}
+      onRename={handleRenameTitle}
+      onToggleSidebar={() => appShell.toggleMobileSidebar()}
+      onToggleInspector={() => appShell.toggleMobileInspector()}
     />
   {:else if appShell.activeWorkspace === "agents"}
     <WorkspacePlaceholder
-      eyebrow="Agents"
-      title="Role cards with bindings and greetings"
-      description="Agents should feel like editable working personas instead of flat settings rows. This workspace will own card content, media, greetings and default bindings."
-      bullets={[
-        "Card editor with avatar, description, personality and scenario.",
-        "Greeting management with active selection and version-safe updates.",
-        "Preset, lorebook, user profile and channel bindings in the inspector."
-      ]}
-      cta="Create agent"
+      eyebrow={i18n.t("nav.agents")}
+      title={i18n.t("ws.agents.title")}
+      description={i18n.t("ws.agents.desc")}
+      bullets={["角色卡编辑器", "问候语管理", "预设与世界书绑定"]}
+      cta="创建智能体"
     />
   {:else if appShell.activeWorkspace === "presets"}
     <WorkspacePlaceholder
-      eyebrow="Presets"
-      title="Prompt choreography, not a flat parameter form"
-      description="Presets are modeled as ordered prompt entries with role, depth, position and enabled state. The frontend should make this sequencing obvious and easy to edit."
-      bullets={[
-        "Entry list with drag reorder and active state.",
-        "Role and position editor for each entry.",
-        "Optional channel/model preference bindings."
-      ]}
-      cta="Create preset"
+      eyebrow={i18n.t("nav.presets")}
+      title={i18n.t("ws.presets.title")}
+      description={i18n.t("ws.presets.desc")}
+      bullets={["条目排序", "角色与位置", "渠道绑定"]}
+      cta="创建预设"
     />
   {:else if appShell.activeWorkspace === "lorebooks"}
     <WorkspacePlaceholder
-      eyebrow="Lorebooks"
-      title="Knowledge rules with visible matching behavior"
-      description="Lorebooks need list, search and detail editing without hiding how keys and insertion rules influence context assembly."
-      bullets={[
-        "Entry browser with filters and key count overview.",
-        "Dedicated detail editor for text, regex and insertion settings.",
-        "Inspector-side preview for matching and trigger behavior."
-      ]}
-      cta="Create lorebook"
+      eyebrow={i18n.t("nav.lorebooks")}
+      title={i18n.t("ws.lorebooks.title")}
+      description={i18n.t("ws.lorebooks.desc")}
+      bullets={["条目浏览", "关键词匹配", "插入策略"]}
+      cta="创建世界书"
     />
   {:else if appShell.activeWorkspace === "workflows"}
     <WorkspacePlaceholder
-      eyebrow="Workflows"
-      title="Execution graph with readable runtime traces"
-      description="Desktop users should be able to design and inspect workflows visually, while mobile users still get a functional list and execution timeline."
-      bullets={[
-        "Canvas-based graph editor on desktop.",
-        "Node list and execution traces on narrow screens.",
-        "Runtime writeback, outputs and result messages in one inspector."
-      ]}
-      cta="Create workflow"
+      eyebrow={i18n.t("nav.workflows")}
+      title={i18n.t("ws.workflows.title")}
+      description={i18n.t("ws.workflows.desc")}
+      bullets={["图编辑器", "执行记录", "结果写回"]}
+      cta="创建工作流"
     />
   {:else}
     <WorkspacePlaceholder
-      eyebrow="Settings"
-      title="Global channels, plugins and diagnostics"
-      description="Settings stays narrow in scope: global integration setup, diagnostics and appearance, not every editable resource in the app."
-      bullets={[
-        "API channel management with model lists.",
-        "Plugin registry and capability views.",
-        "Appearance, diagnostics and debug surfaces."
-      ]}
-      cta="Open settings"
+      eyebrow={i18n.t("nav.settings")}
+      title={i18n.t("ws.settings.title")}
+      description={i18n.t("ws.settings.desc")}
+      bullets={["API 渠道", "插件管理", "外观偏好"]}
+      cta="打开设置"
     />
   {/if}
 
-  <svelte:fragment slot="inspector">
+  {#snippet inspector()}
     <InspectorPanel
       tabs={inspectorTabs}
       activeTab={appShell.activeInspectorTab}
       onSelectTab={(id) => appShell.setInspectorTab(id)}
     />
-  </svelte:fragment>
+  {/snippet}
 
-  <svelte:fragment slot="mobilebar">
+  {#snippet mobilebar()}
     <MobileTabBar items={navItems} active={appShell.activeWorkspace} onSelect={(id) => void handleWorkspaceSelect(id)} />
-  </svelte:fragment>
+  {/snippet}
 </AppFrame>

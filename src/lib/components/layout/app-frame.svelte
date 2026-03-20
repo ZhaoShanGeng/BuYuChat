@@ -1,25 +1,55 @@
 <script lang="ts">
-  export let sidebarOpen = false;
-  export let inspectorOpen = false;
+  let {
+    sidebarOpen = false,
+    inspectorOpen = false,
+    onCloseSidebar = () => {},
+    onCloseInspector = () => {},
+    children,
+    rail,
+    sidebar,
+    inspector,
+    mobilebar
+  }: {
+    sidebarOpen?: boolean;
+    inspectorOpen?: boolean;
+    onCloseSidebar?: () => void;
+    onCloseInspector?: () => void;
+    children?: import("svelte").Snippet;
+    rail?: import("svelte").Snippet;
+    sidebar?: import("svelte").Snippet;
+    inspector?: import("svelte").Snippet;
+    mobilebar?: import("svelte").Snippet;
+  } = $props();
 </script>
 
-<div class="min-h-screen bg-[var(--bg-app)] text-[var(--fg-primary)]">
+<div class="app-shell text-[var(--ink-body)]">
+  {#if sidebarOpen || inspectorOpen}
+    <button
+      aria-label="Close mobile panels"
+      class="app-mobile-backdrop lg:hidden"
+      type="button"
+      onclick={() => {
+        onCloseSidebar();
+        onCloseInspector();
+      }}
+    ></button>
+  {/if}
+
   <div class="app-shell-grid">
-    <slot name="rail" />
+    {#if rail}{@render rail()}{/if}
 
     <div class:sheet-open={sidebarOpen} class="app-sheet app-sheet-left">
-      <slot name="sidebar" />
+      {#if sidebar}{@render sidebar()}{/if}
     </div>
 
     <div class="app-main-column">
-      <slot name="topbar" />
-      <slot />
+      {#if children}{@render children()}{/if}
     </div>
 
     <div class:sheet-open={inspectorOpen} class="app-sheet app-sheet-right">
-      <slot name="inspector" />
+      {#if inspector}{@render inspector()}{/if}
     </div>
   </div>
 
-  <slot name="mobilebar" />
+  {#if mobilebar}{@render mobilebar()}{/if}
 </div>
