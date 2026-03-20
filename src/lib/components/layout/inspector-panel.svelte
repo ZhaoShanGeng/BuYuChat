@@ -36,7 +36,7 @@
 </script>
 
 <aside class="flex h-full flex-col border-l border-[var(--border-soft)] bg-[var(--bg-sidebar)]">
-  <div class="border-b border-[var(--border-soft)] px-4 py-3">
+  <div class="border-b border-[var(--border-soft)] px-4 py-3 pr-[140px]" data-tauri-drag-region>
     <h2 class="text-sm font-semibold text-[var(--ink-strong)]">{i18n.t("inspector.title")}</h2>
   </div>
 

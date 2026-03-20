@@ -53,7 +53,7 @@
 
   /* Sizing */
   --rail-width: 64px;
-  --sidebar-width: 280px;
+  --sidebar-width: 300px;
   --inspector-width: 320px;
   --composer-max-width: 800px;
   --message-max-width: 800px;
@@ -159,38 +159,33 @@ kbd {
   background: var(--bg-app);
 }
 
-/* ─── Custom Titlebar ─── */
-.app-titlebar {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  z-index: 100;
-  display: flex;
-  align-items: center;
-  height: 32px;
-  background: var(--bg-rail);
+/* ─── Window Drag Region ─── */
+/* Headers can add data-tauri-drag-region for window dragging */
+[data-tauri-drag-region] {
   -webkit-app-region: drag;
-  user-select: none;
 }
-.app-titlebar-spacer {
-  flex: 1;
+[data-tauri-drag-region] button,
+[data-tauri-drag-region] input,
+[data-tauri-drag-region] a,
+[data-tauri-drag-region] label,
+[data-tauri-drag-region] [data-no-drag] {
+  -webkit-app-region: no-drag;
 }
+
 
 /* ─── App Grid ─── */
 .app-shell-grid {
   position: relative;
   z-index: 1;
   display: grid;
-  margin-top: 32px;
-  min-height: calc(100vh - 32px);
+  min-height: 100vh;
   grid-template-columns: var(--rail-width) var(--sidebar-width) minmax(0, 1fr) var(--inspector-width);
 }
 
 .app-main-column {
   display: flex;
   flex-direction: column;
-  min-height: calc(100vh - 32px);
+  min-height: 100vh;
   min-width: 0;
   background: var(--bg-surface);
 }

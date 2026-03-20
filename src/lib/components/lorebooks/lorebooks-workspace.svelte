@@ -24,7 +24,7 @@
 <div class="flex h-full flex-1">
   {#if !selectedLorebook}
     <div class="flex flex-1 flex-col">
-      <header class="flex h-12 items-center justify-between gap-3 border-b border-[var(--border-soft)] px-4">
+      <header class="flex h-12 items-center justify-between gap-3 border-b border-[var(--border-soft)] px-4 pr-[140px]" data-tauri-drag-region>
         <h1 class="text-sm font-semibold text-[var(--ink-strong)]">{i18n.t("nav.lorebooks")}</h1>
         <button type="button" class="inline-flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--brand)] px-3 text-xs font-medium text-white shadow-sm hover:bg-[var(--brand-strong)]">
           <Plus size={14} /> 新建世界书

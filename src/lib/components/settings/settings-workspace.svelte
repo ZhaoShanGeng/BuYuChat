@@ -41,7 +41,7 @@
 
   <!-- Content -->
   <div class="flex flex-1 flex-col">
-    <header class="flex h-12 items-center gap-3 border-b border-[var(--border-soft)] px-4">
+    <header class="flex h-12 items-center gap-3 border-b border-[var(--border-soft)] px-4 pr-[140px]" data-tauri-drag-region>
       <h1 class="text-sm font-semibold text-[var(--ink-strong)]">{sections.find(s => s.id === activeSection)?.label ?? i18n.t("nav.settings")}</h1>
     </header>
 

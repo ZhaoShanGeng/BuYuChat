@@ -25,9 +25,8 @@
 </script>
 
 <div class="app-shell text-[var(--ink-body)]">
-  <!-- Custom drag region (titlebar area) -->
-  <div class="app-titlebar" data-tauri-drag-region>
-    <div class="app-titlebar-spacer"></div>
+  <!-- Floating window controls (top-right, always on top) -->
+  <div class="fixed right-0 top-0 z-[200]">
     <WindowControls />
   </div>
 

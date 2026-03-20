@@ -162,7 +162,7 @@
 
 <aside class="flex h-full flex-col border-r border-[var(--border-soft)] bg-[var(--bg-sidebar)]">
   <!-- Header -->
-  <div class="flex items-center justify-between gap-2 px-3 py-3">
+  <div class="flex items-center justify-between gap-2 px-3 py-3" data-tauri-drag-region>
     <h2 class="text-sm font-semibold text-[var(--ink-strong)]">{i18n.t(labelKeys[workspace])}</h2>
     {#if onCreateNew}
       <button

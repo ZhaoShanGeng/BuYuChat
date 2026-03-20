@@ -291,7 +291,7 @@
 
 <div class="relative flex h-full flex-1 flex-col overflow-hidden">
   <!-- ─── Inline header (replaces topbar) ─── -->
-  <header class="flex h-12 flex-shrink-0 items-center gap-3 border-b border-[var(--border-soft)] px-4">
+  <header class="flex h-12 flex-shrink-0 items-center gap-3 border-b border-[var(--border-soft)] px-4 pr-[140px]" data-tauri-drag-region>
     <!-- Mobile sidebar toggle -->
     <button
       type="button"

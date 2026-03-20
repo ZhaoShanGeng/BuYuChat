@@ -34,7 +34,7 @@
   } = $props();
 </script>
 
-<aside class="hidden h-full w-[var(--rail-width)] flex-col items-center bg-[var(--bg-rail)] py-3 lg:flex">
+<aside class="hidden h-screen w-[var(--rail-width)] flex-col items-center bg-[var(--bg-rail)] py-3 lg:flex">
   <!-- Top: logo -->
   <div class="mb-6 flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] bg-gradient-to-br from-[var(--brand)] to-[#3b82f6] shadow-lg">
     <span class="text-sm font-bold text-white">步</span>
