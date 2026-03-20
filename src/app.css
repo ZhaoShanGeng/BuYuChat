@@ -159,19 +159,38 @@ kbd {
   background: var(--bg-app);
 }
 
+/* ─── Custom Titlebar ─── */
+.app-titlebar {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  height: 32px;
+  background: var(--bg-rail);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+.app-titlebar-spacer {
+  flex: 1;
+}
+
 /* ─── App Grid ─── */
 .app-shell-grid {
   position: relative;
   z-index: 1;
   display: grid;
-  min-height: 100vh;
+  margin-top: 32px;
+  min-height: calc(100vh - 32px);
   grid-template-columns: var(--rail-width) var(--sidebar-width) minmax(0, 1fr) var(--inspector-width);
 }
 
 .app-main-column {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  min-height: calc(100vh - 32px);
   min-width: 0;
   background: var(--bg-surface);
 }

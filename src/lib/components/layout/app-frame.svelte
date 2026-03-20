@@ -1,4 +1,6 @@
 <script lang="ts">
+  import WindowControls from "./window-controls.svelte";
+
   let {
     sidebarOpen = false,
     inspectorOpen = false,
@@ -23,6 +25,12 @@
 </script>
 
 <div class="app-shell text-[var(--ink-body)]">
+  <!-- Custom drag region (titlebar area) -->
+  <div class="app-titlebar" data-tauri-drag-region>
+    <div class="app-titlebar-spacer"></div>
+    <WindowControls />
+  </div>
+
   {#if sidebarOpen || inspectorOpen}
     <button
       aria-label="Close mobile panels"
