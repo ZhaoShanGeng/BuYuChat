@@ -48,14 +48,14 @@
           type="button"
           variant="ghost"
           size="md"
-          className="suggestion-card h-auto w-full flex-col gap-2 rounded-[var(--radius-lg)] border border-[var(--border-soft)] bg-[var(--bg-surface)] px-4 py-5 text-center shadow-none hover:border-[var(--border-medium)] hover:bg-[var(--bg-elevated)]"
+          className="suggestion-card h-auto w-full flex-col gap-2 rounded-[var(--radius-xl)] border border-[var(--border-soft)] bg-[var(--bg-surface)]/60 backdrop-blur-md px-4 py-5 text-center shadow-sm hover:border-[var(--border-medium)] hover:bg-[var(--bg-surface)] hover:shadow-md transition-all duration-300"
           onclick={() => onSelectSuggestion(suggestion.text)}
         >
-          <div class="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] bg-[var(--brand-soft)]">
+          <div class="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] bg-[var(--brand-soft)]/50">
             <suggestion.icon size={20} class="text-[var(--brand)]" />
           </div>
-          <span class="text-sm font-medium text-[var(--ink-strong)]">{suggestion.text}</span>
-          <span class="text-xs text-[var(--ink-faint)]">{suggestion.desc}</span>
+          <span class="text-sm font-semibold text-[var(--ink-strong)]">{suggestion.text}</span>
+          <span class="text-xs text-[var(--ink-muted)]">{suggestion.desc}</span>
         </Button>
       </div>
     {/each}
@@ -74,17 +74,17 @@
             variant="ghost"
             size="md"
             disabled={startingAgentId === agent.id}
-            className="h-auto items-start justify-start rounded-[var(--radius-lg)] border border-[var(--border-soft)] bg-[var(--bg-surface)] px-4 py-4 text-left shadow-none hover:border-[var(--border-medium)] hover:bg-[var(--bg-elevated)] disabled:opacity-70"
+            className="group/agent h-auto items-start justify-start rounded-[var(--radius-xl)] border border-[var(--border-soft)] bg-[var(--bg-surface)] px-4 py-4 text-left shadow-sm hover:border-[var(--brand-soft)] hover:bg-[var(--bg-surface)] hover:shadow-md transition-all duration-300 disabled:opacity-70"
             onclick={() => void onStartWithAgent(agent.id)}
           >
             <div class="flex w-full items-start gap-3">
-              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-md)] bg-[var(--brand-soft)] text-sm font-semibold text-[var(--brand)]">
+              <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--brand-soft)]/50 text-sm font-bold text-[var(--brand)] group-hover/agent:scale-105 transition-transform duration-300">
                 {agent.name.slice(0, 1).toUpperCase()}
               </div>
-              <div class="min-w-0">
-                <p class="truncate text-sm font-medium text-[var(--ink-strong)]">{agent.name}</p>
+              <div class="min-w-0 flex-1">
+                <p class="truncate text-sm font-semibold text-[var(--ink-strong)] group-hover/agent:text-[var(--brand)] transition-colors">{agent.name}</p>
                 {#if agent.title}
-                  <p class="truncate text-xs text-[var(--ink-faint)]">{agent.title}</p>
+                  <p class="truncate text-xs text-[var(--ink-muted)] mt-0.5">{agent.title}</p>
                 {/if}
               </div>
             </div>

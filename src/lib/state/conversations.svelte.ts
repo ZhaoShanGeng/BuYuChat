@@ -136,7 +136,7 @@ class ConversationsState {
       const current = this.visibleMessagesByConversationId[event.scope_id] ?? [];
       const next = sortMessages([
         message,
-        ...current.filter((item) => item.version_id !== message.version_id)
+        ...current.filter((item) => item.node_id !== message.node_id)
       ]);
 
       this.visibleMessagesByConversationId = {

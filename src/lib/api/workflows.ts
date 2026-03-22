@@ -1,6 +1,6 @@
 import { tauriInvoke } from "$lib/api/client";
 
-export type WorkflowDefSummary = {
+export type WorkflowSummary = {
   id: string;
   name: string;
   description: string | null;
@@ -11,50 +11,62 @@ export type WorkflowDefSummary = {
   updated_at: number;
 };
 
-export type WorkflowNodeDetail = {
+export type WorkflowNode = {
   id: string;
-  workflow_def_id: string;
-  node_key: string;
-  name: string | null;
-  node_type: string;
-  agent_id: string | null;
-  plugin_id: string | null;
-  preset_id: string | null;
-  lorebook_id: string | null;
-  user_profile_id: string | null;
-  api_channel_id: string | null;
-  api_channel_model_id: string | null;
-  workspace_mode: string;
-  history_read_mode: string;
-  summary_write_mode: string;
-  message_write_mode: string;
-  visible_output_mode: string;
-  config_json: Record<string, unknown>;
+  type: string;
+  position: { x: number; y: number };
+  data: Record<string, unknown>;
 };
 
-export type WorkflowEdgeDetail = {
+export type WorkflowEdge = {
   id: string;
-  workflow_def_id: string;
-  from_node_id: string;
-  to_node_id: string;
-  edge_type: string;
-  priority: number;
-  condition_expr: string | null;
-  label: string | null;
+  source: string;
+  target: string;
+  source_handle?: string;
+  target_handle?: string;
+};
+
+export type WorkflowDetail = {
+  summary: WorkflowSummary;
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
+};
+
+export type CreateWorkflowInput = {
+  name: string;
+  description: string | null;
   enabled: boolean;
+  sort_order: number;
   config_json: Record<string, unknown>;
 };
 
-export type WorkflowDefDetail = {
-  summary: WorkflowDefSummary;
-  nodes: WorkflowNodeDetail[];
-  edges: WorkflowEdgeDetail[];
+export type UpdateWorkflowInput = CreateWorkflowInput;
+
+export type SaveWorkflowGraphInput = {
+  nodes: WorkflowNode[];
+  edges: WorkflowEdge[];
 };
 
-export function listWorkflowDefs() {
-  return tauriInvoke<WorkflowDefSummary[]>("list_workflow_defs");
+export function listWorkflows() {
+  return tauriInvoke<WorkflowSummary[]>("list_workflows");
 }
 
-export function getWorkflowDefDetail(id: string) {
-  return tauriInvoke<WorkflowDefDetail>("get_workflow_def_detail", { id });
+export function getWorkflowDetail(id: string) {
+  return tauriInvoke<WorkflowDetail>("get_workflow_detail", { id });
+}
+
+export function createWorkflow(input: CreateWorkflowInput) {
+  return tauriInvoke<WorkflowDetail>("create_workflow_def", { input });
+}
+
+export function updateWorkflow(id: string, input: UpdateWorkflowInput) {
+  return tauriInvoke<WorkflowDetail>("update_workflow", { id, input });
+}
+
+export function deleteWorkflow(id: string) {
+  return tauriInvoke<void>("delete_workflow", { id });
+}
+
+export function saveWorkflowGraph(id: string, input: SaveWorkflowGraphInput) {
+  return tauriInvoke<WorkflowDetail>("save_workflow_graph", { id, input });
 }

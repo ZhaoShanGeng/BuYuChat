@@ -13,7 +13,7 @@
   import { cn } from "$lib/utils";
   import type { MessageVersionView } from "$lib/api/messages";
   import { i18n } from "$lib/i18n.svelte";
-  import { formatRelativeTimestamp } from "$lib/time";
+  import { formatRelativeTimestamp, formatFullTimestamp } from "$lib/time";
   import ActionIconButton from "$components/shared/action-icon-button.svelte";
   import RichContent from "$components/shared/rich-content.svelte";
   import ChatAvatar from "$components/chat/chat-avatar.svelte";
@@ -149,6 +149,12 @@
   {#if message.role === "user"}
     <div class="flex justify-end gap-3">
       <div class="message-bubble-shell">
+        <div class="mb-1.5 flex items-center justify-end gap-2 text-[10px] text-[var(--ink-faint)]">
+          {#if message.prompt_tokens || message.completion_tokens}
+            <span>In: {message.prompt_tokens ?? 0}</span>
+          {/if}
+          <span title={formatFullTimestamp(message.created_at)}>{formatRelativeTimestamp(message.created_at)}</span>
+        </div>
         {#if isEditing}
           <div class="rounded-[var(--radius-lg)] border border-[var(--brand)] bg-[var(--bg-app)] p-2 shadow-[0_0_0_2px_var(--brand-glow)]">
             <textarea
@@ -183,19 +189,19 @@
             </div>
           </div>
         {:else}
-          <div class="user-bubble rounded-2xl rounded-br-md px-4 py-2.5 text-sm leading-relaxed shadow-[var(--shadow-sm)]">
+          <div class="rounded-2xl rounded-br-sm bg-[var(--bg-chat-user)] border border-[var(--border-soft)] px-4 py-2.5 text-[15px] leading-relaxed text-[var(--ink-strong)] shadow-[var(--shadow-sm)]">
             {#if text}
               <p class="whitespace-pre-wrap">{text}</p>
             {/if}
             {#if showAttachmentPlaceholder}
-              <p class="mb-2 text-xs text-white/70">{i18n.t("chat.attachment_empty")}</p>
+              <p class="mb-2 text-xs text-[var(--ink-muted)]">{i18n.t("chat.attachment_empty")}</p>
             {/if}
             {#if attachmentItems.length > 0}
               <div class="mt-2 flex flex-wrap gap-2">
                 {#each attachmentItems as attachment (attachment.ref_id)}
-                  <div class="max-w-full rounded-[var(--radius-md)] bg-white/10 px-3 py-2">
-                    <p class="truncate text-xs font-medium text-white">{formatAttachmentLabel(attachment)}</p>
-                    <p class="truncate text-[10px] text-white/70">{formatAttachmentMeta(attachment)}</p>
+                  <div class="max-w-full rounded-[var(--radius-md)] bg-black/5 dark:bg-white/5 border border-[var(--border-soft)] px-3 py-2">
+                    <p class="truncate text-xs font-medium text-[var(--ink-strong)]">{formatAttachmentLabel(attachment)}</p>
+                    <p class="truncate text-[10px] text-[var(--ink-muted)]">{formatAttachmentMeta(attachment)}</p>
                   </div>
                 {/each}
               </div>
@@ -204,23 +210,26 @@
         {/if}
 
         {#if !isEditing}
-          <div class="mt-1 flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-            <span class="mr-auto text-[10px] text-[var(--ink-faint)]">
-              {formatRelativeTimestamp(message.created_at)}
-            </span>
-            <ActionIconButton title={i18n.t("chat.edit")} className="msg-action-btn" onClick={onStartEdit}>
-              <Edit3 size={13} />
-            </ActionIconButton>
-            <ActionIconButton title={i18n.t("chat.copy")} className="msg-action-btn" onClick={onCopy}>
-              {#if copied}
-                <Check size={13} class="text-[var(--success)]" />
-              {:else}
-                <Copy size={13} />
-              {/if}
-            </ActionIconButton>
-            <ActionIconButton title={i18n.t("chat.delete")} className="msg-action-btn" tone="danger" onClick={onDelete}>
-              <Trash2 size={13} />
-            </ActionIconButton>
+          <div class="mt-1.5 flex items-center justify-end opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+            <div class="flex items-center gap-0.5 rounded-full bg-[var(--bg-surface)] px-1.5 py-1 shadow-[var(--shadow-sm)] border border-[var(--border-soft)]">
+              <span class="ml-1 mr-2 text-[10px] text-[var(--ink-faint)] select-none">ID: {message.node_id.substring(0, 6)}</span>
+              <ActionIconButton title={i18n.t("chat.regenerate")} className="msg-action-btn" disabled={generationLocked} onClick={onRegenerate}>
+                <RefreshCw size={13} />
+              </ActionIconButton>
+              <ActionIconButton title={i18n.t("chat.edit")} className="msg-action-btn" onClick={onStartEdit}>
+                <Edit3 size={13} />
+              </ActionIconButton>
+              <ActionIconButton title={i18n.t("chat.copy")} className="msg-action-btn" onClick={onCopy}>
+                {#if copied}
+                  <Check size={13} class="text-[var(--success)]" />
+                {:else}
+                  <Copy size={13} />
+                {/if}
+              </ActionIconButton>
+              <ActionIconButton title={i18n.t("chat.delete")} className="msg-action-btn hover:text-[var(--danger)] hover:bg-[var(--danger)]/10" tone="danger" onClick={onDelete}>
+                <Trash2 size={13} />
+              </ActionIconButton>
+            </div>
           </div>
         {/if}
       </div>
@@ -240,20 +249,53 @@
       />
 
       <div class="min-w-0 flex-1">
-        <div class="mb-1.5 flex flex-wrap items-center gap-2">
-          <span class="text-sm font-semibold text-[var(--ink-strong)]">
-            {authorName || (message.role === "assistant" ? i18n.t("chat.assistant") : i18n.t("chat.system"))}
-          </span>
-          {#if message.api_channel_model_id}
-            <span class="rounded-[var(--radius-full)] bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] font-medium text-[var(--ink-faint)]">
-              {message.api_channel_model_id}
+        <div class="mb-1.5 flex flex-wrap items-center justify-between gap-2">
+          <div class="flex items-center gap-2">
+            <span class="text-sm font-semibold text-[var(--ink-strong)]">
+              {authorName || (message.role === "assistant" ? i18n.t("chat.assistant") : i18n.t("chat.system"))}
             </span>
-          {/if}
-          {#if message.prompt_tokens || message.completion_tokens}
-            <span class="text-[10px] text-[var(--ink-faint)]">
-              {message.prompt_tokens ?? 0} → {message.completion_tokens ?? 0} tokens
+            <span class="text-[10px] text-[var(--ink-faint)]" title={formatFullTimestamp(message.created_at)}>
+              {formatRelativeTimestamp(message.created_at)}
             </span>
-          {/if}
+            {#if versionInfo}
+              <div class="flex items-center gap-0.5">
+                <button
+                  type="button"
+                  title={i18n.t("chat.prev_version")}
+                  class="inline-flex h-4 w-4 items-center justify-center rounded text-[var(--ink-muted)] hover:bg-[var(--bg-hover)] disabled:opacity-30"
+                  disabled={versionInfo.current <= 1}
+                  onclick={onPrevVersion}
+                >
+                  <ChevronLeft size={12} />
+                </button>
+                <span class="text-[10px] font-medium text-[var(--ink-muted)]">
+                  {versionInfo.current}/{versionInfo.total}
+                </span>
+                <button
+                  type="button"
+                  title={i18n.t("chat.next_version")}
+                  class="inline-flex h-4 w-4 items-center justify-center rounded text-[var(--ink-muted)] hover:bg-[var(--bg-hover)] disabled:opacity-30"
+                  disabled={versionInfo.current >= versionInfo.total}
+                  onclick={onNextVersion}
+                >
+                  <ChevronRight size={12} />
+                </button>
+              </div>
+            {/if}
+          </div>
+          
+          <div class="flex items-center gap-1.5 text-[10px] text-[var(--ink-faint)] select-none">
+            {#if message.api_channel_model_id}
+              <span class="rounded-[var(--radius-sm)] bg-[var(--bg-hover)] px-1.5 py-0.5 border border-[var(--border-soft)]">
+                API: {message.api_channel_model_id}
+              </span>
+            {/if}
+            {#if message.prompt_tokens || message.completion_tokens}
+              <span class="whitespace-nowrap rounded-[var(--radius-sm)] bg-[var(--bg-light)] px-1.5 py-0.5" title="Prompt / Completion / Total">
+                In: {message.prompt_tokens ?? 0} &nbsp;|&nbsp; Out: {message.completion_tokens ?? 0} &nbsp;|&nbsp; Total: {message.total_tokens ?? 0}
+              </span>
+            {/if}
+          </div>
         </div>
 
         {#if isEditing}
@@ -290,7 +332,7 @@
             </div>
           </div>
         {:else}
-          <div class="space-y-3">
+          <div class="space-y-3 text-[15px] leading-relaxed text-[var(--ink-body)]">
             {#if text}
               <RichContent text={text} />
             {/if}
@@ -315,54 +357,29 @@
         {/if}
 
         {#if !isEditing}
-          <div class="mt-2 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-            <span class="mr-1 text-[10px] text-[var(--ink-faint)]">
-              {formatRelativeTimestamp(message.created_at)}
-            </span>
-            <ActionIconButton title={i18n.t("chat.copy")} className="msg-action-btn" onClick={onCopy}>
-              {#if copied}
-                <Check size={13} class="text-[var(--success)]" />
-              {:else}
-                <Copy size={13} />
-              {/if}
-            </ActionIconButton>
-            {#if message.role === "assistant"}
-              <ActionIconButton title={i18n.t("chat.regenerate")} className="msg-action-btn" disabled={generationLocked} onClick={onRegenerate}>
-                <RefreshCw size={13} />
+          <div class="mt-2 flex items-center opacity-0 transition-opacity duration-200 group-hover:opacity-100">
+            <div class="flex items-center gap-0.5 rounded-full bg-[var(--bg-surface)] px-1.5 py-1 shadow-[var(--shadow-sm)] border border-[var(--border-soft)]">
+              <span class="ml-1 mr-2 text-[10px] text-[var(--ink-faint)] select-none">ID: {message.node_id.substring(0, 6)}</span>
+              <ActionIconButton title={i18n.t("chat.copy")} className="msg-action-btn" onClick={onCopy}>
+                {#if copied}
+                  <Check size={13} class="text-[var(--success)]" />
+                {:else}
+                  <Copy size={13} />
+                {/if}
               </ActionIconButton>
-            {/if}
-            <ActionIconButton title={i18n.t("chat.edit")} className="msg-action-btn" onClick={onStartEdit}>
-              <Edit3 size={13} />
-            </ActionIconButton>
-            <ActionIconButton title={i18n.t("chat.delete")} className="msg-action-btn" tone="danger" onClick={onDelete}>
-              <Trash2 size={13} />
-            </ActionIconButton>
+              {#if message.role === "assistant"}
+                <ActionIconButton title={i18n.t("chat.regenerate")} className="msg-action-btn" disabled={generationLocked} onClick={onRegenerate}>
+                  <RefreshCw size={13} />
+                </ActionIconButton>
+              {/if}
+              <ActionIconButton title={i18n.t("chat.edit")} className="msg-action-btn" onClick={onStartEdit}>
+                <Edit3 size={13} />
+              </ActionIconButton>
+              <ActionIconButton title={i18n.t("chat.delete")} className="msg-action-btn hover:text-[var(--danger)] hover:bg-[var(--danger)]/10" tone="danger" onClick={onDelete}>
+                <Trash2 size={13} />
+              </ActionIconButton>
 
-            {#if versionInfo}
-              <div class="ml-2 flex items-center gap-0.5 rounded-[var(--radius-full)] border border-[var(--border-soft)] bg-[var(--bg-surface)] px-1.5 py-0.5 shadow-sm">
-                <button
-                  type="button"
-                  title={i18n.t("chat.prev_version")}
-                  class="inline-flex h-5 w-5 items-center justify-center rounded-full text-[var(--ink-faint)] hover:text-[var(--ink-muted)] disabled:opacity-30"
-                  disabled={versionInfo.current <= 1}
-                  onclick={onPrevVersion}
-                >
-                  <ChevronLeft size={12} />
-                </button>
-                <span class="min-w-[28px] text-center text-[10px] font-medium text-[var(--ink-faint)]">
-                  {versionInfo.current}/{versionInfo.total}
-                </span>
-                <button
-                  type="button"
-                  title={i18n.t("chat.next_version")}
-                  class="inline-flex h-5 w-5 items-center justify-center rounded-full text-[var(--ink-faint)] hover:text-[var(--ink-muted)] disabled:opacity-30"
-                  disabled={versionInfo.current >= versionInfo.total}
-                  onclick={onNextVersion}
-                >
-                  <ChevronRight size={12} />
-                </button>
-              </div>
-            {/if}
+            </div>
           </div>
         {/if}
       </div>

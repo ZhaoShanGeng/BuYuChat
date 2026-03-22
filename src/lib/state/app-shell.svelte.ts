@@ -65,6 +65,11 @@ class AppShellState {
 
       syncDesktopWide();
       window.addEventListener("resize", syncDesktopWide);
+      
+      const savedWorkspace = localStorage.getItem("buyu_active_workspace") as WorkspaceId | null;
+      if (savedWorkspace) {
+        this.activeWorkspace = savedWorkspace;
+      }
     }
   }
 
@@ -74,6 +79,9 @@ class AppShellState {
 
   setWorkspace(id: WorkspaceId) {
     this.activeWorkspace = id;
+    if (typeof window !== "undefined") {
+      localStorage.setItem("buyu_active_workspace", id);
+    }
     this.activeSidebarItemId = workspaceSidebarItems[id][0]?.id ?? "";
     this.mobileSidebarOpen = false;
     this.mobileInspectorOpen = false;

@@ -85,8 +85,8 @@
   }
 </script>
 
-<div class="shrink-0 px-4 pb-4 pt-2">
-  <div class="composer-card mx-auto w-full max-w-[var(--composer-max-width)] px-4 pb-3 pt-3">
+<div class="shrink-0 px-4 pb-6 pt-2">
+  <div class="composer-card mx-auto w-full flex flex-col max-w-[var(--composer-max-width)] p-3">
     {#if availableRecipients.length > 1}
       <div class="mb-3">
         <div class="mb-2 text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--ink-faint)]">
@@ -117,7 +117,7 @@
     {/if}
 
     {#if attachments.length > 0}
-      <div class="mb-3 flex flex-wrap gap-2">
+      <div class="mb-3 px-1 flex flex-wrap gap-2">
         {#each attachments as attachment}
           <div class="inline-flex max-w-full items-center gap-2 rounded-full border border-[var(--border-soft)] bg-[var(--bg-app)] px-3 py-1.5 text-xs text-[var(--ink-body)]">
             <div class="min-w-0">
@@ -138,9 +138,9 @@
 
     <textarea
       bind:this={composerTextarea}
-      class="block w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-faint)]"
+      class="block w-full resize-none bg-transparent px-1 pt-1 mb-1 text-[15px] leading-relaxed text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-faint)]"
       placeholder={i18n.t("chat.input_placeholder")}
-      rows="3"
+      rows="1"
       bind:value
       onkeydown={handleKeydown}
       disabled={sending}
@@ -155,7 +155,7 @@
       onchange={handleAttachmentChange}
     />
 
-    <div class="mt-2 flex items-center justify-between gap-3">
+    <div class="mt-1 flex items-center justify-between gap-3 px-0.5">
       <div class="flex items-center gap-2">
         <ActionIconButton
           title={i18n.t("chat.attachment")}

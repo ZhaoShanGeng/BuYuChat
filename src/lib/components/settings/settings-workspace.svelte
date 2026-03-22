@@ -9,7 +9,10 @@
     Plug,
     Shield,
     Sun,
-    Moon
+    Moon,
+    UserCircle,
+    Puzzle,
+    Wand2
   } from "lucide-svelte";
   import { i18n } from "$lib/i18n.svelte";
   import { theme } from "$lib/theme.svelte";
@@ -18,17 +21,23 @@
   import HeaderWindowGroup from "$components/layout/header-window-group.svelte";
   import PageShell from "$components/layout/page-shell.svelte";
   import ApiChannelsPanel from "$components/settings/api-channels-panel.svelte";
+  import UserProfilesPanel from "$components/settings/user-profiles-panel.svelte";
+  import PluginsPanel from "$components/settings/plugins-panel.svelte";
+  import TransformsPanel from "$components/settings/transforms-panel.svelte";
   import { mockSettingsSections } from "$lib/fixtures/workspaces";
 
-  type SectionId = "channels" | "appearance" | "general";
+  type SectionId = "channels" | "user_profiles" | "plugins" | "transforms" | "appearance" | "general";
 
   let activeSection = $state<SectionId>("channels");
 
   const sections = [
-    { id: "channels", label: i18n.t("settings.section.channels"), icon: Cable },
-    { id: "appearance", label: i18n.t("settings.section.appearance"), icon: Palette },
-    { id: "general", label: i18n.t("settings.section.general"), icon: Monitor }
-  ] satisfies { id: SectionId; label: string; icon: typeof Cable }[];
+    { id: "channels", label: i18n.t("settings.section.channels") || "API 渠道", icon: Cable },
+    { id: "user_profiles", label: "用户画像", icon: UserCircle },
+    { id: "plugins", label: "扩展插件", icon: Puzzle },
+    { id: "transforms", label: "转换管线", icon: Wand2 },
+    { id: "appearance", label: i18n.t("settings.section.appearance") || "外观与语言", icon: Palette },
+    { id: "general", label: i18n.t("settings.section.general") || "通用设置", icon: Monitor }
+  ] satisfies { id: SectionId; label: string; icon: any }[];
 </script>
 
 <PageShell>
@@ -87,6 +96,12 @@
       <div class="max-w-6xl">
         {#if activeSection === "channels"}
           <ApiChannelsPanel />
+        {:else if activeSection === "user_profiles"}
+          <UserProfilesPanel />
+        {:else if activeSection === "plugins"}
+          <PluginsPanel />
+        {:else if activeSection === "transforms"}
+          <TransformsPanel />
         {:else if activeSection === "appearance"}
           <div class="space-y-6">
             <div>

@@ -1,7 +1,7 @@
 use std::{
     env, fs,
-    net::{SocketAddr, TcpListener, TcpStream},
     io::{Read, Write},
+    net::{SocketAddr, TcpListener, TcpStream},
     path::PathBuf,
     thread,
 };
@@ -156,17 +156,18 @@ async fn refresh_channel_models_upserts_remote_models_without_removing_local_one
     .await
     .expect("failed to insert local model");
 
-    let refreshed =
-        api_channels::refresh_channel_models(&env.db, &env.providers, &channel.id)
-            .await
-            .expect("failed to refresh remote channel models");
+    let refreshed = api_channels::refresh_channel_models(&env.db, &env.providers, &channel.id)
+        .await
+        .expect("failed to refresh remote channel models");
 
     assert!(
         refreshed.iter().any(|model| model.model_id == "gpt-5.1"),
         "remote model gpt-5.1 should exist after refresh"
     );
     assert!(
-        refreshed.iter().any(|model| model.model_id == "gpt-4.1-mini"),
+        refreshed
+            .iter()
+            .any(|model| model.model_id == "gpt-4.1-mini"),
         "remote model gpt-4.1-mini should exist after refresh"
     );
     assert!(

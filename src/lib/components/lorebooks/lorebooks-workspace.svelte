@@ -2,7 +2,7 @@
   import { onMount } from "svelte";
   import { Dialog } from "bits-ui";
   import { toast } from "svelte-sonner";
-  import { BookOpen, Edit3, Hash, Plus, Save, Trash2, X } from "lucide-svelte";
+  import { BookOpen, Edit3, Hash, Plus, Save, Trash2, X, TextSearch, Tag } from "lucide-svelte";
   import {
     createLorebook,
     createLorebookEntry,
@@ -29,7 +29,7 @@
   import HeaderWindowGroup from "$components/layout/header-window-group.svelte";
   import PageShell from "$components/layout/page-shell.svelte";
 
-  type TabId = "overview" | "entries";
+  type TabId = "overview" | "entries" | "testing";
   type LorebookDraft = {
     name: string;
     description: string;
@@ -57,10 +57,15 @@
 
   const tabs: { id: TabId; label: string }[] = [
     { id: "overview", label: "基础信息" },
-    { id: "entries", label: "条目" }
+    { id: "entries", label: "条目" },
+    { id: "testing", label: "匹配测试" }
   ];
   const labelClass = "space-y-1";
   const labelTextClass = "text-xs font-medium text-[var(--ink-muted)]";
+
+  let testText = $state("");
+  let testing = $state(false);
+  let matchedEntries = $state<LorebookEntryDetail[]>([]);
 
   let selectedLorebook = $state<string | null>(null);
   let searchQuery = $state("");
@@ -158,6 +163,24 @@
   }
   function openCreateEntryDialog() { if (!activeLorebook) return; editingEntryId = null; entryDraft = emptyEntryDraft(activeLorebook.entries.length); entryDialogOpen = true; }
   function openEditEntryDialog(entry: LorebookEntryDetail) { editingEntryId = entry.id; entryDraft = mapEntryToDraft(entry); entryDialogOpen = true; }
+
+  function runTest() {
+    if (!activeLorebook || !testText.trim()) return;
+    testing = true;
+    setTimeout(() => {
+      const lowerText = testText.toLowerCase();
+      matchedEntries = activeLorebook!.entries.filter(e => {
+        if (!e.enabled) return false;
+        if (e.activation_strategy === "always") return true;
+        const keys = e.keys.map(k => k.pattern_text.toLowerCase());
+        if (keys.length === 0) return false;
+        if (e.keyword_logic === "all") return keys.every(k => lowerText.includes(k));
+        return keys.some(k => lowerText.includes(k));
+      });
+      testing = false;
+    }, 400);
+  }
+
   async function submitEntry() {
     if (!selectedLorebook) return;
     savingEntry = true;
@@ -316,7 +339,7 @@
                       </div>
                       <label class="flex items-center gap-2 text-sm text-[var(--ink-body)]"><input type="checkbox" bind:checked={detailDraft.enabled} /> 启用该世界书</label>
                     </div>
-                  {:else}
+                  {:else if activeTab === "entries"}
                     <div class="space-y-3">
                       <div class="flex items-center justify-between">
                         <div>
@@ -342,6 +365,49 @@
                           </div>
                         {/each}
                       {/if}
+                    </div>
+                  {:else if activeTab === "testing"}
+                    <div class="space-y-4">
+                      <div>
+                        <div class="mb-2 flex items-center gap-2">
+                          <TextSearch size={14} class="text-[var(--ink-faint)]" />
+                          <h3 class="text-sm font-semibold text-[var(--ink-strong)]">本地匹配测试</h3>
+                        </div>
+                        <p class="mb-4 text-xs text-[var(--ink-muted)]">输入一段文本进行模拟测试，以检查条目的关键词触发逻辑是否符合预期。</p>
+
+                        <div class="mb-4">
+                          <textarea rows="4" class="w-full resize-y rounded-[var(--radius-md)] border border-[var(--border-medium)] bg-[var(--bg-surface)] px-3 py-2 text-sm leading-relaxed text-[var(--ink-body)] outline-none focus:border-[var(--brand)]" bind:value={testText} placeholder="在此输入测试文本..."></textarea>
+                          <div class="mt-2 flex justify-end">
+                            <Button size="sm" onclick={runTest} disabled={testing || !testText.trim()}>
+                              {testing ? "测试中..." : "运行测试"}
+                            </Button>
+                          </div>
+                        </div>
+
+                        {#if matchedEntries.length > 0}
+                          <div class="space-y-3 border-t border-[var(--border-soft)] pt-4">
+                            <h4 class="text-xs font-semibold text-[var(--ink-strong)]">命中的条目 ({matchedEntries.length})</h4>
+                            {#each matchedEntries as entry (entry.id)}
+                              <div class="rounded-[var(--radius-md)] border border-emerald-500/30 bg-emerald-500/5 px-3 py-2.5">
+                                <div class="flex items-center gap-2">
+                                  <Tag size={12} class="text-emerald-600" />
+                                  <span class="text-sm font-medium text-emerald-700">{entry.title || "未命名条目"}</span>
+                                  <span class="rounded-[var(--radius-full)] bg-emerald-500/10 px-1.5 py-0.5 text-[10px] text-emerald-600">{entry.activation_strategy}</span>
+                                </div>
+                                <div class="mt-1.5 line-clamp-2 text-xs text-[var(--ink-muted)]">
+                                  {readContentText(entry.primary_content)}
+                                </div>
+                              </div>
+                            {/each}
+                          </div>
+                        {:else if testText.trim() && !testing}
+                          <div class="border-t border-[var(--border-soft)] pt-4">
+                            <div class="rounded-[var(--radius-md)] border border-dashed border-[var(--border-medium)] bg-[var(--bg-app)] py-6 text-center text-xs text-[var(--ink-faint)]">
+                              未匹配到任何条目
+                            </div>
+                          </div>
+                        {/if}
+                      </div>
                     </div>
                   {/if}
                 </div>

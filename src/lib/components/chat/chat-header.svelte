@@ -2,20 +2,29 @@
   import { PanelLeft, PanelRight, Pencil, X, Eraser, Download } from "lucide-svelte";
   import ActionIconButton from "$components/shared/action-icon-button.svelte";
   import HeaderWindowGroup from "$components/layout/header-window-group.svelte";
+  import ChatChannelSelector from "$components/chat/chat-channel-selector.svelte";
   import { i18n } from "$lib/i18n.svelte";
 
   let {
+    conversationId = "",
+    currentChannelId = null,
+    currentModelId = null,
     conversationTitle = "Conversation",
     editable = false,
     onRename = undefined,
     onToggleSidebar = () => {},
-    onToggleInspector = () => {}
+    onToggleInspector = () => {},
+    onOpenSettings = undefined
   }: {
+    conversationId?: string;
+    currentChannelId?: string | null;
+    currentModelId?: string | null;
     conversationTitle?: string;
     editable?: boolean;
     onRename?: ((title: string) => void) | undefined;
     onToggleSidebar?: () => void;
     onToggleInspector?: () => void;
+    onOpenSettings?: () => void;
   } = $props();
 
   let headerEditing = $state(false);
@@ -56,7 +65,7 @@
   }
 </script>
 
-<header class="flex h-12 flex-shrink-0 items-center gap-3 border-b border-[var(--border-soft)] px-4" data-tauri-drag-region>
+<header class="flex h-14 z-20 flex-shrink-0 items-center gap-3 border-b border-[var(--border-soft)] bg-[var(--bg-surface)]/80 backdrop-blur-xl px-5 transition-all" data-tauri-drag-region>
   <ActionIconButton title={i18n.t("nav.chat")} className="icon-hover lg:hidden" onClick={onToggleSidebar}>
     <PanelLeft size={18} />
   </ActionIconButton>
@@ -96,6 +105,13 @@
 
   <HeaderWindowGroup>
     {#snippet children()}
+      <ChatChannelSelector 
+        {conversationId} 
+        {currentChannelId} 
+        {currentModelId} 
+        {onOpenSettings} 
+      />
+      <div class="mx-1 hidden h-4 w-px bg-[var(--border-medium)] sm:block"></div>
       <ActionIconButton title={i18n.t("chat.clear")} className="icon-hover hidden sm:inline-flex">
         <Eraser size={16} />
       </ActionIconButton>

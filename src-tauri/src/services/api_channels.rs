@@ -3,8 +3,8 @@ use sqlx::SqlitePool;
 use crate::db::models::{ApiChannelModelRow, ApiChannelRow};
 use crate::db::repos::api_channels as repo;
 use crate::domain::api_channels::{
-    ApiChannel, ApiChannelModel, ApiChannelTestResponse, CreateApiChannelInput, UpdateApiChannelInput,
-    UpsertApiChannelModelInput,
+    ApiChannel, ApiChannelModel, ApiChannelTestResponse, CreateApiChannelInput,
+    UpdateApiChannelInput, UpsertApiChannelModelInput,
 };
 use crate::domain::messages::{
     MessageRole, ProviderChatMessage, ProviderChatRequest, ProviderMessagePart,
@@ -127,9 +127,9 @@ pub async fn test_channel_message(
     {
         model
     } else {
-        return Err(AppError::Validation(
-            format!("未找到要测试的模型: {model_id}"),
-        ));
+        return Err(AppError::Validation(format!(
+            "未找到要测试的模型: {model_id}"
+        )));
     };
 
     let request = ProviderChatRequest {

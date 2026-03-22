@@ -22,6 +22,7 @@
   } from "$lib/api/presets";
   import { i18n } from "$lib/i18n.svelte";
   import { cn } from "$lib/utils";
+  import { listApiChannels, listApiChannelModels, type ApiChannel, type ApiChannelModel } from "$lib/api/api-channels";
   import SearchField from "$components/shared/search-field.svelte";
   import ActionIconButton from "$components/shared/action-icon-button.svelte";
   import Button from "$components/ui/button.svelte";
@@ -73,6 +74,13 @@
   let editingEntryId = $state<string | null>(null);
   let activeTab = $state<TabId>("overview");
 
+  let allChannels = $state<ApiChannel[]>([]);
+  let allModels = $state<Record<string, ApiChannelModel[]>>({});
+  let availableChannels = $derived(allChannels.filter((c) => c.enabled));
+
+  let bindChannelId = $state<string>("");
+  let bindModelId = $state<string>("");
+
   const labelClass = "space-y-1";
   const labelTextClass = "text-xs font-medium text-[var(--ink-muted)]";
 
@@ -90,7 +98,22 @@
 
   onMount(() => {
     void loadPresets();
+    void loadChannels();
   });
+
+  async function loadChannels() {
+    try {
+      allChannels = await listApiChannels();
+      for (const channel of allChannels) {
+        if (channel.enabled) {
+          try {
+            allModels[channel.id] = await listApiChannelModels(channel.id);
+          } catch {}
+        }
+      }
+      if (allChannels.length > 0) bindChannelId = allChannels[0].id;
+    } catch {}
+  }
 
   function emptyPresetDraft(sortOrder = 0): PresetDraft {
     return {
@@ -125,6 +148,30 @@
     if (!trimmed) return null;
     const parsed = Number(trimmed);
     return Number.isFinite(parsed) ? parsed : null;
+  }
+
+  function handleAddChannelBinding() {
+    if (!activePreset || !bindChannelId) return;
+    const exists = activePreset.channel_bindings.some(b => b.channel_id === bindChannelId && b.channel_model_id === (bindModelId || null));
+    if (exists) { toast.error("绑定已存在"); return; }
+    
+    // UI Mockup update (backend API missing for replacePresetChannels)
+    activePreset.channel_bindings = [...activePreset.channel_bindings, {
+      id: "mock-binding-" + Date.now(),
+      channel_id: bindChannelId,
+      channel_model_id: bindModelId || null,
+      binding_type: "preset_channel",
+      enabled: true,
+      sort_order: activePreset.channel_bindings.length,
+      config_json: {},
+      created_at: Date.now(),
+      updated_at: Date.now()
+    }];
+  }
+
+  function handleRemoveChannelBinding(id: string) {
+    if (!activePreset) return;
+    activePreset.channel_bindings = activePreset.channel_bindings.filter(b => b.id !== id);
   }
 
   function readContentText(content?: { text_content: string | null; preview_text: string | null } | null) {
@@ -572,13 +619,44 @@
                       <div>
                         <div class="mb-2 flex items-center gap-2">
                           <Link size={14} class="text-[var(--ink-faint)]" />
-                          <h3 class="text-sm font-semibold text-[var(--ink-strong)]">渠道绑定</h3>
+                          <h3 class="text-sm font-semibold text-[var(--ink-strong)]">渠道与模型绑定</h3>
                         </div>
+                        <p class="mb-4 text-xs text-[var(--ink-muted)]">当使用此预设时，推荐使用的模型组合。仅作为提示作用，不强制要求。</p>
+                        
+                        <div class="mb-4 flex gap-2">
+                          <select class="rounded-md border border-[var(--border-medium)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs text-[var(--ink-body)] outline-none" bind:value={bindChannelId} onchange={() => bindModelId = ""}>
+                            <option value="">选取渠道...</option>
+                            {#each availableChannels as ch}
+                              <option value={ch.id}>{ch.name}</option>
+                            {/each}
+                          </select>
+                          {#if bindChannelId}
+                            <select class="rounded-md border border-[var(--border-medium)] bg-[var(--bg-surface)] px-3 py-1.5 text-xs text-[var(--ink-body)] outline-none" bind:value={bindModelId}>
+                              <option value="">(任意模型)</option>
+                              {#if allModels[bindChannelId]}
+                                {#each allModels[bindChannelId] as mod}
+                                  <option value={mod.model_id}>{mod.display_name || mod.model_id}</option>
+                                {/each}
+                              {/if}
+                            </select>
+                          {/if}
+                          <Button size="sm" variant="secondary" className="px-3" onclick={handleAddChannelBinding} disabled={!bindChannelId}>
+                            <Plus size={14} class="mr-1" /> 添加
+                          </Button>
+                        </div>
+
                         {#if activePreset.channel_bindings.length > 0}
                           <div class="space-y-2">
-                            {#each activePreset.channel_bindings as binding}
-                              <div class="rounded-[var(--radius-md)] border border-[var(--border-soft)] bg-[var(--bg-surface)] px-3 py-2.5 text-sm text-[var(--ink-body)]">
-                                渠道 {binding.channel_id}{#if binding.channel_model_id} · 模型 {binding.channel_model_id}{/if}
+                            {#each activePreset.channel_bindings as binding (binding.id)}
+                              <div class="flex items-center justify-between rounded-[var(--radius-md)] border border-[var(--border-soft)] bg-[var(--bg-surface)] px-3 py-2.5 text-sm text-[var(--ink-body)]">
+                                <div>
+                                  <span class="font-medium text-[var(--ink-strong)]">{allChannels.find(c=>c.id === binding.channel_id)?.name || binding.channel_id}</span>
+                                  {#if binding.channel_model_id}
+                                    <span class="text-[var(--ink-muted)] px-1">/</span>
+                                    <span class="text-xs text-[var(--ink-muted)]">{binding.channel_model_id}</span>
+                                  {/if}
+                                </div>
+                                <ActionIconButton tone="danger" onClick={() => handleRemoveChannelBinding(binding.id)}><Trash2 size={14}/></ActionIconButton>
                               </div>
                             {/each}
                           </div>

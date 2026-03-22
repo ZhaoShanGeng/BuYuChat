@@ -192,7 +192,7 @@ pub async fn resolve_active_channel_model(
         conversation_repo::list_conversation_channel_bindings(db, conversation_id).await?;
     if let Some(binding) = conversation_bindings
         .into_iter()
-        .find(|item| item.enabled && item.binding_type == "active")
+        .find(|item| item.enabled && is_active_channel_binding_type(&item.binding_type))
     {
         let model = match binding.channel_model_id {
             Some(model_id) => api_channels::map_channel_model_row(
@@ -629,6 +629,10 @@ fn merge_request_parameters(
         }
     }
     serde_json::Value::Object(merged)
+}
+
+fn is_active_channel_binding_type(binding_type: &str) -> bool {
+    binding_type == "active" || binding_type == "chat"
 }
 
 fn push_agent_materials(

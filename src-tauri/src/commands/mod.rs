@@ -1,6 +1,6 @@
-pub mod app;
 pub mod agents;
 pub mod api_channels;
+pub mod app;
 pub mod conversations;
 pub mod incremental;
 pub mod lorebooks;

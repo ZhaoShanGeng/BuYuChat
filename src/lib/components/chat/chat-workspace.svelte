@@ -28,6 +28,7 @@
     resolvePreferredResponderParticipantIds,
     resolvePrimaryResponderParticipantId
   } from "$lib/chat/conversation-preferences";
+  import { isActiveConversationChannelBinding } from "$lib/chat/channel-bindings";
   import { i18n } from "$lib/i18n.svelte";
   import { generationJobsState } from "$lib/state/generation-jobs.svelte";
   import ChatComposer from "$components/chat/chat-composer.svelte";
@@ -37,7 +38,7 @@
   import ChatMessageItem from "$components/chat/chat-message-item.svelte";
   import ChatStreamingMessage from "$components/chat/chat-streaming-message.svelte";
   import ResourceSidebar from "$components/layout/resource-sidebar.svelte";
-  import InspectorPanel from "$components/layout/inspector-panel.svelte";
+  import InspectorPanel from "$components/inspector/inspector-panel.svelte";
 
   type PendingAttachment = {
     id: string;
@@ -404,6 +405,53 @@
     }, 1500);
   }
 
+  function findActiveMessageByNodeId(nodeId: string | null | undefined) {
+    return nodeId ? messages.find((item) => item.node_id === nodeId) ?? null : null;
+  }
+
+  function resolveRegenerateTriggerMessage(message: MessageVersionView) {
+    if (message.role === "user") {
+      return message;
+    }
+
+    if (message.role === "assistant") {
+      const parentMessage = findActiveMessageByNodeId(message.reply_to_node_id);
+      if (parentMessage?.role === "user") {
+        return parentMessage;
+      }
+    }
+
+    return null;
+  }
+
+  function resolveRegenerateResponderParticipantIds(
+    message: MessageVersionView,
+    detail: ConversationDetail | null | undefined
+  ) {
+    if (message.role === "assistant") {
+      const authorParticipant = participantById.get(message.author_participant_id);
+      if (authorParticipant?.enabled && authorParticipant.participant_type === "agent") {
+        return [message.author_participant_id];
+      }
+
+      const fallbackResponder = resolvePrimaryResponderParticipantId(detail);
+      return fallbackResponder ? [fallbackResponder] : [];
+    }
+
+    if (message.role === "user") {
+      return getSelectedResponderParticipantIds(detail);
+    }
+
+    return [];
+  }
+
+  function canRegenerateMessage(message: MessageVersionView) {
+    return (
+      !!resolveRegenerateTriggerMessage(message) &&
+      resolveRegenerateResponderParticipantIds(message, conversationDetail).length > 0
+    );
+  }
+
   async function handleRegenerate(message: MessageVersionView) {
     if (inFlightCountForConversation > 0) {
       return;
@@ -422,28 +470,52 @@
       return;
     }
 
-    const responderParticipantId = message.author_participant_id;
-    const streamId = `regen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    generationJobsState.registerJob({
-      streamId,
-      conversationId: targetConversationId,
-      responderParticipantId
-    });
+    const triggerMessage = resolveRegenerateTriggerMessage(message);
+    if (!triggerMessage) {
+      toast.error(i18n.t("chat.regenerate_failed"), {
+        description: i18n.t("chat.no_participant_desc")
+      });
+      return;
+    }
 
-    try {
-      await regenerateReplyStream({
+    const responderParticipantIds = resolveRegenerateResponderParticipantIds(message, targetDetail);
+    if (responderParticipantIds.length === 0) {
+      toast.error(i18n.t("chat.no_agent_title"), {
+        description: i18n.t("chat.no_participant_desc")
+      });
+      return;
+    }
+
+    if (message.role === "user") {
+      selectedResponderParticipantIds = responderParticipantIds;
+      try {
+        targetDetail = await persistResponderSelection(targetDetail, responderParticipantIds);
+      } catch (error) {
+        console.error("Failed to persist responder selection:", error);
+      }
+    }
+
+    for (const [index, responderParticipantId] of responderParticipantIds.entries()) {
+      const streamId = `regen-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`;
+      generationJobsState.registerJob({
+        streamId,
+        conversationId: targetConversationId,
+        responderParticipantId
+      });
+
+      void regenerateReplyStream({
         request: {
           conversation_id: targetConversationId,
           responder_participant_id: responderParticipantId,
-          trigger_message_version_id: message.version_id
+          trigger_message_version_id: triggerMessage.version_id
         },
         stream_id: streamId
-      });
-    } catch (error) {
-      generationJobsState.failJob(streamId, describeChatError(error));
-      console.error("Regenerate failed:", error);
-      toast.error(i18n.t("chat.regenerate_failed"), {
-        description: describeChatError(error)
+      }).catch((error) => {
+        generationJobsState.failJob(streamId, describeChatError(error));
+        console.error("Regenerate failed:", error);
+        toast.error(i18n.t("chat.regenerate_failed"), {
+          description: describeChatError(error)
+        });
       });
     }
   }
@@ -773,6 +845,18 @@
   const selectedVersionCount = $derived(
     selectedMessage ? (versionsByNode[selectedMessage.node_id]?.length ?? 1) : 0
   );
+
+  const currentChannelBinding = $derived(
+    conversationDetail?.channel_bindings?.find(
+      (binding) =>
+        binding.enabled && isActiveConversationChannelBinding(binding.binding_type)
+    ) ??
+      conversationDetail?.channel_bindings?.[0] ??
+      null
+  );
+  
+  const currentChannelId = $derived(currentChannelBinding?.channel_id ?? null);
+  const currentModelId = $derived(currentChannelBinding?.channel_model_id ?? null);
 </script>
 
 <ChatShell
@@ -798,6 +882,9 @@
 
   {#snippet header()}
     <ChatHeader
+      {conversationId}
+      {currentChannelId}
+      {currentModelId}
       {conversationTitle}
       {editable}
       {onRename}
@@ -844,7 +931,7 @@
               bind:editText
               {editSaving}
               copied={copiedVersionId === message.version_id}
-              generationLocked={inFlightCountForConversation > 0}
+              generationLocked={inFlightCountForConversation > 0 || !canRegenerateMessage(message)}
               animationDelay={`${Math.min(index * 30, 300)}ms`}
               onLoadVersions={() => void loadVersions(message.node_id)}
               onStartEdit={() => startEdit(message)}
@@ -907,15 +994,7 @@
 
   {#snippet inspector()}
     <InspectorPanel
-      tabs={inspectorTabs}
-      activeTab={activeInspectorTab}
-      {conversationTitle}
-      {conversationDetail}
-      {availableAgents}
-      {messages}
-      selectedMessage={selectedMessage}
-      selectedVersionCount={selectedVersionCount}
-      onSelectTab={onSelectInspectorTab}
+      {conversationId}
       onClose={onCloseInspector}
     />
   {/snippet}

@@ -12,9 +12,12 @@ pub fn apply_responsive_window_defaults(app: &AppHandle) -> Result<()> {
         return Ok(());
     };
 
-    let monitor = window
-        .current_monitor()?
-        .or_else(|| window.available_monitors().ok().and_then(|mut monitors| monitors.drain(..).next()));
+    let monitor = window.current_monitor()?.or_else(|| {
+        window
+            .available_monitors()
+            .ok()
+            .and_then(|mut monitors| monitors.drain(..).next())
+    });
 
     let Some(monitor) = monitor else {
         return Ok(());

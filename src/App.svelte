@@ -37,6 +37,7 @@
     buildConversationChatConfigFromParticipants,
     mergeConversationChatConfig
   } from "$lib/chat/conversation-preferences";
+  import { isActiveConversationChannelBinding } from "$lib/chat/channel-bindings";
   import { i18n } from "$lib/i18n.svelte";
   import { generationJobsState } from "$lib/state/generation-jobs.svelte";
   import { theme } from "$lib/theme.svelte";
@@ -79,6 +80,14 @@
     // Apply theme on mount
     theme.apply();
 
+    const disableContextMenu = (e: MouseEvent) => {
+      const target = e.target as HTMLElement;
+      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") return;
+      if (e.shiftKey) return;
+      e.preventDefault();
+    };
+    document.addEventListener("contextmenu", disableContextMenu);
+
     let unlistenPatches: (() => void) | undefined;
     let unlistenGeneration: (() => void) | undefined;
 
@@ -108,6 +117,7 @@
     })();
 
     return () => {
+      document.removeEventListener("contextmenu", disableContextMenu);
       unlistenPatches?.();
       unlistenGeneration?.();
     };
@@ -168,7 +178,8 @@
 
   function hasActiveConversationChannelBinding(detail: ConversationDetail | null | undefined) {
     return !!detail?.channel_bindings.some(
-      (binding) => binding.enabled && binding.binding_type === "active"
+      (binding) =>
+        binding.enabled && isActiveConversationChannelBinding(binding.binding_type)
     );
   }
 

@@ -373,9 +373,7 @@ async fn create_message(
         ));
     }
 
-    Err(AppError::Validation(
-        "failed to create message".to_string(),
-    ))
+    Err(AppError::Validation("failed to create message".to_string()))
 }
 
 async fn resolve_order_key(
@@ -390,12 +388,8 @@ async fn resolve_order_key(
         return Ok(order_keys::initial_key());
     }
 
-    let effective_after_node_id = resolve_effective_order_after_node_id(
-        &nodes,
-        order_after_node_id,
-        reply_to_node_id,
-        role,
-    );
+    let effective_after_node_id =
+        resolve_effective_order_after_node_id(&nodes, order_after_node_id, reply_to_node_id, role);
 
     match effective_after_node_id.as_deref() {
         None => {

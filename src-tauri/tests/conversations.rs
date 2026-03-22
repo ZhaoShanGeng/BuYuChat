@@ -13,7 +13,8 @@ use buyu_lib::domain::messages::MessageRole;
 use buyu_lib::domain::presets::CreatePresetInput;
 use buyu_lib::domain::user_profiles::CreateUserProfileInput;
 use buyu_lib::services::{
-    agents, api_channels, content_store, conversations, lorebooks, presets, user_profiles,
+    agents, api_channels, content_store, context_builder, conversations, lorebooks, presets,
+    user_profiles,
 };
 use serde_json::json;
 
@@ -298,6 +299,36 @@ async fn conversation_service_smoke() {
         updated.channel_bindings[0].channel_model_id.as_deref(),
         Some(model.id.as_str())
     );
+
+    conversations::replace_channels(
+        &env.db,
+        &conversation.summary.id,
+        &[ChannelBindingInput {
+            channel_id: channel.id.clone(),
+            channel_model_id: Some(model.id.clone()),
+            binding_type: "chat".to_string(),
+            enabled: true,
+            sort_order: 0,
+            config_json: json!({}),
+        }],
+    )
+    .await
+    .expect("failed to bind legacy chat channel");
+
+    let (resolved_channel, resolved_model, channel_scope, model_scope) =
+        context_builder::resolve_active_channel_model(
+            &env.db,
+            &conversation.summary.id,
+            &conversation.participants[0].id,
+            None,
+            None,
+        )
+        .await
+        .expect("failed to resolve legacy chat channel binding");
+    assert_eq!(resolved_channel.id, channel.id);
+    assert_eq!(resolved_model.id, model.id);
+    assert_eq!(channel_scope, "conversation");
+    assert_eq!(model_scope, "conversation");
 
     let list = conversations::list_conversations(&env.db)
         .await
