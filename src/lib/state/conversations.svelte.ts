@@ -1,10 +1,17 @@
 import {
+  type ChannelBindingDetail,
+  type ConversationParticipantDetail,
   getConversationDetail,
   listConversations,
+  type ResourceBindingDetail,
   type ConversationDetail,
   type ConversationSummary
 } from "$lib/api/conversations";
-import { listVisibleMessages, type MessageVersionView } from "$lib/api/messages";
+import {
+  listVisibleMessages,
+  type MessageContentRefView,
+  type MessageVersionView
+} from "$lib/api/messages";
 import type { IncrementalPatchEvent } from "$lib/events/patch-bus";
 
 function sortMessages(items: MessageVersionView[]) {
@@ -139,6 +146,58 @@ class ConversationsState {
     }
 
     if (
+      event.resource_kind === "message_content_ref" &&
+      event.op === "upsert" &&
+      event.scope_kind === "message_version" &&
+      event.scope_id &&
+      event.data &&
+      typeof event.data === "object"
+    ) {
+      const contentRef = event.data as MessageContentRefView;
+      this.visibleMessagesByConversationId = Object.fromEntries(
+        Object.entries(this.visibleMessagesByConversationId).map(([conversationId, messages]) => [
+          conversationId,
+          messages.map((message) =>
+            message.version_id !== event.scope_id
+              ? message
+              : {
+                  ...message,
+                  content_refs: [
+                    contentRef,
+                    ...message.content_refs.filter((item) => item.ref_id !== contentRef.ref_id)
+                  ].sort((a, b) => a.sort_order - b.sort_order)
+                }
+          )
+        ])
+      );
+      return;
+    }
+
+    if (
+      event.resource_kind === "message_versions" &&
+      event.op === "replace" &&
+      event.scope_kind === "message_node" &&
+      event.scope_id &&
+      Array.isArray(event.data)
+    ) {
+      const versions = event.data as MessageVersionView[];
+      const activeVersion = versions.find((item) => item.is_active);
+      if (!activeVersion) {
+        return;
+      }
+
+      this.visibleMessagesByConversationId = Object.fromEntries(
+        Object.entries(this.visibleMessagesByConversationId).map(([conversationId, messages]) => [
+          conversationId,
+          sortMessages(
+            messages.map((message) => (message.node_id === event.scope_id ? activeVersion : message))
+          )
+        ])
+      );
+      return;
+    }
+
+    if (
       event.resource_kind === "message_node" &&
       event.op === "delete" &&
       event.scope_kind === "conversation" &&
@@ -150,7 +209,73 @@ class ConversationsState {
         ...this.visibleMessagesByConversationId,
         [event.scope_id]: current.filter((item) => item.node_id !== event.resource_id)
       };
+      return;
     }
+
+    if (
+      event.op === "replace" &&
+      event.scope_kind === "conversation" &&
+      event.scope_id &&
+      event.data &&
+      this.detailsById[event.scope_id]
+    ) {
+      if (event.resource_kind === "conversation_participants" && Array.isArray(event.data)) {
+        this.updateConversationDetail(event.scope_id, (detail) => ({
+          ...detail,
+          participants: event.data as ConversationParticipantDetail[]
+        }));
+        return;
+      }
+
+      if (event.resource_kind === "conversation_preset_bindings" && Array.isArray(event.data)) {
+        this.updateConversationDetail(event.scope_id, (detail) => ({
+          ...detail,
+          preset_bindings: event.data as ResourceBindingDetail[]
+        }));
+        return;
+      }
+
+      if (event.resource_kind === "conversation_lorebook_bindings" && Array.isArray(event.data)) {
+        this.updateConversationDetail(event.scope_id, (detail) => ({
+          ...detail,
+          lorebook_bindings: event.data as ResourceBindingDetail[]
+        }));
+        return;
+      }
+
+      if (
+        event.resource_kind === "conversation_user_profile_bindings" &&
+        Array.isArray(event.data)
+      ) {
+        this.updateConversationDetail(event.scope_id, (detail) => ({
+          ...detail,
+          user_profile_bindings: event.data as ResourceBindingDetail[]
+        }));
+        return;
+      }
+
+      if (event.resource_kind === "conversation_channel_bindings" && Array.isArray(event.data)) {
+        this.updateConversationDetail(event.scope_id, (detail) => ({
+          ...detail,
+          channel_bindings: event.data as ChannelBindingDetail[]
+        }));
+      }
+    }
+  }
+
+  private updateConversationDetail(
+    conversationId: string,
+    apply: (detail: ConversationDetail) => ConversationDetail
+  ) {
+    const detail = this.detailsById[conversationId];
+    if (!detail) {
+      return;
+    }
+
+    this.detailsById = {
+      ...this.detailsById,
+      [conversationId]: apply(detail)
+    };
   }
 }
 

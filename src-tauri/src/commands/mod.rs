@@ -1,3 +1,4 @@
+pub mod app;
 pub mod agents;
 pub mod api_channels;
 pub mod conversations;

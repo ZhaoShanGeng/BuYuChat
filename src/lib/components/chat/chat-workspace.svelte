@@ -1,230 +1,339 @@
 <script lang="ts">
+  import { Loader2 } from "lucide-svelte";
+  import { toast } from "svelte-sonner";
+  import { tick } from "svelte";
+  import type { AgentSummary } from "$lib/api/agents";
   import {
-    Copy, Edit3, RefreshCw, Trash2, ChevronLeft, ChevronRight,
-    SendHorizontal, Paperclip, Loader2, Check, X, Square,
-    Sparkles, MessageCircle, Lightbulb, PanelLeft, PanelRight,
-    Pencil, Eraser, Download
-  } from "lucide-svelte";
-  import type { MessageVersionView } from "$lib/api/messages";
-  import {
-    createUserMessage,
-    generateReplyStream,
-    regenerateReplyStream,
-    editMessageVersion,
-    listMessageVersions,
-    switchMessageVersion,
-    deleteMessageNode
+    updateConversationMeta,
+    type ConversationDetail
+  } from "$lib/api/conversations";
+  import type {
+    ContentWriteInput,
+    MessageVersionView
   } from "$lib/api/messages";
-  import { listenGenerationStream, type GenerationStreamEvent } from "$lib/events/generation-stream";
-  import { onMount, tick } from "svelte";
-  import { marked } from "marked";
+  import type { InspectorTabId, SidebarItem } from "$lib/state/app-shell.svelte";
+  import {
+    appendMessageAttachment,
+    createUserMessage,
+    deleteMessageNode,
+    editMessageVersion,
+    generateReplyStream,
+    listMessageVersions,
+    regenerateReplyStream,
+    switchMessageVersion
+  } from "$lib/api/messages";
+  import {
+    getAgentParticipants,
+    mergeConversationChatConfig,
+    resolvePreferredResponderParticipantIds,
+    resolvePrimaryResponderParticipantId
+  } from "$lib/chat/conversation-preferences";
   import { i18n } from "$lib/i18n.svelte";
+  import { generationJobsState } from "$lib/state/generation-jobs.svelte";
+  import ChatComposer from "$components/chat/chat-composer.svelte";
+  import ChatEmptyState from "$components/chat/chat-empty-state.svelte";
+  import ChatHeader from "$components/chat/chat-header.svelte";
+  import ChatShell from "$components/chat/chat-shell.svelte";
+  import ChatMessageItem from "$components/chat/chat-message-item.svelte";
+  import ChatStreamingMessage from "$components/chat/chat-streaming-message.svelte";
+  import ResourceSidebar from "$components/layout/resource-sidebar.svelte";
+  import InspectorPanel from "$components/layout/inspector-panel.svelte";
+
+  type PendingAttachment = {
+    id: string;
+    name: string;
+    mimeType: string | null;
+    sizeBytes: number;
+    contentType: ContentWriteInput["content_type"];
+    refRole: string;
+    textContent: string | null;
+    sourceFilePath: string | null;
+    primaryStorageUri: string | null;
+    previewText: string | null;
+  };
 
   let {
     conversationTitle = "Conversation",
     conversationId = "",
+    conversationDetail = null,
     loading = false,
     messages = [],
     editable = false,
+    onEnsureConversation = undefined,
+    availableAgents = [],
+    onStartConversationWithAgent = undefined,
+    desktopWide = true,
+    sidebarItems = [],
+    activeSidebarId = "",
+    sidebarOpen = false,
+    inspectorVisible = true,
+    inspectorOpen = false,
+    inspectorTabs = [],
+    activeInspectorTab = "context" as InspectorTabId,
     onRename = undefined,
+    onSelectSidebar = () => {},
+    onCreateSidebarItem = undefined,
+    onRenameSidebarItem = undefined,
+    onDeleteSidebarItem = undefined,
     onToggleSidebar = () => {},
-    onToggleInspector = () => {}
+    onToggleInspector = () => {},
+    onOpenInspector = () => {},
+    onCloseSidebar = () => {},
+    onCloseInspector = () => {},
+    onSelectInspectorTab = () => {}
   }: {
     conversationTitle?: string;
     conversationId?: string;
+    conversationDetail?: ConversationDetail | null;
     loading?: boolean;
     messages?: MessageVersionView[];
     editable?: boolean;
+    onEnsureConversation?: ((preferredAgentId?: string) => Promise<ConversationDetail | null>) | undefined;
+    availableAgents?: AgentSummary[];
+    onStartConversationWithAgent?: ((agentId: string) => Promise<string | null>) | undefined;
+    desktopWide?: boolean;
+    sidebarItems?: SidebarItem[];
+    activeSidebarId?: string;
+    sidebarOpen?: boolean;
+    inspectorVisible?: boolean;
+    inspectorOpen?: boolean;
+    inspectorTabs?: { id: InspectorTabId; label: string }[];
+    activeInspectorTab?: InspectorTabId;
     onRename?: ((title: string) => void) | undefined;
+    onSelectSidebar?: (id: string) => void;
+    onCreateSidebarItem?: (() => void) | undefined;
+    onRenameSidebarItem?: ((id: string, title: string) => void) | undefined;
+    onDeleteSidebarItem?: ((id: string) => void) | undefined;
     onToggleSidebar?: () => void;
     onToggleInspector?: () => void;
+    onOpenInspector?: () => void;
+    onCloseSidebar?: () => void;
+    onCloseInspector?: () => void;
+    onSelectInspectorTab?: (id: InspectorTabId) => void;
   } = $props();
 
-  // ─── Inline header edit state ───
-  let headerEditing = $state(false);
-  let headerEditText = $state("");
-
-  function startHeaderEdit() {
-    if (!editable || !onRename) return;
-    headerEditing = true;
-    headerEditText = conversationTitle;
-    requestAnimationFrame(() => {
-      const input = document.querySelector(".inline-title-input") as HTMLInputElement | null;
-      input?.focus();
-      input?.select();
-    });
-  }
-
-  function submitHeaderEdit() {
-    if (headerEditText.trim() && onRename) {
-      onRename(headerEditText.trim());
-    }
-    headerEditing = false;
-  }
-
-  function cancelHeaderEdit() {
-    headerEditing = false;
-    headerEditText = "";
-  }
-
-  function handleHeaderKeydown(event: KeyboardEvent) {
-    if (event.key === "Enter") { event.preventDefault(); submitHeaderEdit(); }
-    if (event.key === "Escape") cancelHeaderEdit();
-  }
-
-  // ─── Composer state ───
   let composerText = $state("");
   let sending = $state(false);
-  let streaming = $state(false);
-  let streamingText = $state("");
-  let streamingNodeId = $state("");
-  let currentStreamId = $state("");
-
-  // ─── Version swipe state ───
+  let pendingAttachments = $state<PendingAttachment[]>([]);
   let versionsByNode = $state<Record<string, MessageVersionView[]>>({});
   let loadingVersions = $state<Record<string, boolean>>({});
-
-  // ─── Edit state ───
   let editingNodeId = $state("");
   let editingVersionId = $state("");
   let editText = $state("");
   let editSaving = $state(false);
-
-  // ─── Hover state ───
-  let hoveredMessageId = $state("");
-
-  // ─── Scroll ref ───
-  let scrollContainer: HTMLDivElement;
-
-  // ─── Stream listener ───
-  let unlistenStream: (() => void) | undefined;
-
-  // ─── Copy feedback ───
   let copiedVersionId = $state("");
+  let selectedNodeId = $state("");
+  let startingAgentId = $state("");
+  let scrollContainer = $state<HTMLDivElement | undefined>(undefined);
+  let selectedResponderParticipantIds = $state<string[]>([]);
+  let loadedResponderConversationId = $state<string | null>(null);
 
-  // ─── Textarea ref ───
-  let composerTextarea: HTMLTextAreaElement;
+  const activeGenerationJobs = $derived(
+    conversationId ? generationJobsState.visibleJobsForConversation(conversationId) : []
+  );
+  const inFlightCountForConversation = $derived(
+    conversationId ? generationJobsState.inFlightCountForConversation(conversationId) : 0
+  );
+  const canSendNewTurn = $derived(inFlightCountForConversation === 0);
+  const agentParticipants = $derived(getAgentParticipants(conversationDetail));
+  const availableAgentById = $derived(new Map(availableAgents.map((agent) => [agent.id, agent])));
+  const participantById = $derived(
+    new Map((conversationDetail?.participants ?? []).map((participant) => [participant.id, participant]))
+  );
+  const recipientOptions = $derived(
+    agentParticipants.map((participant) => {
+      const agent = participant.agent_id ? availableAgentById.get(participant.agent_id) : null;
+      return {
+        id: participant.id,
+        label: participant.display_name ?? agent?.name ?? i18n.t("chat.assistant"),
+        secondaryLabel: agent?.title ?? null
+      };
+    })
+  );
+  const attachmentChips = $derived(
+    pendingAttachments.map((attachment) => ({
+      id: attachment.id,
+      name: attachment.name,
+      meta: formatAttachmentSize(attachment.sizeBytes, attachment.mimeType)
+    }))
+  );
 
-  // ─── Markdown config ───
-  marked.setOptions({ breaks: true, gfm: true });
+  $effect(() => {
+    const nextConversationId = conversationDetail?.summary.id ?? conversationId ?? null;
+    const nextDefault = resolvePreferredResponderParticipantIds(conversationDetail);
+    const validCurrent = selectedResponderParticipantIds.filter((participantId) =>
+      agentParticipants.some((participant) => participant.id === participantId)
+    );
 
-  function renderMarkdown(text: string): string {
-    try { return marked.parse(text) as string; }
-    catch { return text; }
-  }
+    if (loadedResponderConversationId !== nextConversationId) {
+      selectedResponderParticipantIds = nextDefault;
+      loadedResponderConversationId = nextConversationId;
+      return;
+    }
 
-  onMount(() => {
-    void (async () => {
-      unlistenStream = await listenGenerationStream(handleStreamEvent);
-    })();
-    return () => { unlistenStream?.(); };
+    if (validCurrent.length !== selectedResponderParticipantIds.length) {
+      selectedResponderParticipantIds = validCurrent.length > 0 ? validCurrent : nextDefault;
+      return;
+    }
+
+    if (selectedResponderParticipantIds.length === 0 && nextDefault.length > 0) {
+      selectedResponderParticipantIds = nextDefault;
+    }
   });
 
-  function handleStreamEvent(event: GenerationStreamEvent) {
-    if (event.stream_id !== currentStreamId) return;
-    if (event.kind === "started") {
-      streamingText = "";
-    } else if (event.kind === "delta" && event.delta_text) {
-      streamingText += event.delta_text;
+  $effect(() => {
+    const jobSignature = activeGenerationJobs
+      .map((job) => `${job.stream_id}:${job.status}:${job.accumulated_text.length}`)
+      .join("|");
+    if (messages.length || jobSignature) {
       void scrollToBottom();
-    } else if (event.kind === "completed") {
-      streaming = false; streamingText = ""; streamingNodeId = ""; currentStreamId = "";
-    } else if (event.kind === "failed") {
-      streaming = false; streamingText = ""; streamingNodeId = ""; currentStreamId = "";
-      console.error("Generation failed:", event.error_text);
     }
+  });
+
+  $effect(() => {
+    if (messages.length === 0) {
+      selectedNodeId = "";
+      return;
+    }
+
+    if (!selectedNodeId || !messages.some((message) => message.node_id === selectedNodeId)) {
+      selectedNodeId = messages[messages.length - 1]?.node_id ?? "";
+    }
+  });
+
+  function describeChatError(error: unknown) {
+    const message = error instanceof Error ? error.message : i18n.t("chat.generic_error");
+
+    if (
+      message.includes("no active api channel/model could be resolved") ||
+      message.includes("no models found for channel")
+    ) {
+      return i18n.t("chat.no_channel_desc");
+    }
+
+    return message;
   }
 
   async function scrollToBottom() {
     await tick();
-    if (scrollContainer) scrollContainer.scrollTop = scrollContainer.scrollHeight;
-  }
-
-  $effect(() => { if (messages.length) void scrollToBottom(); });
-
-  // ─── Composer auto-resize ───
-  function resizeComposer() {
-    if (!composerTextarea) return;
-    composerTextarea.style.height = "auto";
-    const maxH = 240;
-    composerTextarea.style.height = Math.min(composerTextarea.scrollHeight, maxH) + "px";
-    composerTextarea.style.overflowY = composerTextarea.scrollHeight > maxH ? "auto" : "hidden";
-  }
-
-  $effect(() => { void composerText; resizeComposer(); });
-
-  // ─── Send message ───
-  async function handleSend() {
-    const text = composerText.trim();
-    if (!text || !conversationId || sending || streaming) return;
-    composerText = "";
-    sending = true;
-    try {
-      const userMsg = await createUserMessage({ conversation_id: conversationId, text });
-      streaming = true; streamingText = "";
-      const streamId = `stream-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-      currentStreamId = streamId;
-      streamingNodeId = userMsg.node_id;
-      await generateReplyStream({
-        request: { conversation_id: conversationId, reply_to_node_id: userMsg.node_id },
-        stream_id: streamId
-      });
-    } catch (err) {
-      console.error("Send failed:", err);
-      streaming = false; currentStreamId = "";
-    } finally { sending = false; }
-  }
-
-  // ─── Regenerate ───
-  async function handleRegenerate(nodeId: string) {
-    if (streaming) return;
-    streaming = true; streamingText = "";
-    const streamId = `regen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
-    currentStreamId = streamId; streamingNodeId = nodeId;
-    try {
-      await regenerateReplyStream({ request: { node_id: nodeId }, stream_id: streamId });
-    } catch (err) {
-      console.error("Regenerate failed:", err);
-      streaming = false; currentStreamId = "";
+    if (scrollContainer) {
+      scrollContainer.scrollTop = scrollContainer.scrollHeight;
     }
   }
 
-  function handleStopGeneration() {
-    streaming = false; streamingText = ""; streamingNodeId = ""; currentStreamId = "";
+  function getMessageText(message: MessageVersionView): string {
+    return message.primary_content.text_content ?? message.primary_content.preview_text ?? "";
   }
 
-  // ─── Edit message ───
-  function startEdit(msg: MessageVersionView) {
-    editingNodeId = msg.node_id; editingVersionId = msg.version_id; editText = getMessageText(msg);
-  }
-  function cancelEdit() { editingNodeId = ""; editingVersionId = ""; editText = ""; }
-  async function submitEdit() {
-    if (!editText.trim() || editSaving) return;
-    editSaving = true;
-    try {
-      await editMessageVersion({ node_id: editingNodeId, version_id: editingVersionId, text: editText.trim() });
-      cancelEdit();
-    } catch (err) { console.error("Edit failed:", err); }
-    finally { editSaving = false; }
+  function getVersionInfo(message: MessageVersionView) {
+    const versions = versionsByNode[message.node_id];
+    if (!versions || versions.length <= 1) return null;
+    const index = versions.findIndex((item) => item.version_id === message.version_id);
+    return { current: index + 1, total: versions.length };
   }
 
-  function handleKeydown(event: KeyboardEvent) {
-    if (event.key === "Enter" && !event.shiftKey) { event.preventDefault(); void handleSend(); }
+  function getDefaultAgentId() {
+    return availableAgents[0]?.id ?? null;
   }
 
-  function handleEditKeydown(event: KeyboardEvent) {
-    if (event.key === "Enter" && (event.ctrlKey || event.metaKey)) { event.preventDefault(); void submitEdit(); }
-    if (event.key === "Escape") cancelEdit();
+  function handleSuggestion(text: string) {
+    composerText = text;
   }
 
-  // ─── Version swipe ───
+  function getHumanParticipantId(detail: ConversationDetail | null | undefined) {
+    return (
+      detail?.participants.find(
+        (participant) => participant.enabled && participant.participant_type === "human"
+      )?.id ?? null
+    );
+  }
+
+  function getParticipantMeta(participantId: string | null | undefined, role: MessageVersionView["role"]) {
+    if (!participantId) {
+      return {
+        name:
+          role === "user"
+            ? i18n.t("chat.user_label")
+            : role === "system"
+              ? i18n.t("chat.system")
+              : i18n.t("chat.assistant"),
+        avatarUri: null,
+        kind: role === "user" ? "human" : role === "system" ? "system" : "agent"
+      } as const;
+    }
+
+    const participant = participantById.get(participantId);
+    const agent = participant?.agent_id ? availableAgentById.get(participant.agent_id) : null;
+
+    if (participant?.participant_type === "human" || role === "user") {
+      return {
+        name: participant?.display_name ?? i18n.t("chat.user_label"),
+        avatarUri: null,
+        kind: "human"
+      } as const;
+    }
+
+    if (participant?.participant_type === "agent" || role === "assistant") {
+      return {
+        name: participant?.display_name ?? agent?.name ?? i18n.t("chat.assistant"),
+        avatarUri: agent?.avatar_uri ?? null,
+        kind: "agent"
+      } as const;
+    }
+
+    return {
+      name: participant?.display_name ?? i18n.t("chat.system"),
+      avatarUri: null,
+      kind: "system"
+    } as const;
+  }
+
+  function hasRequiredParticipants(detail: ConversationDetail | null | undefined) {
+    return !!getHumanParticipantId(detail) && getAgentParticipants(detail).length > 0;
+  }
+
+  function getSelectedResponderParticipantIds(detail: ConversationDetail | null | undefined) {
+    const responderIds = selectedResponderParticipantIds.filter((participantId) =>
+      getAgentParticipants(detail).some((participant) => participant.id === participantId)
+    );
+    if (responderIds.length > 0) {
+      return responderIds;
+    }
+    return resolvePreferredResponderParticipantIds(detail);
+  }
+
+  async function persistResponderSelection(
+    detail: ConversationDetail,
+    responderParticipantIds: string[]
+  ) {
+    const primaryResponderId = resolvePrimaryResponderParticipantId(detail);
+    const nextPrimaryResponderId =
+      primaryResponderId && responderParticipantIds.includes(primaryResponderId)
+        ? primaryResponderId
+        : responderParticipantIds[0] ?? null;
+
+    return updateConversationMeta(detail.summary.id, {
+      title: detail.summary.title,
+      description: detail.summary.description,
+      archived: detail.summary.archived,
+      pinned: detail.summary.pinned,
+      config_json: mergeConversationChatConfig(detail.summary, {
+        primary_responder_participant_id: nextPrimaryResponderId,
+        preferred_responder_participant_ids: responderParticipantIds
+      })
+    });
+  }
+
   async function loadVersions(nodeId: string) {
     if (versionsByNode[nodeId] || loadingVersions[nodeId]) return;
+
     loadingVersions = { ...loadingVersions, [nodeId]: true };
     try {
       const versions = await listMessageVersions(nodeId);
       versionsByNode = { ...versionsByNode, [nodeId]: versions };
-    } finally { loadingVersions = { ...loadingVersions, [nodeId]: false }; }
+    } finally {
+      loadingVersions = { ...loadingVersions, [nodeId]: false };
+    }
   }
 
   async function handleSwitchVersion(nodeId: string, versionId: string) {
@@ -232,367 +341,582 @@
       await switchMessageVersion(nodeId, versionId);
       const versions = await listMessageVersions(nodeId);
       versionsByNode = { ...versionsByNode, [nodeId]: versions };
-    } catch (err) { console.error("Version switch failed:", err); }
+    } catch (error) {
+      console.error("Version switch failed:", error);
+      toast.error(i18n.t("chat.version_switch_failed"), {
+        description: error instanceof Error ? error.message : i18n.t("chat.generic_error")
+      });
+    }
+  }
+
+  function startEdit(message: MessageVersionView) {
+    editingNodeId = message.node_id;
+    editingVersionId = message.version_id;
+    editText = getMessageText(message);
+  }
+
+  function cancelEdit() {
+    editingNodeId = "";
+    editingVersionId = "";
+    editText = "";
+  }
+
+  async function submitEdit() {
+    const editingMessage = messages.find((item) => item.node_id === editingNodeId);
+    if ((!editText.trim() && (editingMessage?.content_refs.length ?? 0) === 0) || editSaving) {
+      return;
+    }
+
+    editSaving = true;
+    try {
+      await editMessageVersion({
+        node_id: editingNodeId,
+        base_version_id: editingVersionId,
+        text: editText.trim()
+      });
+      cancelEdit();
+    } catch (error) {
+      console.error("Edit failed:", error);
+      toast.error(i18n.t("chat.edit_failed"), {
+        description: error instanceof Error ? error.message : i18n.t("chat.generic_error")
+      });
+    } finally {
+      editSaving = false;
+    }
   }
 
   async function handleDelete(nodeId: string) {
-    try { await deleteMessageNode(nodeId); } catch (err) { console.error("Delete failed:", err); }
+    try {
+      await deleteMessageNode(nodeId);
+    } catch (error) {
+      console.error("Delete failed:", error);
+      toast.error(i18n.t("chat.delete_failed"), {
+        description: error instanceof Error ? error.message : i18n.t("chat.generic_error")
+      });
+    }
   }
 
   function copyText(text: string, versionId: string) {
     void navigator.clipboard.writeText(text);
     copiedVersionId = versionId;
-    setTimeout(() => { copiedVersionId = ""; }, 1500);
+    setTimeout(() => {
+      copiedVersionId = "";
+    }, 1500);
   }
 
-  function getMessageText(msg: MessageVersionView): string {
-    return msg.primary_content.text_content ?? msg.primary_content.preview_text ?? "";
+  async function handleRegenerate(message: MessageVersionView) {
+    if (inFlightCountForConversation > 0) {
+      return;
+    }
+
+    let targetConversationId = conversationId;
+    let targetDetail = conversationDetail;
+
+    const ensuredDetail = onEnsureConversation ? await onEnsureConversation() : null;
+    if (ensuredDetail) {
+      targetConversationId = ensuredDetail.summary.id;
+      targetDetail = ensuredDetail;
+    }
+
+    if (!targetConversationId || !targetDetail) {
+      return;
+    }
+
+    const responderParticipantId = message.author_participant_id;
+    const streamId = `regen-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+    generationJobsState.registerJob({
+      streamId,
+      conversationId: targetConversationId,
+      responderParticipantId
+    });
+
+    try {
+      await regenerateReplyStream({
+        request: {
+          conversation_id: targetConversationId,
+          responder_participant_id: responderParticipantId,
+          trigger_message_version_id: message.version_id
+        },
+        stream_id: streamId
+      });
+    } catch (error) {
+      generationJobsState.failJob(streamId, describeChatError(error));
+      console.error("Regenerate failed:", error);
+      toast.error(i18n.t("chat.regenerate_failed"), {
+        description: describeChatError(error)
+      });
+    }
   }
 
-  function getVersionInfo(msg: MessageVersionView): { current: number; total: number } | null {
-    const versions = versionsByNode[msg.node_id];
-    if (!versions || versions.length <= 1) return null;
-    const idx = versions.findIndex(v => v.version_id === msg.version_id);
-    return { current: idx + 1, total: versions.length };
+  function toggleResponder(participantId: string) {
+    if (selectedResponderParticipantIds.includes(participantId)) {
+      if (selectedResponderParticipantIds.length === 1) {
+        return;
+      }
+
+      selectedResponderParticipantIds = selectedResponderParticipantIds.filter(
+        (item) => item !== participantId
+      );
+      return;
+    }
+
+    selectedResponderParticipantIds = [...selectedResponderParticipantIds, participantId];
   }
 
-  function formatTimestamp(ts: number): string {
-    const date = new Date(ts);
-    const now = new Date();
-    const diff = now.getTime() - date.getTime();
-    const seconds = Math.floor(diff / 1000);
-    const minutes = Math.floor(seconds / 60);
-    const hours = Math.floor(minutes / 60);
-    const days = Math.floor(hours / 24);
+  async function handleSend() {
+    const trimmedText = composerText.trim();
+    const attachmentsToSend = [...pendingAttachments];
+    if ((!trimmedText && attachmentsToSend.length === 0) || sending || !canSendNewTurn) {
+      return;
+    }
 
-    if (seconds < 60) return i18n.t("time.just_now");
-    if (minutes < 60) return i18n.t("time.minutes_ago", { n: minutes });
-    if (hours < 24) return i18n.t("time.hours_ago", { n: hours });
-    if (days < 7) return i18n.t("time.days_ago", { n: days });
+    let targetConversationId = conversationId;
+    let targetDetail = conversationDetail;
 
-    const isThisYear = date.getFullYear() === now.getFullYear();
-    if (isThisYear) return date.toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' });
-    return date.toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+    const defaultResponderAgentId =
+      agentParticipants.find((participant) => participant.id === selectedResponderParticipantIds[0])
+        ?.agent_id ??
+      getDefaultAgentId() ??
+      undefined;
+    const ensuredDetail = onEnsureConversation
+      ? await onEnsureConversation(
+          !targetConversationId || !targetDetail || !hasRequiredParticipants(targetDetail)
+            ? defaultResponderAgentId
+            : undefined
+        )
+      : null;
+
+    if (ensuredDetail) {
+      targetConversationId = ensuredDetail.summary.id;
+      targetDetail = ensuredDetail;
+    }
+
+    if (!targetConversationId || !targetDetail) {
+      toast.error(i18n.t("chat.send_failed"), {
+        description: i18n.t("chat.create_conversation_failed")
+      });
+      return;
+    }
+
+    const authorParticipantId = getHumanParticipantId(targetDetail);
+    const responderParticipantIds = getSelectedResponderParticipantIds(targetDetail);
+
+    if (!authorParticipantId || responderParticipantIds.length === 0) {
+      toast.error(i18n.t("chat.no_agent_title"), {
+        description: i18n.t("chat.no_participant_desc")
+      });
+      return;
+    }
+
+    composerText = "";
+    pendingAttachments = [];
+    sending = true;
+
+    try {
+      const userMessage = await createUserMessage({
+        conversation_id: targetConversationId,
+        author_participant_id: authorParticipantId,
+        text: trimmedText
+      });
+
+      if (attachmentsToSend.length > 0) {
+        const failures = await appendAttachmentsToMessage(userMessage.version_id, attachmentsToSend);
+        if (failures.length > 0) {
+          toast.warning(i18n.t("chat.attach_failed"), {
+            description: failures.join("，")
+          });
+        }
+      }
+
+      try {
+        targetDetail = await persistResponderSelection(targetDetail, responderParticipantIds);
+      } catch (error) {
+        console.error("Failed to persist responder selection:", error);
+      }
+
+      selectedResponderParticipantIds = responderParticipantIds;
+
+      for (const [index, responderParticipantId] of responderParticipantIds.entries()) {
+        const streamId = `stream-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 8)}`;
+        generationJobsState.registerJob({
+          streamId,
+          conversationId: targetConversationId,
+          responderParticipantId
+        });
+
+        void generateReplyStream({
+          request: {
+            conversation_id: targetConversationId,
+            responder_participant_id: responderParticipantId,
+            trigger_message_version_id: userMessage.version_id
+          },
+          stream_id: streamId
+        }).catch((error) => {
+          generationJobsState.failJob(streamId, describeChatError(error));
+          console.error("Generation failed:", error);
+          if (conversationId === targetConversationId) {
+            toast.error(i18n.t("chat.send_failed"), {
+              description: describeChatError(error)
+            });
+          }
+        });
+      }
+    } catch (error) {
+      console.error("Send failed:", error);
+      composerText = trimmedText;
+      pendingAttachments = [...attachmentsToSend, ...pendingAttachments];
+      toast.error(i18n.t("chat.send_failed"), {
+        description: describeChatError(error)
+      });
+    } finally {
+      sending = false;
+    }
   }
 
-  function editAutoResize(node: HTMLTextAreaElement) {
-    function resize() { node.style.height = "auto"; node.style.height = Math.min(node.scrollHeight, 300) + "px"; }
-    node.addEventListener("input", resize);
-    requestAnimationFrame(resize);
-    return { destroy() { node.removeEventListener("input", resize); } };
+  async function appendAttachmentsToMessage(
+    messageVersionId: string,
+    attachments: PendingAttachment[]
+  ) {
+    const results = await Promise.allSettled(
+      attachments.map((attachment, index) =>
+        appendMessageAttachment({
+          message_version_id: messageVersionId,
+          ref_role: attachment.refRole,
+          sort_order: index,
+          content: {
+            content_type: attachment.contentType,
+            mime_type: attachment.mimeType,
+            text_content: attachment.textContent,
+            source_file_path: attachment.sourceFilePath,
+            primary_storage_uri: attachment.primaryStorageUri,
+            size_bytes_hint: attachment.sizeBytes,
+            preview_text: attachment.previewText,
+            config_json: {
+              file_name: attachment.name
+            }
+          },
+          config_json: {
+            file_name: attachment.name
+          }
+        })
+      )
+    );
+
+    return results
+      .map((result, index) =>
+        result.status === "rejected" ? attachments[index]?.name ?? i18n.t("chat.attachment") : null
+      )
+      .filter((value): value is string => !!value);
   }
 
-  const suggestions = $derived([
-    { icon: MessageCircle, text: i18n.t("suggest.chat"), desc: i18n.t("suggest.chat_desc") },
-    { icon: Lightbulb, text: i18n.t("suggest.brainstorm"), desc: i18n.t("suggest.brainstorm_desc") },
-    { icon: Sparkles, text: i18n.t("suggest.write"), desc: i18n.t("suggest.write_desc") }
-  ]);
+  async function handleAttachFiles(files: FileList | null) {
+    if (!files || files.length === 0) {
+      return;
+    }
+
+    const prepared = await Promise.allSettled(
+      Array.from(files).map((file, index) => prepareAttachment(file, pendingAttachments.length + index))
+    );
+
+    const nextAttachments = prepared
+      .filter((result): result is PromiseFulfilledResult<PendingAttachment> => result.status === "fulfilled")
+      .map((result) => result.value);
+    const failed = prepared.filter((result) => result.status === "rejected");
+
+    if (nextAttachments.length > 0) {
+      pendingAttachments = [...pendingAttachments, ...nextAttachments];
+    }
+
+    if (failed.length > 0) {
+      toast.warning(i18n.t("chat.attach_unsupported"), {
+        description: failed
+          .map((result) =>
+            result.status === "rejected" && result.reason instanceof Error
+              ? result.reason.message
+              : i18n.t("chat.generic_error")
+          )
+          .join("；")
+      });
+    }
+  }
+
+  function removeAttachment(attachmentId: string) {
+    pendingAttachments = pendingAttachments.filter((attachment) => attachment.id !== attachmentId);
+  }
+
+  async function prepareAttachment(file: File, index: number): Promise<PendingAttachment> {
+    const mimeType = file.type || null;
+    const extension = file.name.split(".").pop()?.toLowerCase() ?? "";
+    const path = (file as File & { path?: string }).path ?? null;
+    const textLike =
+      (mimeType?.startsWith("text/") ?? false) ||
+      ["md", "markdown", "txt", "json", "csv", "xml", "yaml", "yml", "html", "htm", "svg"].includes(extension);
+
+    if (path) {
+      const descriptor = describeAttachment(mimeType, extension);
+      return {
+        id: `attachment-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+        name: file.name,
+        mimeType,
+        sizeBytes: file.size,
+        contentType: descriptor.contentType,
+        refRole: descriptor.refRole,
+        textContent: null,
+        sourceFilePath: path,
+        primaryStorageUri: null,
+        previewText: file.name
+      };
+    }
+
+    if (textLike) {
+      const textContent = await file.text();
+      return {
+        id: `attachment-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+        name: file.name,
+        mimeType,
+        sizeBytes: file.size,
+        contentType: extension === "md" || extension === "markdown" ? "markdown" : extension === "json" ? "json" : "text",
+        refRole: "attachment",
+        textContent,
+        sourceFilePath: null,
+        primaryStorageUri: null,
+        previewText: file.name
+      };
+    }
+
+    if (mimeType?.startsWith("image/")) {
+      const dataUrl = await readFileAsDataUrl(file);
+      return {
+        id: `attachment-${Date.now()}-${index}-${Math.random().toString(36).slice(2, 7)}`,
+        name: file.name,
+        mimeType,
+        sizeBytes: file.size,
+        contentType: "image",
+        refRole: "image",
+        textContent: null,
+        sourceFilePath: null,
+        primaryStorageUri: dataUrl,
+        previewText: file.name
+      };
+    }
+
+    throw new Error(`${file.name}: ${i18n.t("chat.attachment_missing_path")}`);
+  }
+
+  function describeAttachment(mimeType: string | null, extension: string) {
+    if (mimeType?.startsWith("image/")) {
+      return { contentType: "image" as const, refRole: "image" };
+    }
+    if (mimeType?.startsWith("audio/")) {
+      return { contentType: "audio" as const, refRole: "audio" };
+    }
+    if (mimeType?.startsWith("video/")) {
+      return { contentType: "video" as const, refRole: "video" };
+    }
+    if (
+      (mimeType?.startsWith("text/") ?? false) ||
+      ["md", "markdown", "txt", "json", "csv", "xml", "yaml", "yml", "html", "htm", "svg"].includes(extension)
+    ) {
+      if (extension === "md" || extension === "markdown") {
+        return { contentType: "markdown" as const, refRole: "attachment" };
+      }
+      if (extension === "json") {
+        return { contentType: "json" as const, refRole: "attachment" };
+      }
+      return { contentType: "text" as const, refRole: "attachment" };
+    }
+    return { contentType: "file" as const, refRole: "file" };
+  }
+
+  function readFileAsDataUrl(file: File) {
+    return new Promise<string>((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onerror = () => reject(reader.error ?? new Error("Failed to read attachment"));
+      reader.onload = () => {
+        if (typeof reader.result === "string") {
+          resolve(reader.result);
+          return;
+        }
+        reject(new Error("Failed to read attachment"));
+      };
+      reader.readAsDataURL(file);
+    });
+  }
+
+  function formatAttachmentSize(sizeBytes: number, mimeType: string | null) {
+    const sizeLabel =
+      sizeBytes >= 1024 * 1024
+        ? `${(sizeBytes / (1024 * 1024)).toFixed(1)} MB`
+        : `${Math.max(1, Math.round(sizeBytes / 1024))} KB`;
+    return mimeType ? `${mimeType} · ${sizeLabel}` : sizeLabel;
+  }
+
+  async function handleStartConversationWithAgent(agentId: string) {
+    if (!onStartConversationWithAgent || startingAgentId) return;
+
+    startingAgentId = agentId;
+    try {
+      const id = await onStartConversationWithAgent(agentId);
+      if (!id) {
+        toast.error(i18n.t("chat.create_conversation_failed"), {
+          description: i18n.t("chat.generic_error")
+        });
+      }
+    } finally {
+      startingAgentId = "";
+    }
+  }
+
+  const selectedMessage = $derived(
+    selectedNodeId ? messages.find((message) => message.node_id === selectedNodeId) ?? null : null
+  );
+  const selectedVersionCount = $derived(
+    selectedMessage ? (versionsByNode[selectedMessage.node_id]?.length ?? 1) : 0
+  );
 </script>
 
-<div class="relative flex h-full flex-1 flex-col overflow-hidden">
-  <!-- ─── Inline header (replaces topbar) ─── -->
-  <header class="flex h-12 flex-shrink-0 items-center gap-3 border-b border-[var(--border-soft)] px-4 pr-[140px]" data-tauri-drag-region>
-    <!-- Mobile sidebar toggle -->
-    <button
-      type="button"
-      class="icon-hover inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--ink-strong)] lg:hidden"
-      onclick={onToggleSidebar}
-    >
-      <PanelLeft size={18} />
-    </button>
+<ChatShell
+  {desktopWide}
+  {sidebarOpen}
+  {inspectorVisible}
+  {inspectorOpen}
+  {onCloseSidebar}
+  {onCloseInspector}
+  {onOpenInspector}
+>
+  {#snippet rail()}
+    <ResourceSidebar
+      workspace="chat"
+      items={sidebarItems}
+      activeId={activeSidebarId}
+      onSelect={onSelectSidebar}
+      onCreateNew={onCreateSidebarItem}
+      onRename={onRenameSidebarItem}
+      onDelete={onDeleteSidebarItem}
+    />
+  {/snippet}
 
-    <!-- Title -->
-    <div class="flex min-w-0 flex-1 items-center gap-2">
-      {#if headerEditing}
-        <div class="flex items-center gap-1.5">
-          <input
-            class="inline-title-input rounded-[var(--radius-sm)] border border-[var(--brand)] bg-[var(--bg-app)] px-2 py-0.5 text-sm font-semibold text-[var(--ink-strong)] outline-none shadow-[0_0_0_2px_var(--brand-glow)]"
-            style="width: {Math.max(headerEditText.length * 8 + 24, 100)}px"
-            bind:value={headerEditText}
-            onkeydown={handleHeaderKeydown}
-            onblur={submitHeaderEdit}
+  {#snippet header()}
+    <ChatHeader
+      {conversationTitle}
+      {editable}
+      {onRename}
+      {onToggleSidebar}
+      {onToggleInspector}
+    />
+  {/snippet}
+
+  {#snippet body()}
+    <div bind:this={scrollContainer} class="app-scrollbar min-h-0 flex-1 overflow-y-auto">
+      {#if loading}
+        <div class="flex h-full items-center justify-center px-4 py-6">
+          <div class="flex flex-col items-center gap-3">
+            <Loader2 size={28} class="animate-spin text-[var(--brand)]" />
+            <span class="text-sm text-[var(--ink-faint)]">{i18n.t("chat.loading")}</span>
+          </div>
+        </div>
+      {:else if messages.length === 0 && activeGenerationJobs.length === 0}
+        <div class="h-full">
+          <ChatEmptyState
+            {conversationTitle}
+            {availableAgents}
+            {startingAgentId}
+            onSelectSuggestion={handleSuggestion}
+            onStartWithAgent={handleStartConversationWithAgent}
           />
-          <button type="button" class="inline-flex h-6 w-6 items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-faint)] hover:text-[var(--ink-muted)]" onclick={(e) => { e.preventDefault(); cancelHeaderEdit(); }}>
-            <X size={14} />
-          </button>
         </div>
       {:else}
-        <button
-          type="button"
-          class="group/title flex items-center gap-1.5 truncate"
-          ondblclick={startHeaderEdit}
-          title={editable ? i18n.t("chat.edit_title") : ""}
-        >
-          <h1 class="truncate text-sm font-semibold text-[var(--ink-strong)]">{conversationTitle}</h1>
-          {#if editable}
-            <Pencil size={12} class="flex-shrink-0 text-[var(--ink-faint)] opacity-0 transition-opacity group-hover/title:opacity-100" />
-          {/if}
-        </button>
-      {/if}
-    </div>
+        <div class="mx-auto w-full max-w-[var(--message-max-width)] px-4 py-6">
+          {#each messages as message, index (message.version_id)}
+            {@const text = getMessageText(message)}
+            {@const versionInfo = getVersionInfo(message)}
+            {@const author = getParticipantMeta(message.author_participant_id, message.role)}
 
-    <!-- Right tools -->
-    <div class="flex items-center gap-1">
-      <button type="button" title={i18n.t("chat.clear")} class="icon-hover hidden h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--ink-muted)] sm:inline-flex">
-        <Eraser size={16} />
-      </button>
-      <button type="button" title={i18n.t("chat.export")} class="icon-hover hidden h-8 w-8 items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--ink-muted)] sm:inline-flex">
-        <Download size={16} />
-      </button>
-      <button
-        type="button"
-        class="icon-hover inline-flex h-8 w-8 cursor-pointer items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-muted)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--ink-strong)] xl:hidden"
-        onclick={onToggleInspector}
-      >
-        <PanelRight size={18} />
-      </button>
-    </div>
-  </header>
+            <ChatMessageItem
+              message={message}
+              {text}
+              authorName={author.name}
+              avatarUri={author.avatarUri}
+              authorKind={author.kind}
+              {versionInfo}
+              isEditing={editingNodeId === message.node_id}
+              selected={selectedNodeId === message.node_id}
+              bind:editText
+              {editSaving}
+              copied={copiedVersionId === message.version_id}
+              generationLocked={inFlightCountForConversation > 0}
+              animationDelay={`${Math.min(index * 30, 300)}ms`}
+              onLoadVersions={() => void loadVersions(message.node_id)}
+              onStartEdit={() => startEdit(message)}
+              onCancelEdit={cancelEdit}
+              onSubmitEdit={() => void submitEdit()}
+              onCopy={() => copyText(text, message.version_id)}
+              onDelete={() => void handleDelete(message.node_id)}
+              onRegenerate={() => void handleRegenerate(message)}
+              onSelect={() => {
+                selectedNodeId = message.node_id;
+              }}
+              onPrevVersion={() => {
+                const versions = versionsByNode[message.node_id] ?? [];
+                const currentIndex = versions.findIndex((item) => item.version_id === message.version_id);
+                if (currentIndex > 0) {
+                  void handleSwitchVersion(message.node_id, versions[currentIndex - 1].version_id);
+                }
+              }}
+              onNextVersion={() => {
+                const versions = versionsByNode[message.node_id] ?? [];
+                const currentIndex = versions.findIndex((item) => item.version_id === message.version_id);
+                if (currentIndex < versions.length - 1) {
+                  void handleSwitchVersion(message.node_id, versions[currentIndex + 1].version_id);
+                }
+              }}
+            />
+          {/each}
 
-  <!-- ─── Messages area ─── -->
-  <div bind:this={scrollContainer} class="app-scrollbar flex-1 overflow-y-auto">
-    {#if loading}
-      <div class="flex h-full items-center justify-center">
-        <div class="flex flex-col items-center gap-3">
-          <Loader2 size={28} class="animate-spin text-[var(--brand)]" />
-          <span class="text-sm text-[var(--ink-faint)]">{i18n.t("chat.loading")}</span>
-        </div>
-      </div>
-    {:else if messages.length === 0 && !streaming}
-      <!-- Empty state -->
-      <div class="flex h-full flex-col items-center justify-center gap-8 px-6">
-        <div class="flex flex-col items-center gap-4">
-          <div class="relative">
-            <div class="flex h-20 w-20 items-center justify-center rounded-2xl bg-gradient-to-br from-[var(--brand)] to-[#3b82f6] shadow-lg">
-              <span class="text-3xl font-bold text-white">步</span>
-            </div>
-            <div class="absolute -bottom-1 -right-1 flex h-7 w-7 items-center justify-center rounded-full border-2 border-[var(--bg-surface)] bg-[var(--success)] shadow-sm">
-              <Sparkles size={14} class="text-white" />
-            </div>
-          </div>
-          <div class="text-center">
-            <h2 class="text-xl font-bold text-[var(--ink-strong)]">{conversationTitle}</h2>
-            <p class="mt-1 text-sm text-[var(--ink-muted)]">{i18n.t("chat.start_hint")}</p>
-          </div>
-        </div>
-        <div class="grid w-full max-w-lg gap-3 sm:grid-cols-3">
-          {#each suggestions as s}
-            <button type="button" class="suggestion-card flex flex-col items-center gap-2 rounded-[var(--radius-lg)] border border-[var(--border-soft)] bg-[var(--bg-surface)] px-4 py-5 text-center" onclick={() => { composerText = s.text; composerTextarea?.focus(); }}>
-              <div class="flex h-10 w-10 items-center justify-center rounded-[var(--radius-md)] bg-[var(--brand-soft)]">
-                <s.icon size={20} class="text-[var(--brand)]" />
-              </div>
-              <span class="text-sm font-medium text-[var(--ink-strong)]">{s.text}</span>
-              <span class="text-xs text-[var(--ink-faint)]">{s.desc}</span>
-            </button>
+          {#each activeGenerationJobs as job (job.stream_id)}
+            {@const author = getParticipantMeta(job.responder_participant_id, "assistant")}
+            <ChatStreamingMessage
+              text={job.accumulated_text}
+              authorName={author.name}
+              avatarUri={author.avatarUri}
+              status={job.status}
+              errorText={job.error_text}
+              onDismiss={() => generationJobsState.dismissConversationFailures(conversationId)}
+            />
           {/each}
         </div>
-      </div>
-    {:else}
-      <!-- Message list -->
-      <div class="mx-auto max-w-[var(--message-max-width)] px-4 py-6">
-        {#each messages as message, i (message.version_id)}
-          {@const text = getMessageText(message)}
-          {@const versionInfo = getVersionInfo(message)}
-          {@const isEditing = editingNodeId === message.node_id}
-          <div
-            class="group msg-enter mb-6"
-            style="animation-delay: {Math.min(i * 30, 300)}ms"
-            role="article"
-            onmouseenter={() => { hoveredMessageId = message.version_id; void loadVersions(message.node_id); }}
-            onmouseleave={() => { hoveredMessageId = ""; }}
-          >
-            {#if message.role === "user"}
-              <div class="flex justify-end gap-3">
-                <div class="max-w-[80%]">
-                  {#if isEditing}
-                    <div class="rounded-[var(--radius-lg)] border border-[var(--brand)] bg-[var(--bg-app)] p-2 shadow-[0_0_0_2px_var(--brand-glow)]">
-                      <textarea class="block w-full resize-none bg-transparent px-2 py-1 text-sm leading-relaxed text-[var(--ink-body)] outline-none" bind:value={editText} onkeydown={handleEditKeydown} use:editAutoResize></textarea>
-                      <div class="mt-1.5 flex items-center justify-end gap-1.5">
-                        <button type="button" class="inline-flex h-7 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-xs text-[var(--ink-muted)] hover:bg-[var(--bg-hover)]" onclick={cancelEdit}>
-                          <X size={12} /> {i18n.t("chat.cancel")}
-                        </button>
-                        <button type="button" class="inline-flex h-7 items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--brand)] px-2.5 text-xs text-white hover:bg-[var(--brand-strong)] disabled:opacity-50" onclick={() => void submitEdit()} disabled={editSaving || !editText.trim()}>
-                          {#if editSaving}<Loader2 size={12} class="animate-spin" />{:else}<Check size={12} />{/if}
-                          {i18n.t("chat.save")} <kbd class="ml-1 text-[10px] opacity-60">Ctrl+↵</kbd>
-                        </button>
-                      </div>
-                    </div>
-                  {:else}
-                    <div class="user-bubble rounded-2xl rounded-br-md px-4 py-2.5 text-sm leading-relaxed shadow-[var(--shadow-sm)]">
-                      <p class="whitespace-pre-wrap">{text}</p>
-                    </div>
-                  {/if}
-                  {#if !isEditing}
-                    <div class="mt-1 flex items-center justify-end gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      <span class="mr-auto text-[10px] text-[var(--ink-faint)]">{formatTimestamp(message.created_at)}</span>
-                      <button type="button" title={i18n.t("chat.edit")} class="msg-action-btn" onclick={() => startEdit(message)}><Edit3 size={13} /></button>
-                      <button type="button" title={i18n.t("chat.copy")} class="msg-action-btn" onclick={() => copyText(text, message.version_id)}>
-                        {#if copiedVersionId === message.version_id}<Check size={13} class="text-[var(--success)]" />{:else}<Copy size={13} />{/if}
-                      </button>
-                      <button type="button" title={i18n.t("chat.delete")} class="msg-action-btn hover:!text-[var(--danger)]" onclick={() => handleDelete(message.node_id)}><Trash2 size={13} /></button>
-                    </div>
-                  {/if}
-                </div>
-                <div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-gray-700 to-gray-900 text-xs font-bold text-white shadow-sm">{i18n.t("chat.user_avatar")}</div>
-              </div>
-            {:else}
-              <div class="flex gap-3">
-                <div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--brand-soft)] to-blue-100 text-xs font-bold text-[var(--brand)] shadow-sm">
-                  {message.role === "assistant" ? "步" : "系"}
-                </div>
-                <div class="min-w-0 flex-1">
-                  <div class="mb-1.5 flex items-center gap-2">
-                    <span class="text-sm font-semibold text-[var(--ink-strong)]">{message.role === "assistant" ? i18n.t("chat.assistant") : i18n.t("chat.system")}</span>
-                    {#if message.api_channel_model_id}
-                      <span class="rounded-[var(--radius-full)] bg-[var(--bg-hover)] px-2 py-0.5 text-[10px] font-medium text-[var(--ink-faint)]">{message.api_channel_model_id}</span>
-                    {/if}
-                    {#if message.prompt_tokens || message.completion_tokens}
-                      <span class="text-[10px] text-[var(--ink-faint)]">{message.prompt_tokens ?? 0} → {message.completion_tokens ?? 0} tokens</span>
-                    {/if}
-                  </div>
-                  {#if isEditing}
-                    <div class="rounded-[var(--radius-md)] border border-[var(--brand)] bg-[var(--bg-app)] p-2 shadow-[0_0_0_2px_var(--brand-glow)]">
-                      <textarea class="block w-full resize-none bg-transparent px-2 py-1 text-sm leading-relaxed text-[var(--ink-body)] outline-none" bind:value={editText} onkeydown={handleEditKeydown} use:editAutoResize></textarea>
-                      <div class="mt-1.5 flex items-center justify-end gap-1.5">
-                        <button type="button" class="inline-flex h-7 items-center gap-1 rounded-[var(--radius-sm)] px-2 text-xs text-[var(--ink-muted)] hover:bg-[var(--bg-hover)]" onclick={cancelEdit}>
-                          <X size={12} /> {i18n.t("chat.cancel")}
-                        </button>
-                        <button type="button" class="inline-flex h-7 items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--brand)] px-2.5 text-xs text-white hover:bg-[var(--brand-strong)] disabled:opacity-50" onclick={() => void submitEdit()} disabled={editSaving || !editText.trim()}>
-                          {#if editSaving}<Loader2 size={12} class="animate-spin" />{:else}<Check size={12} />{/if}
-                          {i18n.t("chat.save")} <kbd class="ml-1 text-[10px] opacity-60">Ctrl+↵</kbd>
-                        </button>
-                      </div>
-                    </div>
-                  {:else}
-                    <div class="prose-chat text-sm leading-relaxed text-[var(--ink-body)]">{@html renderMarkdown(text)}</div>
-                  {/if}
-                  {#if !isEditing}
-                    <div class="mt-2 flex items-center gap-1 opacity-0 transition-opacity duration-150 group-hover:opacity-100">
-                      <span class="mr-1 text-[10px] text-[var(--ink-faint)]">{formatTimestamp(message.created_at)}</span>
-                      <button type="button" title={i18n.t("chat.copy")} class="msg-action-btn" onclick={() => copyText(text, message.version_id)}>
-                        {#if copiedVersionId === message.version_id}<Check size={13} class="text-[var(--success)]" />{:else}<Copy size={13} />{/if}
-                      </button>
-                      {#if message.role === "assistant"}
-                        <button type="button" title={i18n.t("chat.regenerate")} class="msg-action-btn" onclick={() => void handleRegenerate(message.node_id)} disabled={streaming}><RefreshCw size={13} /></button>
-                      {/if}
-                      <button type="button" title={i18n.t("chat.edit")} class="msg-action-btn" onclick={() => startEdit(message)}><Edit3 size={13} /></button>
-                      <button type="button" title={i18n.t("chat.delete")} class="msg-action-btn hover:!text-[var(--danger)]" onclick={() => handleDelete(message.node_id)}><Trash2 size={13} /></button>
-                      {#if versionInfo}
-                        <div class="ml-2 flex items-center gap-0.5 rounded-[var(--radius-full)] border border-[var(--border-soft)] bg-[var(--bg-surface)] px-1.5 py-0.5 shadow-sm">
-                          <button type="button" title={i18n.t("chat.prev_version")} class="inline-flex h-5 w-5 items-center justify-center rounded-full text-[var(--ink-faint)] hover:text-[var(--ink-muted)] disabled:opacity-30" disabled={versionInfo.current <= 1} onclick={() => { const versions = versionsByNode[message.node_id]; const idx = versions.findIndex(v => v.version_id === message.version_id); if (idx > 0) void handleSwitchVersion(message.node_id, versions[idx - 1].version_id); }}>
-                            <ChevronLeft size={12} />
-                          </button>
-                          <span class="min-w-[28px] text-center text-[10px] font-medium text-[var(--ink-faint)]">{versionInfo.current}/{versionInfo.total}</span>
-                          <button type="button" title={i18n.t("chat.next_version")} class="inline-flex h-5 w-5 items-center justify-center rounded-full text-[var(--ink-faint)] hover:text-[var(--ink-muted)] disabled:opacity-30" disabled={versionInfo.current >= versionInfo.total} onclick={() => { const versions = versionsByNode[message.node_id]; const idx = versions.findIndex(v => v.version_id === message.version_id); if (idx < versions.length - 1) void handleSwitchVersion(message.node_id, versions[idx + 1].version_id); }}>
-                            <ChevronRight size={12} />
-                          </button>
-                        </div>
-                      {/if}
-                    </div>
-                  {/if}
-                </div>
-              </div>
-            {/if}
-          </div>
-        {/each}
-
-        {#if streaming}
-          <div class="msg-enter mb-6 flex gap-3">
-            <div class="flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br from-[var(--brand-soft)] to-blue-100 text-xs font-bold text-[var(--brand)] shadow-sm">步</div>
-            <div class="min-w-0 flex-1">
-              <div class="mb-1.5 flex items-center gap-2">
-                <span class="text-sm font-semibold text-[var(--ink-strong)]">{i18n.t("chat.assistant")}</span>
-                <span class="inline-flex items-center gap-1 rounded-[var(--radius-full)] bg-[var(--brand-soft)] px-2 py-0.5 text-[10px] font-medium text-[var(--brand)]">
-                  <Loader2 size={10} class="animate-spin" />
-                  {i18n.t("chat.generating")}
-                </span>
-              </div>
-              {#if streamingText}
-                <div class="prose-chat text-sm leading-relaxed text-[var(--ink-body)]">{@html renderMarkdown(streamingText)}</div>
-              {:else}
-                <div class="flex items-center gap-1.5 py-3">
-                  <span class="typing-dot h-2 w-2 rounded-full bg-[var(--brand)]"></span>
-                  <span class="typing-dot h-2 w-2 rounded-full bg-[var(--brand)]"></span>
-                  <span class="typing-dot h-2 w-2 rounded-full bg-[var(--brand)]"></span>
-                </div>
-              {/if}
-            </div>
-          </div>
-        {/if}
-      </div>
-    {/if}
-  </div>
-
-  <!-- ─── Floating Composer ─── -->
-  <div class="px-4 pb-4 pt-2">
-    <div class="composer-card mx-auto max-w-3xl px-4 pb-2 pt-3">
-      <textarea
-        class="block w-full resize-none bg-transparent text-sm leading-relaxed text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-faint)]"
-        placeholder={i18n.t("chat.input_placeholder")}
-        rows="3"
-        bind:this={composerTextarea}
-        bind:value={composerText}
-        onkeydown={handleKeydown}
-        disabled={sending}
-        style="overflow-y: hidden;"
-      ></textarea>
-      <div class="mt-1 flex items-center justify-between">
-        <div class="flex items-center gap-1">
-          <button type="button" title={i18n.t("chat.attachment")} class="flex h-8 w-8 items-center justify-center rounded-[var(--radius-md)] text-[var(--ink-faint)] transition-colors hover:bg-[var(--bg-hover)] hover:text-[var(--ink-muted)]">
-            <Paperclip size={16} />
-          </button>
-        </div>
-        <div class="flex items-center gap-2">
-          {#if streaming}
-            <button type="button" title={i18n.t("chat.stop")} class="flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--danger)] px-3 text-xs font-medium text-white shadow-sm transition-all hover:bg-red-700" onclick={handleStopGeneration}>
-              <Square size={12} /> {i18n.t("chat.stop")}
-            </button>
-          {:else}
-            <button type="button" title="{i18n.t('chat.send')} (Enter)" class="flex h-8 items-center gap-1.5 rounded-[var(--radius-md)] bg-[var(--brand)] px-3 text-xs font-medium text-white shadow-sm transition-all hover:bg-[var(--brand-strong)] disabled:opacity-40" onclick={() => void handleSend()} disabled={!composerText.trim() || sending}>
-              {#if sending}<Loader2 size={14} class="animate-spin" />{:else}<SendHorizontal size={14} />{/if}
-              {i18n.t("chat.send")}
-            </button>
-          {/if}
-        </div>
-      </div>
+      {/if}
     </div>
-  </div>
-</div>
+  {/snippet}
 
-<style>
-  .msg-action-btn {
-    display: inline-flex;
-    height: 24px;
-    width: 24px;
-    align-items: center;
-    justify-content: center;
-    border-radius: var(--radius-sm);
-    color: var(--ink-faint);
-    transition: all 120ms ease;
-  }
-  .msg-action-btn:hover {
-    background: var(--bg-hover);
-    color: var(--ink-muted);
-  }
+  {#snippet composer()}
+    <ChatComposer
+      bind:value={composerText}
+      {sending}
+      canSend={canSendNewTurn && (!!composerText.trim() || pendingAttachments.length > 0)}
+      busy={inFlightCountForConversation > 0}
+      attachments={attachmentChips}
+      availableRecipients={recipientOptions}
+      selectedRecipientIds={selectedResponderParticipantIds}
+      onSend={() => void handleSend()}
+      onAttachFiles={(files) => void handleAttachFiles(files)}
+      onRemoveAttachment={removeAttachment}
+      onToggleRecipient={toggleResponder}
+    />
+  {/snippet}
 
-  :global(.prose-chat) { word-wrap: break-word; overflow-wrap: break-word; }
-  :global(.prose-chat p) { margin: 0.25em 0; }
-  :global(.prose-chat p:first-child) { margin-top: 0; }
-  :global(.prose-chat p:last-child) { margin-bottom: 0; }
-  :global(.prose-chat h1), :global(.prose-chat h2), :global(.prose-chat h3), :global(.prose-chat h4) { font-weight: 600; margin: 0.75em 0 0.25em; color: var(--ink-strong); }
-  :global(.prose-chat h1) { font-size: 1.25em; }
-  :global(.prose-chat h2) { font-size: 1.125em; }
-  :global(.prose-chat h3) { font-size: 1em; }
-  :global(.prose-chat ul), :global(.prose-chat ol) { margin: 0.5em 0; padding-left: 1.5em; }
-  :global(.prose-chat li) { margin: 0.15em 0; }
-  :global(.prose-chat code) { font-family: ui-monospace, "SFMono-Regular", "Cascadia Code", "Consolas", monospace; font-size: 0.9em; padding: 0.15em 0.35em; background: var(--bg-hover); border-radius: var(--radius-sm); color: var(--ink-strong); }
-  :global(.prose-chat pre) { position: relative; margin: 0.5em 0; padding: 0.75em 1em; background: #1e1e2e; border-radius: var(--radius-md); overflow-x: auto; color: #cdd6f4; }
-  :global(.prose-chat pre code) { padding: 0; background: transparent; border-radius: 0; color: inherit; font-size: 0.85em; }
-  :global(.prose-chat blockquote) { margin: 0.5em 0; padding: 0.25em 0.75em; border-left: 3px solid var(--brand); color: var(--ink-muted); background: var(--brand-soft); border-radius: 0 var(--radius-sm) var(--radius-sm) 0; }
-  :global(.prose-chat a) { color: var(--brand); text-decoration: underline; }
-  :global(.prose-chat table) { margin: 0.5em 0; border-collapse: collapse; width: 100%; font-size: 0.9em; }
-  :global(.prose-chat th), :global(.prose-chat td) { border: 1px solid var(--border-soft); padding: 0.35em 0.5em; text-align: left; }
-  :global(.prose-chat th) { background: var(--bg-hover); font-weight: 600; }
-  :global(.prose-chat hr) { margin: 0.75em 0; border: none; border-top: 1px solid var(--border-soft); }
-  :global(.prose-chat img) { max-width: 100%; border-radius: var(--radius-md); margin: 0.5em 0; }
-</style>
+  {#snippet inspector()}
+    <InspectorPanel
+      tabs={inspectorTabs}
+      activeTab={activeInspectorTab}
+      {conversationTitle}
+      {conversationDetail}
+      {availableAgents}
+      {messages}
+      selectedMessage={selectedMessage}
+      selectedVersionCount={selectedVersionCount}
+      onSelectTab={onSelectInspectorTab}
+      onClose={onCloseInspector}
+    />
+  {/snippet}
+</ChatShell>

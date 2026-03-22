@@ -19,10 +19,12 @@ pub fn run() {
                     .map_err(|err| -> Box<dyn std::error::Error> { Box::new(err) })?;
 
             app.manage(state);
+            app::window::apply_responsive_window_defaults(app.handle())?;
             Ok(())
         })
         .plugin(tauri_plugin_opener::init())
         .invoke_handler(tauri::generate_handler![
+            commands::app::notify_main_window_ready,
             commands::agents::list_agents,
             commands::agents::get_agent_detail,
             commands::agents::create_agent,
@@ -43,8 +45,11 @@ pub fn run() {
             commands::api_channels::update_api_channel,
             commands::api_channels::delete_api_channel,
             commands::api_channels::list_api_channel_models,
+            commands::api_channels::fetch_api_channel_remote_models,
             commands::api_channels::upsert_api_channel_model,
             commands::api_channels::delete_api_channel_model,
+            commands::api_channels::refresh_api_channel_models,
+            commands::api_channels::test_api_channel_message,
             commands::conversations::list_conversations,
             commands::conversations::get_conversation_detail,
             commands::conversations::create_conversation,

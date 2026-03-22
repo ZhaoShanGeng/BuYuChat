@@ -1,6 +1,7 @@
 <script lang="ts">
   import { tv, type VariantProps } from "tailwind-variants";
   import { cn } from "$lib/utils";
+  import type { HTMLButtonAttributes } from "svelte/elements";
 
   const buttonVariants = tv({
     base: "inline-flex items-center justify-center font-medium transition-colors duration-150 outline-none focus-visible:ring-2 focus-visible:ring-[var(--focus-ring)] disabled:pointer-events-none disabled:opacity-50",
@@ -33,16 +34,17 @@
     size = "md",
     type = "button",
     className = "",
-    children
+    children,
+    ...rest
   }: {
     variant?: VariantProps<typeof buttonVariants>["variant"];
     size?: VariantProps<typeof buttonVariants>["size"];
     type?: "button" | "submit" | "reset";
     className?: string;
     children?: Snippet;
-  } = $props();
+  } & HTMLButtonAttributes = $props();
 </script>
 
-<button type={type} class={cn(buttonVariants({ variant, size }), className)}>
+<button {...rest} type={type} class={cn(buttonVariants({ variant, size }), className)}>
   {#if children}{@render children()}{/if}
 </button>

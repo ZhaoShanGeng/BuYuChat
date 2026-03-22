@@ -83,3 +83,9 @@ pub struct UpsertApiChannelModelInput {
     pub sort_order: i64,
     pub config_json: serde_json::Value,
 }
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ApiChannelTestResponse {
+    pub model_id: String,
+    pub response_text: String,
+}

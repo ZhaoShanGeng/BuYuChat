@@ -4,6 +4,44 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>BuYu</title>
+    <style>
+      html,
+      body,
+      #app {
+        height: 100%;
+        margin: 0;
+      }
+
+      html {
+        background: #f5f5f5;
+        color-scheme: light;
+      }
+
+      html[data-theme="dark"] {
+        background: #1a1a1e;
+        color-scheme: dark;
+      }
+
+      body,
+      #app {
+        background: inherit;
+      }
+    </style>
+    <script>
+      (() => {
+        try {
+          const stored = localStorage.getItem("buyu-theme");
+          const systemDark = window.matchMedia("(prefers-color-scheme: dark)").matches;
+          const resolved =
+            stored === "light" || stored === "dark"
+              ? stored
+              : systemDark
+                ? "dark"
+                : "light";
+          document.documentElement.setAttribute("data-theme", resolved);
+        } catch (_) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>

@@ -3,8 +3,8 @@ use tauri::{AppHandle, State};
 use crate::app::state::AppState;
 use crate::commands::incremental;
 use crate::domain::api_channels::{
-    ApiChannel, ApiChannelModel, CreateApiChannelInput, UpdateApiChannelInput,
-    UpsertApiChannelModelInput,
+    ApiChannel, ApiChannelModel, ApiChannelTestResponse, CreateApiChannelInput,
+    UpdateApiChannelInput, UpsertApiChannelModelInput,
 };
 use crate::support::error::Result;
 
@@ -75,6 +75,19 @@ pub async fn list_api_channel_models(
 }
 
 #[tauri::command]
+pub async fn fetch_api_channel_remote_models(
+    state: State<'_, AppState>,
+    channel_id: String,
+) -> Result<Vec<ApiChannelModel>> {
+    crate::services::api_channels::fetch_remote_channel_models(
+        &state.db,
+        state.provider_registry.as_ref(),
+        &channel_id,
+    )
+    .await
+}
+
+#[tauri::command]
 pub async fn upsert_api_channel_model(
     app: AppHandle,
     state: State<'_, AppState>,
@@ -108,4 +121,46 @@ pub async fn delete_api_channel_model(
         &model_id,
     )?;
     Ok(())
+}
+
+#[tauri::command]
+pub async fn refresh_api_channel_models(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    channel_id: String,
+) -> Result<Vec<ApiChannelModel>> {
+    let models = crate::services::api_channels::refresh_channel_models(
+        &state.db,
+        state.provider_registry.as_ref(),
+        &channel_id,
+    )
+    .await?;
+
+    for model in &models {
+        incremental::emit_upsert(
+            &app,
+            "api_channel",
+            Some(&model.channel_id),
+            "api_channel_model",
+            Some(&model.id),
+            model,
+        )?;
+    }
+
+    Ok(models)
+}
+
+#[tauri::command]
+pub async fn test_api_channel_message(
+    state: State<'_, AppState>,
+    channel_id: String,
+    model_id: String,
+) -> Result<ApiChannelTestResponse> {
+    crate::services::api_channels::test_channel_message(
+        &state.db,
+        state.provider_registry.as_ref(),
+        &channel_id,
+        &model_id,
+    )
+    .await
 }

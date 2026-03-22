@@ -2,6 +2,7 @@
   import { Minus, Square, X, Copy } from "lucide-svelte";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import { onMount } from "svelte";
+  import Tooltip from "$components/shared/tooltip.svelte";
 
   let isMaximized = $state(false);
   const appWindow = getCurrentWindow();
@@ -26,34 +27,46 @@
 </script>
 
 <div class="window-controls">
-  <button
-    type="button"
-    class="window-btn window-btn-minimize"
-    title="最小化"
-    onclick={() => void handleMinimize()}
-  >
-    <Minus size={12} />
-  </button>
-  <button
-    type="button"
-    class="window-btn window-btn-maximize"
-    title={isMaximized ? "向下还原" : "最大化"}
-    onclick={() => void handleMaximize()}
-  >
-    {#if isMaximized}
-      <Copy size={10} />
-    {:else}
-      <Square size={10} />
-    {/if}
-  </button>
-  <button
-    type="button"
-    class="window-btn window-btn-close"
-    title="关闭"
-    onclick={() => void handleClose()}
-  >
-    <X size={14} />
-  </button>
+  <Tooltip text="最小化" placement="bottom">
+    {#snippet children()}
+      <button
+        type="button"
+        class="window-btn window-btn-minimize"
+        aria-label="最小化"
+        onclick={() => void handleMinimize()}
+      >
+        <Minus size={12} />
+      </button>
+    {/snippet}
+  </Tooltip>
+  <Tooltip text={isMaximized ? "向下还原" : "最大化"} placement="bottom">
+    {#snippet children()}
+      <button
+        type="button"
+        class="window-btn window-btn-maximize"
+        aria-label={isMaximized ? "向下还原" : "最大化"}
+        onclick={() => void handleMaximize()}
+      >
+        {#if isMaximized}
+          <Copy size={10} />
+        {:else}
+          <Square size={10} />
+        {/if}
+      </button>
+    {/snippet}
+  </Tooltip>
+  <Tooltip text="关闭" placement="bottom">
+    {#snippet children()}
+      <button
+        type="button"
+        class="window-btn window-btn-close"
+        aria-label="关闭"
+        onclick={() => void handleClose()}
+      >
+        <X size={14} />
+      </button>
+    {/snippet}
+  </Tooltip>
 </div>
 
 <style>
@@ -68,8 +81,8 @@
     display: inline-flex;
     align-items: center;
     justify-content: center;
-    width: 36px;
-    height: 28px;
+    width: 32px;
+    height: 32px;
     border: none;
     background: transparent;
     color: var(--ink-muted);

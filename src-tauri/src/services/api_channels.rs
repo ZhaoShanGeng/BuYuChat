@@ -3,9 +3,14 @@ use sqlx::SqlitePool;
 use crate::db::models::{ApiChannelModelRow, ApiChannelRow};
 use crate::db::repos::api_channels as repo;
 use crate::domain::api_channels::{
-    ApiChannel, ApiChannelModel, CreateApiChannelInput, UpdateApiChannelInput,
+    ApiChannel, ApiChannelModel, ApiChannelTestResponse, CreateApiChannelInput, UpdateApiChannelInput,
     UpsertApiChannelModelInput,
 };
+use crate::domain::messages::{
+    MessageRole, ProviderChatMessage, ProviderChatRequest, ProviderMessagePart,
+    ProviderMessagePartKind,
+};
+use crate::providers::ProviderRegistry;
 use crate::support::error::{AppError, Result};
 
 pub async fn list_channels(db: &SqlitePool) -> Result<Vec<ApiChannel>> {
@@ -56,6 +61,112 @@ pub async fn upsert_channel_model(
 
 pub async fn delete_channel_model(db: &SqlitePool, channel_id: &str, model_id: &str) -> Result<()> {
     repo::delete_channel_model(db, channel_id, model_id).await
+}
+
+pub async fn fetch_remote_channel_models(
+    db: &SqlitePool,
+    providers: &ProviderRegistry,
+    channel_id: &str,
+) -> Result<Vec<ApiChannelModel>> {
+    let channel = get_channel(db, channel_id).await?;
+    let provider = providers.get(&channel.channel_type)?;
+    provider.list_models(&channel).await
+}
+
+pub async fn refresh_channel_models(
+    db: &SqlitePool,
+    providers: &ProviderRegistry,
+    channel_id: &str,
+) -> Result<Vec<ApiChannelModel>> {
+    let channel = get_channel(db, channel_id).await?;
+    let remote_models = fetch_remote_channel_models(db, providers, channel_id).await?;
+
+    for (index, model) in remote_models.into_iter().enumerate() {
+        let input = UpsertApiChannelModelInput {
+            channel_id: channel.id.clone(),
+            model_id: model.model_id,
+            display_name: model.display_name,
+            model_type: model.model_type,
+            context_window: model.context_window,
+            max_output_tokens: model.max_output_tokens,
+            capabilities_json: model.capabilities_json,
+            pricing_json: model.pricing_json,
+            default_parameters_json: model.default_parameters_json,
+            sort_order: if model.sort_order != 0 {
+                model.sort_order
+            } else {
+                index as i64
+            },
+            config_json: model.config_json,
+        };
+        let _ = repo::upsert_channel_model(db, &input).await?;
+    }
+
+    list_channel_models(db, channel_id).await
+}
+
+pub async fn test_channel_message(
+    db: &SqlitePool,
+    providers: &ProviderRegistry,
+    channel_id: &str,
+    model_id: &str,
+) -> Result<ApiChannelTestResponse> {
+    let channel = get_channel(db, channel_id).await?;
+    let provider = providers.get(&channel.channel_type)?;
+
+    let model = if let Some(model) = list_channel_models(db, channel_id)
+        .await?
+        .into_iter()
+        .find(|model| model.model_id == model_id)
+    {
+        model
+    } else if let Some(model) = fetch_remote_channel_models(db, providers, channel_id)
+        .await?
+        .into_iter()
+        .find(|model| model.model_id == model_id)
+    {
+        model
+    } else {
+        return Err(AppError::Validation(
+            format!("未找到要测试的模型: {model_id}"),
+        ));
+    };
+
+    let request = ProviderChatRequest {
+        api_channel: channel,
+        api_channel_model: model.clone(),
+        request_parameters_json: serde_json::json!({}),
+        messages: vec![ProviderChatMessage {
+            role: MessageRole::User,
+            name: None,
+            parts: vec![ProviderMessagePart {
+                kind: ProviderMessagePartKind::Text,
+                text: Some("hi".to_string()),
+                content: None,
+                metadata_json: serde_json::json!({}),
+            }],
+            metadata_json: serde_json::json!({}),
+        }],
+    };
+
+    let response = provider.chat(request).await?;
+    let response_text = response
+        .parts
+        .iter()
+        .filter_map(|part| part.text.as_deref())
+        .map(str::trim)
+        .filter(|text| !text.is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+
+    Ok(ApiChannelTestResponse {
+        model_id: model.model_id,
+        response_text: if response_text.is_empty() {
+            "连接成功，但接口未返回可显示文本".to_string()
+        } else {
+            response_text
+        },
+    })
 }
 
 fn map_channel_row(row: ApiChannelRow) -> Result<ApiChannel> {

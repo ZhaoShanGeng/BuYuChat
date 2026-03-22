@@ -53,10 +53,12 @@
 
   /* Sizing */
   --rail-width: 64px;
-  --sidebar-width: 300px;
-  --inspector-width: 320px;
-  --composer-max-width: 800px;
-  --message-max-width: 800px;
+  --sidebar-width: clamp(16rem, 21vw, 19rem);
+  --page-sidebar-width: clamp(13.5rem, 18vw, 16.5rem);
+  --inspector-width: clamp(18rem, 24vw, 22rem);
+  --composer-max-width: clamp(40rem, 64vw, 56rem);
+  --message-max-width: clamp(36rem, 60vw, 54rem);
+  --empty-state-max-width: clamp(38rem, 68vw, 52rem);
 
   background: var(--bg-app);
   color: var(--ink-body);
@@ -102,7 +104,8 @@
 html,
 body,
 #app {
-  min-height: 100%;
+  height: 100%;
+  min-height: 0;
 }
 
 html {
@@ -148,15 +151,14 @@ kbd {
   background: var(--brand-glow);
 }
 
-#app {
-  min-height: 100vh;
-}
-
 /* ─── App Shell ─── */
 .app-shell {
   position: relative;
-  min-height: 100vh;
+  height: 100dvh;
+  min-height: 100dvh;
   background: var(--bg-app);
+  isolation: isolate;
+  overflow: hidden;
 }
 
 /* ─── Window Drag Region ─── */
@@ -178,35 +180,46 @@ kbd {
   position: relative;
   z-index: 1;
   display: grid;
-  min-height: 100vh;
-  grid-template-columns: var(--rail-width) var(--sidebar-width) minmax(0, 1fr) var(--inspector-width);
+  height: 100%;
+  min-height: 0;
+  grid-template-columns: var(--rail-width) minmax(0, 1fr);
 }
 
 .app-main-column {
   display: flex;
   flex-direction: column;
-  min-height: 100vh;
+  height: 100%;
+  min-height: 0;
   min-width: 0;
   background: var(--bg-surface);
-}
-
-.app-sheet {
-  min-width: 0;
   overflow: hidden;
 }
-.app-sheet-left.sidebar-hidden {
-  width: 0;
-  border: none;
+
+.app-window-strip {
+  display: flex;
+  height: 40px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: space-between;
+  border-bottom: 1px solid var(--border-soft);
+  background: var(--bg-surface);
+  gap: 12px;
+  padding: 0 10px 0 14px;
 }
 
-/* ─── Mobile Backdrop ─── */
-.app-mobile-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 35;
-  border: 0;
-  background: rgba(0, 0, 0, 0.3);
-  backdrop-filter: blur(4px);
+.app-workspace-column {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+}
+
+.workspace-stage {
+  display: flex;
+  min-height: 0;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 /* ─── Scrollbar ─── */
@@ -227,30 +240,6 @@ kbd {
   background: rgba(128, 128, 128, 0.5);
 }
 
-/* ─── Responsive: hide inspector < 1280 ─── */
-@media (max-width: 1279px) {
-  .app-shell-grid {
-    grid-template-columns: var(--rail-width) var(--sidebar-width) minmax(0, 1fr);
-  }
-
-  .app-sheet-right {
-    position: fixed;
-    top: 0;
-    right: 0;
-    z-index: 40;
-    width: min(var(--inspector-width), 100vw);
-    min-height: 100vh;
-    background: var(--bg-sidebar);
-    box-shadow: var(--shadow-lg);
-    transform: translateX(100%);
-    transition: transform 200ms ease;
-  }
-
-  .app-sheet-right.sheet-open {
-    transform: translateX(0);
-  }
-}
-
 /* ─── Responsive: single column < 1024 ─── */
 @media (max-width: 1023px) {
   body {
@@ -261,39 +250,13 @@ kbd {
     grid-template-columns: minmax(0, 1fr);
   }
 
-  .app-sheet-left,
-  .app-sheet-right {
-    position: fixed;
-    top: 0;
-    z-index: 40;
-    width: min(320px, calc(100vw - 16px));
-    min-height: 100vh;
-    background: var(--bg-sidebar);
-    box-shadow: var(--shadow-lg);
-    transition: transform 200ms ease;
-  }
-
-  .app-sheet-left {
-    left: 0;
-    transform: translateX(-100%);
-  }
-
-  .app-sheet-right {
-    right: 0;
-    width: min(var(--inspector-width), calc(100vw - 16px));
-    transform: translateX(100%);
-  }
-
-  .app-sheet-left.sheet-open {
-    transform: translateX(0);
-  }
-
-  .app-sheet-right.sheet-open {
-    transform: translateX(0);
-  }
-
   .app-main-column {
-    min-height: 100dvh;
+    height: 100dvh;
+  }
+
+  .app-window-strip {
+    height: 36px;
+    padding-inline: 8px;
   }
 }
 
@@ -349,28 +312,28 @@ kbd {
   animation: fadeInUp 0.25s ease-out both;
 }
 
-/* ─── Nav rail tooltip ─── */
-.rail-tooltip {
-  position: absolute;
-  left: calc(100% + 8px);
-  top: 50%;
-  transform: translateY(-50%);
-  padding: 4px 10px;
-  border-radius: var(--radius-sm);
-  background: #1e1e2e;
-  color: #e5e7eb;
-  font-size: 12px;
-  font-weight: 500;
-  white-space: nowrap;
-  pointer-events: none;
-  opacity: 0;
-  transition: opacity 120ms ease;
-  z-index: 100;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);
+/* ─── Unified floating tooltip ─── */
+.app-tooltip-wrapper {
+  z-index: 1200;
 }
 
-.rail-btn:hover .rail-tooltip {
-  opacity: 1;
+.app-tooltip-content {
+  position: relative;
+  max-width: min(240px, calc(100vw - 24px));
+  padding: 6px 10px;
+  border-radius: calc(var(--radius-sm) - 2px);
+  background: color-mix(in srgb, var(--bg-rail) 92%, black 8%);
+  color: #f8fafc;
+  font-size: 12px;
+  font-weight: 600;
+  line-height: 1.25;
+  letter-spacing: 0.01em;
+  pointer-events: none;
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.22);
+}
+
+.app-tooltip-arrow {
+  fill: color-mix(in srgb, var(--bg-rail) 92%, black 8%);
 }
 
 /* ─── Sidebar active indicator ─── */

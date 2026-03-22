@@ -1,3 +1,5 @@
+import { workspaceSidebarItems } from "$lib/fixtures/workspaces";
+
 export type WorkspaceId =
   | "chat"
   | "agents"
@@ -17,7 +19,10 @@ export type InspectorTabId =
 export type SidebarItem = {
   id: string;
   title: string;
-  meta: string;
+  meta?: string;
+  updatedAt?: number | null;
+  busyCount?: number;
+  unreadCount?: number;
 };
 
 export type NavItem = {
@@ -34,39 +39,6 @@ export const navItems: NavItem[] = [
   { id: "settings", label: "Settings" }
 ];
 
-export const workspaceSidebarItems: Record<WorkspaceId, SidebarItem[]> = {
-  chat: [
-    { id: "conversation-schema", title: "Schema Review", meta: "3 summaries · 12 nodes" },
-    { id: "conversation-workflow", title: "Workflow Design", meta: "2 agents · running" },
-    { id: "conversation-storage", title: "Media Storage", meta: "4 files · 1 image" }
-  ],
-  agents: [
-    { id: "agent-orbit", title: "Orbit", meta: "Default workspace operator" },
-    { id: "agent-lantern", title: "Lantern", meta: "Research and lore matching" },
-    { id: "agent-signal", title: "Signal", meta: "Workflow routing specialist" }
-  ],
-  presets: [
-    { id: "preset-story", title: "Story Board", meta: "12 prompt entries" },
-    { id: "preset-ops", title: "Ops Review", meta: "8 prompt entries" },
-    { id: "preset-terse", title: "Terse Debug", meta: "5 prompt entries" }
-  ],
-  lorebooks: [
-    { id: "lore-product", title: "Product Lore", meta: "31 entries · 104 keys" },
-    { id: "lore-world", title: "World Rules", meta: "18 entries · 42 keys" },
-    { id: "lore-memory", title: "Memory Notes", meta: "9 entries · rolling" }
-  ],
-  workflows: [
-    { id: "workflow-agent-loop", title: "Agent Loop", meta: "7 nodes · 9 edges" },
-    { id: "workflow-brief", title: "Brief to Summary", meta: "5 nodes · deterministic" },
-    { id: "workflow-moderate", title: "Moderation Pass", meta: "4 nodes · guarded" }
-  ],
-  settings: [
-    { id: "settings-api", title: "API Channels", meta: "3 providers configured" },
-    { id: "settings-plugins", title: "Plugins", meta: "5 active extensions" },
-    { id: "settings-display", title: "Appearance", meta: "Light workspace theme" }
-  ]
-};
-
 export const inspectorTabs: { id: InspectorTabId; label: string }[] = [
   { id: "context", label: "Context" },
   { id: "versions", label: "Versions" },
@@ -80,8 +52,25 @@ class AppShellState {
   activeWorkspace = $state<WorkspaceId>("chat");
   activeInspectorTab = $state<InspectorTabId>("context");
   activeSidebarItemId = $state<string>("conversation-schema");
+  inspectorVisible = $state(true);
   mobileSidebarOpen = $state(false);
   mobileInspectorOpen = $state(false);
+  desktopWide = $state(typeof window === "undefined" ? true : window.innerWidth >= 1280);
+
+  constructor() {
+    if (typeof window !== "undefined") {
+      const syncDesktopWide = () => {
+        this.desktopWide = window.innerWidth >= 1280;
+      };
+
+      syncDesktopWide();
+      window.addEventListener("resize", syncDesktopWide);
+    }
+  }
+
+  private useDesktopInspector() {
+    return this.desktopWide;
+  }
 
   setWorkspace(id: WorkspaceId) {
     this.activeWorkspace = id;
@@ -107,6 +96,25 @@ class AppShellState {
     this.mobileInspectorOpen = false;
   }
 
+  closeInspector() {
+    if (this.useDesktopInspector()) {
+      this.inspectorVisible = false;
+      return;
+    }
+
+    this.mobileInspectorOpen = false;
+  }
+
+  openInspector() {
+    if (this.useDesktopInspector()) {
+      this.inspectorVisible = true;
+      return;
+    }
+
+    this.mobileInspectorOpen = true;
+    this.mobileSidebarOpen = false;
+  }
+
   toggleMobileSidebar() {
     this.mobileSidebarOpen = !this.mobileSidebarOpen;
     if (this.mobileSidebarOpen) {
@@ -119,6 +127,15 @@ class AppShellState {
     if (this.mobileInspectorOpen) {
       this.mobileSidebarOpen = false;
     }
+  }
+
+  toggleInspector() {
+    if (this.useDesktopInspector()) {
+      this.inspectorVisible = !this.inspectorVisible;
+      return;
+    }
+
+    this.toggleMobileInspector();
   }
 }
 

@@ -302,66 +302,102 @@ async fn create_message(
     }
 
     let primary_content = content::create_content(db, store, &input.primary_content).await?;
-    let order_key = resolve_order_key(
-        db,
-        &input.conversation_id,
-        input.order_after_node_id.as_deref(),
-    )
-    .await?;
-    let now = time::now_ms();
+    let config_json = input.config_json.to_string();
+    let mut saw_order_conflict = false;
 
-    let mut tx = db.begin().await?;
-    let node = repo::append_message_node(
-        &mut tx,
-        &repo::AppendMessageNodeRecord {
-            conversation_id: &input.conversation_id,
-            author_participant_id: &input.author_participant_id,
-            role: input.role.as_str(),
-            reply_to_node_id: input.reply_to_node_id.as_deref(),
-            order_key: &order_key,
-            created_at: now,
-            updated_at: now,
-        },
-    )
-    .await?;
-    let version = repo::create_message_version(
-        &mut tx,
-        &repo::CreateMessageVersionRecord {
-            node_id: &node.id,
-            version_index: 1,
-            is_active: true,
-            primary_content_id: &primary_content.content_id,
-            context_policy: input.context_policy.as_str(),
-            viewer_policy: input.viewer_policy.as_str(),
-            api_channel_id: None,
-            api_channel_model_id: None,
-            generation_run_id: None,
-            prompt_tokens: None,
-            completion_tokens: None,
-            total_tokens: None,
-            finish_reason: None,
-            config_json: &input.config_json.to_string(),
-            created_at: now,
-        },
-    )
-    .await?;
-    tx.commit().await?;
-    conversations_repo::touch_conversation(db, &input.conversation_id).await?;
+    for _attempt in 0..6 {
+        let order_key = resolve_order_key(
+            db,
+            &input.conversation_id,
+            input.order_after_node_id.as_deref(),
+            input.reply_to_node_id.as_deref(),
+            input.role,
+        )
+        .await?;
+        let now = time::now_ms();
 
-    build_message_view(db, store, node, version, Vec::new(), true).await
+        let mut tx = db.begin().await?;
+        let node = match repo::append_message_node(
+            &mut tx,
+            &repo::AppendMessageNodeRecord {
+                conversation_id: &input.conversation_id,
+                author_participant_id: &input.author_participant_id,
+                role: input.role.as_str(),
+                reply_to_node_id: input.reply_to_node_id.as_deref(),
+                order_key: &order_key,
+                created_at: now,
+                updated_at: now,
+            },
+        )
+        .await
+        {
+            Ok(node) => node,
+            Err(AppError::Database(err)) if is_message_order_conflict(&err) => {
+                saw_order_conflict = true;
+                let _ = tx.rollback().await;
+                continue;
+            }
+            Err(err) => return Err(err),
+        };
+
+        let version = repo::create_message_version(
+            &mut tx,
+            &repo::CreateMessageVersionRecord {
+                node_id: &node.id,
+                version_index: 1,
+                is_active: true,
+                primary_content_id: &primary_content.content_id,
+                context_policy: input.context_policy.as_str(),
+                viewer_policy: input.viewer_policy.as_str(),
+                api_channel_id: None,
+                api_channel_model_id: None,
+                generation_run_id: None,
+                prompt_tokens: None,
+                completion_tokens: None,
+                total_tokens: None,
+                finish_reason: None,
+                config_json: &config_json,
+                created_at: now,
+            },
+        )
+        .await?;
+        tx.commit().await?;
+        conversations_repo::touch_conversation(db, &input.conversation_id).await?;
+
+        return build_message_view(db, store, node, version, Vec::new(), true).await;
+    }
+
+    if saw_order_conflict {
+        return Err(AppError::Validation(
+            "failed to allocate a stable message order after concurrent replies".to_string(),
+        ));
+    }
+
+    Err(AppError::Validation(
+        "failed to create message".to_string(),
+    ))
 }
 
 async fn resolve_order_key(
     db: &SqlitePool,
     conversation_id: &str,
     order_after_node_id: Option<&str>,
+    reply_to_node_id: Option<&str>,
+    role: MessageRole,
 ) -> Result<String> {
     let nodes = repo::list_message_nodes(db, conversation_id).await?;
     if nodes.is_empty() {
         return Ok(order_keys::initial_key());
     }
 
-    match order_after_node_id {
+    let effective_after_node_id = resolve_effective_order_after_node_id(
+        &nodes,
+        order_after_node_id,
+        reply_to_node_id,
+        role,
+    );
+
+    match effective_after_node_id.as_deref() {
         None => {
             let last = nodes.last().ok_or_else(|| {
                 AppError::Validation("failed to locate last message node".to_string())
@@ -416,6 +452,40 @@ async fn resolve_order_key(
                 order_keys::append_after(Some(&after.order_key))
             }
         }
+    }
+}
+
+fn resolve_effective_order_after_node_id(
+    nodes: &[MessageNodeRow],
+    order_after_node_id: Option<&str>,
+    reply_to_node_id: Option<&str>,
+    role: MessageRole,
+) -> Option<String> {
+    if !matches!(role, MessageRole::Assistant) {
+        return order_after_node_id.map(str::to_string);
+    }
+
+    let parent_id = reply_to_node_id?;
+    if let Some(last_sibling) = nodes
+        .iter()
+        .rfind(|node| node.reply_to_node_id.as_deref() == Some(parent_id))
+    {
+        return Some(last_sibling.id.clone());
+    }
+
+    order_after_node_id
+        .map(str::to_string)
+        .or_else(|| Some(parent_id.to_string()))
+}
+
+fn is_message_order_conflict(error: &sqlx::Error) -> bool {
+    match error {
+        sqlx::Error::Database(db_error) => {
+            let message = db_error.message();
+            message.contains("message_nodes.conversation_id, message_nodes.order_key")
+                || message.contains("ux_message_nodes_conversation_order")
+        }
+        _ => false,
     }
 }
 

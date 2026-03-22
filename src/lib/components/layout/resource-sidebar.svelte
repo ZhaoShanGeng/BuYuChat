@@ -1,8 +1,11 @@
 <script lang="ts">
-  import { Plus, Search, Pencil, Trash2, MoreHorizontal } from "lucide-svelte";
+  import { Plus, Search, Pencil, Trash2, MoreHorizontal, Loader2 } from "lucide-svelte";
   import { cn } from "$lib/utils";
   import type { SidebarItem, WorkspaceId } from "$lib/state/app-shell.svelte";
   import { i18n } from "$lib/i18n.svelte";
+  import SearchField from "$components/shared/search-field.svelte";
+  import ActionIconButton from "$components/shared/action-icon-button.svelte";
+  import { formatRelativeTimestamp } from "$lib/time";
 
   let {
     workspace,
@@ -55,29 +58,6 @@
     return title.trim().charAt(0).toUpperCase() || "?";
   }
 
-  function formatRelativeTime(meta: string): string {
-    // meta is already formatted from App.svelte as a date string
-    // Try to parse it; if it looks like a date, convert to relative
-    try {
-      const d = new Date(meta);
-      if (isNaN(d.getTime())) return meta;
-      const now = new Date();
-      const diff = now.getTime() - d.getTime();
-      const seconds = Math.floor(diff / 1000);
-      const minutes = Math.floor(seconds / 60);
-      const hours = Math.floor(minutes / 60);
-      const days = Math.floor(hours / 24);
-      if (seconds < 60) return "刚刚";
-      if (minutes < 60) return `${minutes}分钟前`;
-      if (hours < 24) return `${hours}小时前`;
-      if (days === 1) return "昨天";
-      if (days < 7) return `${days}天前`;
-      return meta;
-    } catch {
-      return meta;
-    }
-  }
-
   let filterText = $state("");
 
   // Context menu state
@@ -89,7 +69,7 @@
   // Inline rename state
   let renamingId = $state("");
   let renameText = $state("");
-  let renameInput: HTMLInputElement | undefined;
+  let renameInput = $state<HTMLInputElement | undefined>(undefined);
 
   const filteredItems = $derived(
     filterText
@@ -165,27 +145,18 @@
   <div class="flex items-center justify-between gap-2 px-3 py-3" data-tauri-drag-region>
     <h2 class="text-sm font-semibold text-[var(--ink-strong)]">{i18n.t(labelKeys[workspace])}</h2>
     {#if onCreateNew}
-      <button
-        type="button"
-        title={i18n.t("sidebar.new")}
-        class="icon-hover flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-muted)] transition-colors hover:bg-[var(--bg-active)] hover:text-[var(--brand)]"
-        onclick={onCreateNew}
-      >
+      <ActionIconButton title={i18n.t("sidebar.new")} onClick={onCreateNew} className="icon-hover h-7 w-7 hover:bg-[var(--bg-active)] hover:text-[var(--brand)]">
         <Plus size={16} />
-      </button>
+      </ActionIconButton>
     {/if}
   </div>
 
   <!-- Search -->
   <div class="px-3 pb-2">
-    <label class="search-box flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--border-soft)] bg-[var(--bg-surface)] px-2.5 py-1.5">
-      <Search size={14} class="flex-shrink-0 text-[var(--ink-faint)]" />
-      <input
-        class="w-full bg-transparent text-sm text-[var(--ink-body)] outline-none placeholder:text-[var(--ink-faint)]"
-        placeholder="{i18n.t('sidebar.search')}{i18n.t(labelKeys[workspace])}…"
-        bind:value={filterText}
-      />
-    </label>
+    <SearchField
+      bind:value={filterText}
+      placeholder={`${i18n.t("sidebar.search")}${i18n.t(labelKeys[workspace])}…`}
+    />
   </div>
 
   <!-- Item list -->
@@ -203,45 +174,73 @@
           />
         </div>
       {:else}
-        <button
-          type="button"
+        <div
           class={cn(
-            "group/item relative mb-0.5 flex w-full cursor-pointer items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 py-2.5 text-left transition-colors duration-100",
-            item.id === activeId
-              ? "bg-[var(--bg-active)] text-[var(--ink-strong)]"
-              : "text-[var(--ink-body)] hover:bg-[var(--bg-hover)]"
+            "group/item relative mb-0.5 flex items-center gap-2 rounded-[var(--radius-md)]",
+            item.id === activeId ? "bg-[var(--bg-active)]" : "hover:bg-[var(--bg-hover)]"
           )}
-          onclick={() => onSelect(item.id)}
+          role="group"
           oncontextmenu={(e) => handleContextMenu(e, item.id)}
         >
-          <!-- Active indicator bar -->
           {#if item.id === activeId}
             <span class="sidebar-active-bar"></span>
           {/if}
 
-          <!-- Avatar -->
-          <div class={cn(
-            "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-xs font-bold text-white shadow-sm",
-            getAvatarColor(item.title)
-          )}>
-            {getInitial(item.title)}
-          </div>
+          <button
+            type="button"
+            class="flex min-w-0 flex-1 cursor-pointer items-center gap-2.5 rounded-[var(--radius-md)] px-2.5 py-2.5 text-left text-[var(--ink-body)] transition-colors duration-100"
+            onclick={() => onSelect(item.id)}
+          >
+            <div
+              class={cn(
+                "flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-full bg-gradient-to-br text-xs font-bold text-white shadow-sm",
+                getAvatarColor(item.title)
+              )}
+            >
+              {getInitial(item.title)}
+            </div>
 
-          <div class="min-w-0 flex-1">
-            <p class="truncate text-sm font-medium">{item.title}</p>
-            <p class="mt-0.5 truncate text-xs text-[var(--ink-faint)]">{formatRelativeTime(item.meta)}</p>
-          </div>
-          <!-- Hover actions -->
+            <div class="min-w-0 flex-1">
+              <p class="truncate text-sm font-medium text-[var(--ink-strong)]">{item.title}</p>
+              <p class="mt-0.5 truncate text-xs text-[var(--ink-faint)]">
+                {#if item.updatedAt}
+                  {formatRelativeTimestamp(item.updatedAt)}
+                {:else}
+                  {item.meta ?? ""}
+                {/if}
+              </p>
+            </div>
+
+            {#if item.busyCount || item.unreadCount}
+              <div class="flex flex-shrink-0 items-center gap-1">
+                {#if item.busyCount}
+                  <span class="inline-flex h-6 min-w-6 items-center justify-center gap-1 rounded-full border border-[var(--border-soft)] bg-[var(--bg-surface)] px-2 text-[10px] font-semibold text-[var(--brand)]">
+                    <Loader2 size={10} class="animate-spin" />
+                    {item.busyCount}
+                  </span>
+                {/if}
+                {#if item.unreadCount}
+                  <span class="inline-flex h-6 min-w-6 items-center justify-center rounded-full bg-[var(--brand)] px-2 text-[10px] font-semibold text-white">
+                    {item.unreadCount}
+                  </span>
+                {/if}
+              </div>
+            {/if}
+          </button>
+
           {#if onRename || onDelete}
-            <button
-              type="button"
-              class="flex h-6 w-6 flex-shrink-0 items-center justify-center rounded-[var(--radius-sm)] text-[var(--ink-faint)] opacity-0 transition-opacity hover:bg-[var(--bg-hover)] hover:text-[var(--ink-muted)] group-hover/item:opacity-100"
-              onclick={(e) => { e.stopPropagation(); handleContextMenu(e, item.id); }}
+            <ActionIconButton
+              title={i18n.t("sidebar.rename")}
+              className="mr-2 h-6 w-6 flex-shrink-0 opacity-0 group-hover/item:opacity-100"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleContextMenu(e, item.id);
+              }}
             >
               <MoreHorizontal size={14} />
-            </button>
+            </ActionIconButton>
           {/if}
-        </button>
+        </div>
       {/if}
     {/each}
 

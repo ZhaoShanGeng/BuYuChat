@@ -24,7 +24,7 @@
     cta?: string;
   } = $props();
 
-  const Icon = workspaceIcons[eyebrow.toLowerCase()] ?? Sparkles;
+  const Icon = $derived(workspaceIcons[eyebrow.toLowerCase()] ?? Sparkles);
 </script>
 
 <section class="flex h-full flex-col items-center justify-center gap-8 px-6 py-10">
