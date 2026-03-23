@@ -1,15 +1,8 @@
 {
   "identifier": "default",
-  "description": "Default capabilities for the BuYu application",
+  "description": "Default capabilities for the minimal BuYu skeleton",
   "windows": ["main"],
   "permissions": [
-    "core:default",
-    "opener:default",
-    "core:window:allow-minimize",
-    "core:window:allow-toggle-maximize",
-    "core:window:allow-close",
-    "core:window:allow-start-dragging",
-    "core:window:allow-is-maximized",
-    "core:window:allow-set-decorations"
+    "core:default"
   ]
 }

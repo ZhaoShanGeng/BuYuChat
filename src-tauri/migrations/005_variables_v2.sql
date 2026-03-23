@@ -1,3 +1,0 @@
--- Variables were folded into 004_native_plugins_transforms.sql.
--- This migration is intentionally left as a no-op so fresh test databases
--- and rebuilt development databases converge on the current event-based model.

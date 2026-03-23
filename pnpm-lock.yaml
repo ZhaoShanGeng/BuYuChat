@@ -8,48 +8,21 @@ importers:
 
   .:
     dependencies:
-      '@fontsource/manrope':
-        specifier: ^5.2.8
-        version: 5.2.8
-      '@fontsource/space-grotesk':
-        specifier: ^5.2.10
-        version: 5.2.10
-      '@fontsource/syncopate':
-        specifier: ^5.2.8
-        version: 5.2.8
+      '@internationalized/date':
+        specifier: ^3.10.0
+        version: 3.12.0
       '@tauri-apps/api':
         specifier: ^2.8.0
         version: 2.10.1
-      '@tauri-apps/plugin-opener':
-        specifier: ^2.4.0
-        version: 2.5.3
       bits-ui:
         specifier: ^2.16.3
         version: 2.16.3(@internationalized/date@3.12.0)(svelte@5.54.0)
-      clsx:
-        specifier: ^2.1.1
-        version: 2.1.1
       lucide-svelte:
         specifier: ^0.577.0
         version: 0.577.0(svelte@5.54.0)
-      marked:
-        specifier: ^17.0.5
-        version: 17.0.5
-      paneforge:
-        specifier: ^1.0.2
-        version: 1.0.2(svelte@5.54.0)
       svelte:
         specifier: ^5.53.12
         version: 5.54.0
-      svelte-sonner:
-        specifier: ^1.1.0
-        version: 1.1.0(svelte@5.54.0)
-      tailwind-merge:
-        specifier: ^3.5.0
-        version: 3.5.0
-      tailwind-variants:
-        specifier: ^3.2.2
-        version: 3.2.2(tailwind-merge@3.5.0)(tailwindcss@4.2.2)
     devDependencies:
       '@sveltejs/vite-plugin-svelte':
         specifier: ^7.0.0
@@ -98,15 +71,6 @@ packages:
 
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
-
-  '@fontsource/manrope@5.2.8':
-    resolution: {integrity: sha512-gJHJmcuUk7qWcNCfcAri/DJQtXtBYqi9yKratr4jXhSo0I3xUtNNKI+igQIcw5c+m95g0vounk8ZnX/kb8o0TA==}
-
-  '@fontsource/space-grotesk@5.2.10':
-    resolution: {integrity: sha512-XNXEbT74OIITPqw2H6HXwPDp85fy43uxfBwFR5PU+9sLnjuLj12KlhVM9nZVN6q6dlKjkuN8JisW/OBxwxgUew==}
-
-  '@fontsource/syncopate@5.2.8':
-    resolution: {integrity: sha512-8r+Qyb9nmwfBiR1GWZeCOskoF9pw7ZZ8g/eOswocew2H3REt+UNItmxcOUoVbpXVALG+SdRvdqDpxC4sBskaxA==}
 
   '@internationalized/date@3.12.0':
     resolution: {integrity: sha512-/PyIMzK29jtXaGU23qTvNZxvBXRtKbNnGDFD+PY6CZw/Y8Ex8pFUzkuCJCG9aOqmShjqhS9mPqP6Dk5onQY8rQ==}
@@ -404,9 +368,6 @@ packages:
     engines: {node: '>= 10'}
     hasBin: true
 
-  '@tauri-apps/plugin-opener@2.5.3':
-    resolution: {integrity: sha512-CCcUltXMOfUEArbf3db3kCE7Ggy1ExBEBl51Ko2ODJ6GDYHRp1nSNlQm5uNCFY5k7/ufaK5Ib3Du/Zir19IYQQ==}
-
   '@tsconfig/svelte@5.0.8':
     resolution: {integrity: sha512-UkNnw1/oFEfecR8ypyHIQuWYdkPvHiwcQ78sh+ymIiYoF+uc5H1UBetbjyqT+vgGJ3qQN6nhucJviX6HesWtKQ==}
 
@@ -591,11 +552,6 @@ packages:
   magic-string@0.30.21:
     resolution: {integrity: sha512-vd2F4YUyEXKGcLHoq+TEyCjxueSeHnFxyyjNp80yg0XV4vUhnDer/lvvlqM/arB5bXQN5K2/3oinyCRyx8T2CQ==}
 
-  marked@17.0.5:
-    resolution: {integrity: sha512-6hLvc0/JEbRjRgzI6wnT2P1XuM1/RrrDEX0kPt0N7jGm1133g6X7DlxFasUIx+72aKAr904GTxhSLDrd5DIlZg==}
-    engines: {node: '>= 20'}
-    hasBin: true
-
   mri@1.2.0:
     resolution: {integrity: sha512-tzzskb3bG8LvYGFF/mDTpq3jpI6Q9wc3LEmBaghu+DdCssd1FakN7Bc0hVNmEyGq1bq3RgfkCb3cmQLpNPOroA==}
     engines: {node: '>=4'}
@@ -607,11 +563,6 @@ packages:
 
   obug@2.1.1:
     resolution: {integrity: sha512-uTqF9MuPraAQ+IsnPf366RG4cP9RtUi7MLO1N3KEc+wb0a6yKpeL0lmk2IB1jY5KHPAlTc6T/JRdC/YqxHNwkQ==}
-
-  paneforge@1.0.2:
-    resolution: {integrity: sha512-KzmIXQH1wCfwZ4RsMohD/IUtEjVhteR+c+ulb/CHYJHX8SuDXoJmChtsc/Xs5Wl8NHS4L5Q7cxL8MG40gSU1bA==}
-    peerDependencies:
-      svelte: ^5.29.0
 
   picocolors@1.1.1:
     resolution: {integrity: sha512-xceH2snhtb5M9liqDsmEw56le376mTZkEX/jEb/RxNFyegNul7eNslCXP9FDj/Lcu0X8KEyMceP2ntpaHrDEVA==}
@@ -632,21 +583,6 @@ packages:
     resolution: {integrity: sha512-q7j6vvarRFmKpgJUT8HCAUljkgzEp4LAhPlJUvQhA5LA1SUL36s5QCysMutErzL3EbNOZOkoziSx9iZC4FddKA==}
     engines: {node: ^20.19.0 || >=22.12.0}
     hasBin: true
-
-  runed@0.23.4:
-    resolution: {integrity: sha512-9q8oUiBYeXIDLWNK5DfCWlkL0EW3oGbk845VdKlPeia28l751VpfesaB/+7pI6rnbx1I6rqoZ2fZxptOJLxILA==}
-    peerDependencies:
-      svelte: ^5.7.0
-
-  runed@0.28.0:
-    resolution: {integrity: sha512-k2xx7RuO9hWcdd9f+8JoBeqWtYrm5CALfgpkg2YDB80ds/QE4w0qqu34A7fqiAwiBBSBQOid7TLxwxVC27ymWQ==}
-    peerDependencies:
-      svelte: ^5.7.0
-
-  runed@0.29.2:
-    resolution: {integrity: sha512-0cq6cA6sYGZwl/FvVqjx9YN+1xEBu9sDDyuWdDW1yWX7JF2wmvmVKfH+hVCZs+csW+P3ARH92MjI3H9QTagOQA==}
-    peerDependencies:
-      svelte: ^5.7.0
 
   runed@0.35.1:
     resolution: {integrity: sha512-2F4Q/FZzbeJTFdIS/PuOoPRSm92sA2LhzTnv6FXhCoENb3huf5+fDuNOg1LNvGOouy3u/225qxmuJvcV3IZK5Q==}
@@ -676,19 +612,8 @@ packages:
       svelte: ^4.0.0 || ^5.0.0-next.0
       typescript: '>=5.0.0'
 
-  svelte-sonner@1.1.0:
-    resolution: {integrity: sha512-3lYM6ZIqWe+p9vwwWHGWP/ZdvHiUtzURsud2quIxivrX4rvpXh6i+geBGn0m3JS6KwW6W8VgbOl3xQMcDuh6gg==}
-    peerDependencies:
-      svelte: ^5.0.0
-
   svelte-toolbelt@0.10.6:
     resolution: {integrity: sha512-YWuX+RE+CnWYx09yseAe4ZVMM7e7GRFZM6OYWpBKOb++s+SQ8RBIMMe+Bs/CznBMc0QPLjr+vDBxTAkozXsFXQ==}
-    engines: {node: '>=18', pnpm: '>=8.7.0'}
-    peerDependencies:
-      svelte: ^5.30.2
-
-  svelte-toolbelt@0.9.3:
-    resolution: {integrity: sha512-HCSWxCtVmv+c6g1ACb8LTwHVbDqLKJvHpo6J8TaqwUme2hj9ATJCpjCPNISR1OCq2Q4U1KT41if9ON0isINQZw==}
     engines: {node: '>=18', pnpm: '>=8.7.0'}
     peerDependencies:
       svelte: ^5.30.2
@@ -699,19 +624,6 @@ packages:
 
   tabbable@6.4.0:
     resolution: {integrity: sha512-05PUHKSNE8ou2dwIxTngl4EzcnsCDZGJ/iCLtDflR/SHB/ny14rXc+qU5P4mG9JkusiV7EivzY9Mhm55AzAvCg==}
-
-  tailwind-merge@3.5.0:
-    resolution: {integrity: sha512-I8K9wewnVDkL1NTGoqWmVEIlUcB9gFriAEkXkfCjX5ib8ezGxtR3xD7iZIxrfArjEsH7F1CHD4RFUtxefdqV/A==}
-
-  tailwind-variants@3.2.2:
-    resolution: {integrity: sha512-Mi4kHeMTLvKlM98XPnK+7HoBPmf4gygdFmqQPaDivc3DpYS6aIY6KiG/PgThrGvii5YZJqRsPz0aPyhoFzmZgg==}
-    engines: {node: '>=16.x', pnpm: '>=7.x'}
-    peerDependencies:
-      tailwind-merge: '>=3.0.0'
-      tailwindcss: '*'
-    peerDependenciesMeta:
-      tailwind-merge:
-        optional: true
 
   tailwindcss@4.2.2:
     resolution: {integrity: sha512-KWBIxs1Xb6NoLdMVqhbhgwZf2PGBpPEiwOqgI4pFIYbNTfBXiKYyWoTsXgBQ9WFg/OlhnvHaY+AEpW7wSmFo2Q==}
@@ -817,12 +729,6 @@ snapshots:
       '@floating-ui/utils': 0.2.11
 
   '@floating-ui/utils@0.2.11': {}
-
-  '@fontsource/manrope@5.2.8': {}
-
-  '@fontsource/space-grotesk@5.2.10': {}
-
-  '@fontsource/syncopate@5.2.8': {}
 
   '@internationalized/date@3.12.0':
     dependencies:
@@ -1039,10 +945,6 @@ snapshots:
       '@tauri-apps/cli-win32-ia32-msvc': 2.10.1
       '@tauri-apps/cli-win32-x64-msvc': 2.10.1
 
-  '@tauri-apps/plugin-opener@2.5.3':
-    dependencies:
-      '@tauri-apps/api': 2.10.1
-
   '@tsconfig/svelte@5.0.8': {}
 
   '@tybys/wasm-util@0.10.1':
@@ -1183,19 +1085,11 @@ snapshots:
     dependencies:
       '@jridgewell/sourcemap-codec': 1.5.5
 
-  marked@17.0.5: {}
-
   mri@1.2.0: {}
 
   nanoid@3.3.11: {}
 
   obug@2.1.1: {}
-
-  paneforge@1.0.2(svelte@5.54.0):
-    dependencies:
-      runed: 0.23.4(svelte@5.54.0)
-      svelte: 5.54.0
-      svelte-toolbelt: 0.9.3(svelte@5.54.0)
 
   picocolors@1.1.1: {}
 
@@ -1230,21 +1124,6 @@ snapshots:
       '@rolldown/binding-win32-arm64-msvc': 1.0.0-rc.10
       '@rolldown/binding-win32-x64-msvc': 1.0.0-rc.10
 
-  runed@0.23.4(svelte@5.54.0):
-    dependencies:
-      esm-env: 1.2.2
-      svelte: 5.54.0
-
-  runed@0.28.0(svelte@5.54.0):
-    dependencies:
-      esm-env: 1.2.2
-      svelte: 5.54.0
-
-  runed@0.29.2(svelte@5.54.0):
-    dependencies:
-      esm-env: 1.2.2
-      svelte: 5.54.0
-
   runed@0.35.1(svelte@5.54.0):
     dependencies:
       dequal: 2.0.3
@@ -1274,11 +1153,6 @@ snapshots:
     transitivePeerDependencies:
       - picomatch
 
-  svelte-sonner@1.1.0(svelte@5.54.0):
-    dependencies:
-      runed: 0.28.0(svelte@5.54.0)
-      svelte: 5.54.0
-
   svelte-toolbelt@0.10.6(svelte@5.54.0):
     dependencies:
       clsx: 2.1.1
@@ -1287,13 +1161,6 @@ snapshots:
       svelte: 5.54.0
     transitivePeerDependencies:
       - '@sveltejs/kit'
-
-  svelte-toolbelt@0.9.3(svelte@5.54.0):
-    dependencies:
-      clsx: 2.1.1
-      runed: 0.29.2(svelte@5.54.0)
-      style-to-object: 1.0.14
-      svelte: 5.54.0
 
   svelte@5.54.0:
     dependencies:
@@ -1315,14 +1182,6 @@ snapshots:
       zimmerframe: 1.1.4
 
   tabbable@6.4.0: {}
-
-  tailwind-merge@3.5.0: {}
-
-  tailwind-variants@3.2.2(tailwind-merge@3.5.0)(tailwindcss@4.2.2):
-    dependencies:
-      tailwindcss: 4.2.2
-    optionalDependencies:
-      tailwind-merge: 3.5.0
 
   tailwindcss@4.2.2: {}
 
