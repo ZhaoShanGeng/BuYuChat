@@ -1,4 +1,7 @@
 <script lang="ts">
+  /**
+   * 应用入口页面，只承载渠道管理页面壳与视觉骨架。
+   */
   import ChannelSettings from "./components/ChannelSettings.svelte";
 </script>
 

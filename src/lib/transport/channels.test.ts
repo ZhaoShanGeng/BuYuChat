@@ -1,3 +1,7 @@
+/**
+ * 渠道 transport 层测试。
+ */
+
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 const invokeMock = vi.fn();

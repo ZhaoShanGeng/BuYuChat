@@ -1,3 +1,7 @@
+/**
+ * 渠道页面状态辅助函数测试。
+ */
+
 import { describe, expect, it, vi } from "vitest";
 
 import {
