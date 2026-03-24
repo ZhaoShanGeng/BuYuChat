@@ -257,6 +257,12 @@ paths:
           $ref: "#/components/responses/BadRequest"
         "404":
           $ref: "#/components/responses/NotFound"
+        "502":
+          description: 远程渠道访问失败（`error_code` 可能为 `CHANNEL_UNREACHABLE` 或 `AI_REQUEST_FAILED`）
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
 
   # ═══════════════════════════════════════════════
   # Agent 管理

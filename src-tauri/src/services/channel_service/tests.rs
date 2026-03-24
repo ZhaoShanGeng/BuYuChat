@@ -8,17 +8,17 @@ use std::{
 use async_trait::async_trait;
 
 use crate::{
+    ai::adapter::{AiChannelConfig, AiMetadataClient},
     error::AppError,
     models::{
-        Channel, ChannelPatch, ChannelTestResult, CreateChannelInput, NewChannel,
+        Channel, ChannelPatch, ChannelTestResult, CreateChannelInput, NewChannel, RemoteModelInfo,
         UpdateChannelInput,
     },
     repo::channel_repo::ChannelRepo,
 };
 
 use super::{
-    build_test_request, create_with, delete_with, get_with, list_with, test_with, update_with,
-    ChannelConnectivityProbe, Clock,
+    create_with, delete_with, get_with, list_with, test_with, update_with, Clock,
 };
 
 #[derive(Default)]
@@ -145,19 +145,33 @@ impl Clock for FixedClock {
 
 /// 可按顺序返回结果的假探测器。
 #[derive(Default)]
-struct FakeProbe {
+struct FakeMetadataClient {
     responses: Mutex<VecDeque<Result<(), String>>>,
 }
 
 #[async_trait]
-impl ChannelConnectivityProbe for FakeProbe {
+impl AiMetadataClient for FakeMetadataClient {
     /// 返回队列中的下一条探测结果。
-    async fn get(&self, _request: &crate::models::TestChannelRequest) -> Result<(), String> {
+    async fn probe_models_endpoint(
+        &self,
+        _http_client: &reqwest::Client,
+        _config: &AiChannelConfig,
+    ) -> Result<(), AppError> {
         self.responses
             .lock()
             .expect("假探测器互斥锁不应中毒")
             .pop_front()
             .unwrap_or(Ok(()))
+            .map_err(|error| AppError::channel_unreachable(format!("failed to reach channel: {error}")))
+    }
+
+    /// 渠道服务测试不会调用远程模型拉取。
+    async fn fetch_remote_models(
+        &self,
+        _http_client: &reqwest::Client,
+        _config: &AiChannelConfig,
+    ) -> Result<Vec<RemoteModelInfo>, AppError> {
+        unreachable!("渠道服务测试不会调用远程模型拉取")
     }
 }
 
@@ -289,26 +303,20 @@ async fn delete_missing_channel_returns_not_found() {
     assert_eq!(err, AppError::not_found("channel 'missing' not found"));
 }
 
-#[test]
-/// 连通性请求应使用默认模型接口与 Bearer 头。
-fn build_test_request_uses_default_models_endpoint_and_auth_header() {
-    let request = build_test_request(&sample_channel()).unwrap();
-    assert_eq!(request.url, "https://api.openai.com/v1/models");
-    assert_eq!(
-        request.auth_header,
-        Some(("Authorization".to_string(), "Bearer sk-xxx".to_string()))
-    );
-}
-
 #[tokio::test]
 /// 探测成功时应返回成功结果。
 async fn test_channel_returns_success_when_probe_succeeds() {
     let repo = FakeRepo::with_channel(sample_channel());
-    let probe = FakeProbe::default();
+    let probe = FakeMetadataClient::default();
 
-    let result = test_with(&repo, &probe, "0195d4f5-3af3-7c13-8d69-f4f4bb73f0aa")
-        .await
-        .unwrap();
+    let result = test_with(
+        &repo,
+        &probe,
+        &reqwest::Client::new(),
+        "0195d4f5-3af3-7c13-8d69-f4f4bb73f0aa",
+    )
+    .await
+    .unwrap();
 
     assert_eq!(
         result,
@@ -323,13 +331,18 @@ async fn test_channel_returns_success_when_probe_succeeds() {
 /// 探测失败应映射为 CHANNEL_UNREACHABLE。
 async fn test_channel_maps_probe_failures_to_channel_unreachable() {
     let repo = FakeRepo::with_channel(sample_channel());
-    let probe = FakeProbe {
+    let probe = FakeMetadataClient {
         responses: Mutex::new(VecDeque::from([Err("network down".to_string())])),
     };
 
-    let err = test_with(&repo, &probe, "0195d4f5-3af3-7c13-8d69-f4f4bb73f0aa")
-        .await
-        .unwrap_err();
+    let err = test_with(
+        &repo,
+        &probe,
+        &reqwest::Client::new(),
+        "0195d4f5-3af3-7c13-8d69-f4f4bb73f0aa",
+    )
+    .await
+    .unwrap_err();
 
     assert_eq!(
         err,

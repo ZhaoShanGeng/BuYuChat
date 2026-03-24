@@ -37,10 +37,10 @@
 
 | 模块 | 任务 | 状态 | 备注 |
 |------|------|------|------|
-| 后端 | model_repo CRUD | 🔲 | |
-| 后端 | model_service | 🔲 | |
-| 后端 | Tauri commands | 🔲 | |
-| 后端 | 测试 | 🔲 | |
+| 后端 | model_repo CRUD | ✅ | `sqlx + SqlitePool`，含同渠道唯一约束与 `SET NULL` 副作用 |
+| 后端 | model_service | ✅ | CRUD + 远程模型拉取，统一委托 AI adapter |
+| 后端 | Tauri commands | ✅ | `list/create/update/delete/fetch_remote_models` |
+| 后端 | 测试 | ✅ | repo/service/command/adapter 全覆盖 |
 | 前端 | transport 层 | 🔲 | |
 | 前端 | 模型列表（渠道详情页内） | 🔲 | |
 | 前端 | 远程拉取模型 | 🔲 | |

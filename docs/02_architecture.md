@@ -75,7 +75,7 @@ export async function sendMessage(
 | **Commands** | Tauri `#[tauri::command]` 入口，参数校验、错误转换 | Services |
 | **Services** | 业务逻辑编排（事务管理、状态机流转、上下文构建） | Repo, AI Client |
 | **Repo** | 数据访问层，SQL 查询（sqlx），返回领域模型 | SQLite |
-| **AI Client** | aisdk + aisdk-macros 封装，OpenAI-compatible API 调用；渠道探测仍复用 `AppState.http_client` | aisdk |
+| **AI Client** | aisdk + aisdk-macros 封装的统一 AI 适配层；chat generation 走 aisdk provider，模型列表拉取与连通性探测也统一收口在 `ai/adapter.rs` | aisdk |
 | **Generation Engine** | 后台异步任务，管理 CancellationToken，通过 Channel 推送事件 | AI Client, Repo |
 
 ---
@@ -230,7 +230,11 @@ src-tauri/src/
 │   │   ├── crud.rs
 │   │   ├── validation.rs
 │   │   └── connectivity.rs
-│   ├── model_service.rs
+│   ├── model_service/
+│   │   ├── mod.rs
+│   │   ├── crud.rs
+│   │   ├── remote_fetch.rs
+│   │   └── validation.rs
 │   ├── agent_service.rs
 │   ├── conversation_service.rs
 │   ├── message_service.rs

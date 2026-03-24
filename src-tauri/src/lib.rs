@@ -23,7 +23,12 @@ pub fn run() {
             commands::channels::create_channel,
             commands::channels::update_channel,
             commands::channels::delete_channel,
-            commands::channels::test_channel
+            commands::channels::test_channel,
+            commands::models::list_models,
+            commands::models::create_model,
+            commands::models::update_model,
+            commands::models::delete_model,
+            commands::models::fetch_remote_models
         ])
         .run(tauri::generate_context!())
         .expect("运行 Tauri 应用失败");

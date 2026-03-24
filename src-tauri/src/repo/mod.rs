@@ -2,3 +2,4 @@
 
 pub mod channel_repo;
 pub mod migrations;
+pub mod model_repo;

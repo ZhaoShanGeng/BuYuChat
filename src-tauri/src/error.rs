@@ -30,10 +30,26 @@ impl AppError {
         }
     }
 
+    /// 创建资源冲突错误。
+    pub fn conflict(error_code: impl Into<String>, message: impl Into<String>) -> Self {
+        Self {
+            error_code: error_code.into(),
+            message: message.into(),
+        }
+    }
+
     /// 创建渠道连通性错误。
     pub fn channel_unreachable(message: impl Into<String>) -> Self {
         Self {
             error_code: "CHANNEL_UNREACHABLE".to_string(),
+            message: message.into(),
+        }
+    }
+
+    /// 创建 AI 上游返回错误。
+    pub fn ai_request_failed(message: impl Into<String>) -> Self {
+        Self {
+            error_code: "AI_REQUEST_FAILED".to_string(),
             message: message.into(),
         }
     }

@@ -255,6 +255,14 @@ import { invoke } from "@tauri-apps/api/core";
 ]
 ```
 
+```json
+// 远程不可达 / 连接失败（502）
+{ "error_code": "CHANNEL_UNREACHABLE", "message": "failed to reach channel: connection refused" }
+
+// 远程返回非 2xx（502）
+{ "error_code": "AI_REQUEST_FAILED", "message": "remote endpoint returned 503 Service Unavailable: upstream unavailable" }
+```
+
 ---
 
 ## 4. Agent 资源 (Agents)
