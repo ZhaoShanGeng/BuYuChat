@@ -1,25 +1,28 @@
 //! Tauri 异步命令共享的运行时状态。
 
-use std::str::FromStr;
+use std::{str::FromStr, sync::Arc};
 
 use dashmap::DashMap;
 use sqlx::{
     sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
     SqlitePool,
 };
+use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
 use crate::repo::migrations::MIGRATOR;
 
 /// 通过 `State<AppState>` 注入命令层的共享应用状态。
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 pub struct AppState {
     /// SQLite 连接池。
     pub db: SqlitePool,
     /// 复用的 HTTP 客户端。
     pub http_client: reqwest::Client,
     /// 按版本 ID 保存的生成取消令牌。
-    pub cancellation_tokens: DashMap<String, CancellationToken>,
+    pub cancellation_tokens: Arc<DashMap<String, CancellationToken>>,
+    /// 生成任务并发上限控制器。
+    pub generation_semaphore: Arc<Semaphore>,
 }
 
 impl AppState {
@@ -40,12 +43,19 @@ impl AppState {
             .connect_with(options)
             .await?;
 
+        sqlx::query("PRAGMA busy_timeout = 5000;")
+            .execute(&db)
+            .await?;
         MIGRATOR.run(&db).await?;
+        sqlx::query("UPDATE message_versions SET status = 'failed' WHERE status = 'generating'")
+            .execute(&db)
+            .await?;
 
         Ok(Self {
             db,
             http_client: reqwest::Client::new(),
-            cancellation_tokens: DashMap::new(),
+            cancellation_tokens: Arc::new(DashMap::new()),
+            generation_semaphore: Arc::new(Semaphore::new(5)),
         })
     }
 }

@@ -1,13 +1,20 @@
 //! 使用 AISDK 构建 OpenAI-compatible 适配器。
 
+use aisdk::{
+    core::{
+        DynamicModel, LanguageModelRequest, LanguageModelStreamChunkType, Message,
+        StreamTextResponse, language_model::StopReason,
+    },
+    providers::OpenAICompatible,
+};
 use async_trait::async_trait;
-use aisdk::{core::DynamicModel, providers::OpenAICompatible};
+use futures_util::StreamExt;
 use serde::Deserialize;
 
 use crate::{
     channel_types::config_for,
     error::AppError,
-    models::{Channel, RemoteModelInfo},
+    models::{Channel, PromptMessage, RemoteModelInfo},
 };
 
 /// 构建 AISDK provider 与远程元数据请求所需的统一渠道配置。
@@ -23,8 +30,10 @@ pub struct AiChannelConfig {
     pub auth_type: String,
     /// 模型列表接口路径。
     pub models_endpoint: String,
-    /// 聊天接口路径。
+    /// 非流式聊天接口路径。
     pub chat_endpoint: String,
+    /// 流式聊天接口路径。
+    pub stream_endpoint: String,
     /// 当前选中的模型 ID。
     pub model_name: Option<String>,
 }
@@ -60,6 +69,10 @@ impl TryFrom<&Channel> for AiChannelConfig {
                 .chat_endpoint
                 .clone()
                 .unwrap_or_else(|| defaults.chat_endpoint.to_string()),
+            stream_endpoint: channel
+                .stream_endpoint
+                .clone()
+                .unwrap_or_else(|| defaults.stream_endpoint.to_string()),
             model_name: None,
         })
     }
@@ -83,7 +96,30 @@ pub trait AiMetadataClient: Send + Sync {
     ) -> Result<Vec<RemoteModelInfo>, AppError>;
 }
 
-/// 根据渠道配置创建 AISDK OpenAI-compatible provider。
+/// AI 聊天结果。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct AiChatCompletion {
+    /// 完整文本内容。
+    pub text: String,
+    /// prompt token 数。
+    pub prompt_tokens: i64,
+    /// completion token 数。
+    pub completion_tokens: i64,
+    /// 停止原因。
+    pub finish_reason: String,
+    /// 模型标识。
+    pub model: String,
+}
+
+/// 流式聊天句柄。
+pub struct AiStreamHandle {
+    /// AISDK 提供的原始流式响应。
+    pub response: StreamTextResponse,
+    /// 当前模型标识。
+    pub model: String,
+}
+
+/// 基于运行时渠道配置创建 AISDK provider 的适配器。
 #[derive(Debug, Default, Clone, Copy)]
 pub struct AiAdapter;
 
@@ -92,6 +128,7 @@ impl AiAdapter {
     pub fn build_openai_compatible_provider(
         &self,
         config: &AiChannelConfig,
+        use_stream_endpoint: bool,
     ) -> Result<OpenAICompatible<DynamicModel>, AppError> {
         let model_name = config.model_name.clone().ok_or_else(|| {
             AppError::validation("VALIDATION_ERROR", "model_name is required for chat generation")
@@ -102,9 +139,92 @@ impl AiAdapter {
             .base_url(config.base_url.clone())
             .api_key(config.api_key.clone().unwrap_or_default())
             .model_name(model_name)
-            .path(config.chat_endpoint.clone())
+            .path(if use_stream_endpoint {
+                config.stream_endpoint.clone()
+            } else {
+                config.chat_endpoint.clone()
+            })
             .build()
             .map_err(|error| AppError::internal(format!("failed to build aisdk provider: {error}")))
+    }
+
+    /// 执行非流式聊天生成。
+    pub async fn generate_chat(
+        &self,
+        config: &AiChannelConfig,
+        messages: &[PromptMessage],
+        max_output_tokens: Option<i64>,
+    ) -> Result<AiChatCompletion, AppError> {
+        let provider = self.build_openai_compatible_provider(config, false)?;
+        let mut request = LanguageModelRequest::builder()
+            .model(provider)
+            .messages(to_aisdk_messages(messages)?)
+            .build();
+
+        request.max_output_tokens = normalize_max_output_tokens(max_output_tokens);
+        let response = request
+            .generate_text()
+            .await
+            .map_err(map_aisdk_error("chat request failed"))?;
+        let usage = response.usage();
+
+        Ok(AiChatCompletion {
+            text: response.text().unwrap_or_default(),
+            prompt_tokens: usage.input_tokens.unwrap_or(0) as i64,
+            completion_tokens: usage.output_tokens.unwrap_or(0) as i64,
+            finish_reason: map_stop_reason(response.stop_reason()),
+            model: config.model_name.clone().unwrap_or_default(),
+        })
+    }
+
+    /// 启动流式聊天生成。
+    pub async fn stream_chat(
+        &self,
+        config: &AiChannelConfig,
+        messages: &[PromptMessage],
+        max_output_tokens: Option<i64>,
+    ) -> Result<AiStreamHandle, AppError> {
+        let provider = self.build_openai_compatible_provider(config, true)?;
+        let mut request = LanguageModelRequest::builder()
+            .model(provider)
+            .messages(to_aisdk_messages(messages)?)
+            .build();
+
+        request.max_output_tokens = normalize_max_output_tokens(max_output_tokens);
+        let response = request
+            .stream_text()
+            .await
+            .map_err(map_aisdk_error("chat stream failed"))?;
+
+        Ok(AiStreamHandle {
+            response,
+            model: config.model_name.clone().unwrap_or_default(),
+        })
+    }
+
+    /// 从流式句柄中收集最终结果。
+    pub async fn finish_stream(
+        &self,
+        mut handle: AiStreamHandle,
+    ) -> Result<AiChatCompletion, AppError> {
+        while let Some(chunk) = handle.response.stream.next().await {
+            match chunk {
+                LanguageModelStreamChunkType::Failed(error)
+                | LanguageModelStreamChunkType::Incomplete(error) => {
+                    return Err(AppError::ai_request_failed(error));
+                }
+                _ => {}
+            }
+        }
+
+        let usage = handle.response.usage().await;
+        Ok(AiChatCompletion {
+            text: handle.response.text().await.unwrap_or_default(),
+            prompt_tokens: usage.input_tokens.unwrap_or(0) as i64,
+            completion_tokens: usage.output_tokens.unwrap_or(0) as i64,
+            finish_reason: map_stop_reason(handle.response.stop_reason().await),
+            model: handle.model,
+        })
     }
 }
 
@@ -163,6 +283,45 @@ struct OpenAiModelRecord {
     /// 可选上下文窗口大小。
     #[serde(default)]
     context_window: Option<i64>,
+}
+
+/// 将 BuYu prompt 消息转换为 AISDK 所需的消息列表。
+fn to_aisdk_messages(messages: &[PromptMessage]) -> Result<Vec<Message>, AppError> {
+    messages
+        .iter()
+        .map(|message| match message.role.as_str() {
+            "system" => Ok(Message::System(message.content.clone().into())),
+            "user" => Ok(Message::User(message.content.clone().into())),
+            "assistant" => Ok(Message::Assistant(message.content.clone().into())),
+            other => Err(AppError::internal(format!(
+                "unsupported prompt role '{other}'"
+            ))),
+        })
+        .collect()
+}
+
+/// 将可选的输出 token 上限转换为 AISDK 所需类型。
+fn normalize_max_output_tokens(max_output_tokens: Option<i64>) -> Option<u32> {
+    max_output_tokens
+        .filter(|value| *value > 0)
+        .and_then(|value| u32::try_from(value).ok())
+}
+
+/// 将 AISDK 的 stop_reason 统一映射为 OpenAI 风格 finish_reason。
+fn map_stop_reason(stop_reason: Option<StopReason>) -> String {
+    match stop_reason {
+        Some(StopReason::Finish) | None => "stop".to_string(),
+        Some(StopReason::Hook) => "stop".to_string(),
+        Some(StopReason::Provider(reason)) | Some(StopReason::Other(reason)) => reason,
+        Some(StopReason::Error(_)) => "error".to_string(),
+    }
+}
+
+/// 构造 AI SDK 调用失败时使用的错误映射闭包。
+fn map_aisdk_error(
+    prefix: &'static str,
+) -> impl FnOnce(aisdk::Error) -> AppError + Send + Sync + 'static {
+    move |error| AppError::ai_request_failed(format!("{prefix}: {error}"))
 }
 
 /// 对模型接口执行统一的 GET 请求并返回原始响应体。
@@ -237,6 +396,7 @@ mod tests {
             auth_type: "bearer".to_string(),
             models_endpoint: "/v1/models".to_string(),
             chat_endpoint: "/v1/chat/completions".to_string(),
+            stream_endpoint: "/v1/chat/completions".to_string(),
             model_name: Some("gpt-4o-mini".to_string()),
         }
     }
@@ -245,7 +405,10 @@ mod tests {
     #[test]
     fn build_openai_compatible_provider_can_be_built() {
         let provider = AiAdapter
-            .build_openai_compatible_provider(&sample_config("https://api.openai.com".to_string()))
+            .build_openai_compatible_provider(
+                &sample_config("https://api.openai.com".to_string()),
+                false,
+            )
             .unwrap();
 
         assert_eq!(provider.settings.provider_name, "BuYu");
@@ -297,6 +460,7 @@ mod tests {
         assert_eq!(config.auth_type, "bearer");
         assert_eq!(config.models_endpoint, "/v1/models");
         assert_eq!(config.chat_endpoint, "/v1/chat/completions");
+        assert_eq!(config.stream_endpoint, "/v1/chat/completions");
     }
 
     /// 远程拉取模型应能解析 OpenAI-compatible 响应。

@@ -61,4 +61,60 @@ impl AppError {
             message: message.into(),
         }
     }
+
+    /// 创建“未配置 Agent”错误。
+    pub fn no_agent() -> Self {
+        Self {
+            error_code: "NO_AGENT".to_string(),
+            message: "conversation has no agent configured".to_string(),
+        }
+    }
+
+    /// 创建“Agent 已禁用”错误。
+    pub fn agent_disabled() -> Self {
+        Self {
+            error_code: "AGENT_DISABLED".to_string(),
+            message: "conversation agent is disabled".to_string(),
+        }
+    }
+
+    /// 创建“未配置渠道”错误。
+    pub fn no_channel() -> Self {
+        Self {
+            error_code: "NO_CHANNEL".to_string(),
+            message: "conversation has no channel configured".to_string(),
+        }
+    }
+
+    /// 创建“渠道已禁用”错误。
+    pub fn channel_disabled() -> Self {
+        Self {
+            error_code: "CHANNEL_DISABLED".to_string(),
+            message: "conversation channel is disabled".to_string(),
+        }
+    }
+
+    /// 创建“未配置模型”错误。
+    pub fn no_model() -> Self {
+        Self {
+            error_code: "NO_MODEL".to_string(),
+            message: "conversation has no model configured".to_string(),
+        }
+    }
+
+    /// 创建“不是最后一个 user 楼层”错误。
+    pub fn not_last_user_node() -> Self {
+        Self {
+            error_code: "NOT_LAST_USER_NODE".to_string(),
+            message: "user node is not the last node in conversation".to_string(),
+        }
+    }
+
+    /// 创建“版本不属于指定楼层”错误。
+    pub fn version_not_in_node() -> Self {
+        Self {
+            error_code: "VERSION_NOT_IN_NODE".to_string(),
+            message: "version does not belong to the specified node".to_string(),
+        }
+    }
 }
