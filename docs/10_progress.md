@@ -14,7 +14,7 @@
 | 架构设计 | ✅ 完成 | 分层架构 + 生成流水线 |
 | 代码规范 | ✅ 完成 | 命名、复杂度、TDD |
 | 设计评审 | ✅ 完成 | v0.3，所有问题已有处理方案 |
-| **实现** | 🔨 进行中 | 功能1：渠道管理已完成 |
+| **实现** | 🔨 进行中 | 功能1：渠道管理返工完成，后续进入模型管理 |
 
 ---
 
@@ -24,13 +24,13 @@
 
 | 模块 | 任务 | 状态 | 备注 |
 |------|------|------|------|
-| 后端 | channel_repo CRUD | ✅ | SQLite + 级联删除/SET NULL |
+| 后端 | channel_repo CRUD | ✅ | `sqlx + SqlitePool`，含级联删除/SET NULL |
 | 后端 | channel_service 逻辑 | ✅ | UUID v7、默认值、校验、连通性测试 |
-| 后端 | Tauri commands | ✅ | `list/get/create/update/delete/test_channel` |
-| 后端 | 测试 | ✅ | repo/service/command 全覆盖 |
+| 后端 | Tauri commands | ✅ | `State<AppState> + async fn`，含 `test_channel` |
+| 后端 | 测试 | ✅ | repo/service/command 全覆盖；command 基于真实 `AppState` |
 | 前端 | transport 层 | ✅ | `src/lib/transport/channels.ts` |
-| 前端 | 渠道列表页 | ✅ | 单页 settings 入口 |
-| 前端 | 渠道编辑表单 | ✅ | 创建/编辑/启用开关 |
+| 前端 | 渠道列表页 | ✅ | `ChannelListPanel` |
+| 前端 | 渠道编辑表单 | ✅ | `ChannelFormPanel`，创建/编辑/启用开关 |
 | 前端 | 连通性测试按钮 | ✅ | 调用 `test_channel` |
 
 ### 功能2：模型管理
@@ -105,9 +105,10 @@
 | 任务 | 状态 | 备注 |
 |------|------|------|
 | SQLite 初始化 + 迁移 | ✅ | 含初始 migration SQL |
-| AppState 定义 | 🔲 | |
+| AppState 定义 | ✅ | `db + http_client + cancellation_tokens` |
 | AppError 统一错误处理 | ✅ | `error_code + message` 契约 |
 | UUID v7 生成工具 | ✅ | 渠道资源 ID 已接入 |
+| AISDK adapter | ✅ | OpenAI-compatible provider 已接入 |
 | order_key 生成工具 | 🔲 | |
 | CI 流水线 | 🔲 | GitHub Actions |
 | 前端路由（P1） | 🔲 | MVP 单页 |
