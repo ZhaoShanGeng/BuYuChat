@@ -1,19 +1,23 @@
+//! 渠道命令层的集成测试。
+
+mod helpers;
+
 use buyu_lib::{
     commands::channels::{
         create_channel_impl, delete_channel_impl, get_channel_impl, list_channels_impl,
         test_channel_impl, update_channel_impl,
     },
-    db::init_db,
-    errors::AppError,
+    error::AppError,
     models::{CreateChannelInput, UpdateChannelInput},
 };
 
-#[test]
-fn create_get_update_list_and_delete_channel_via_command_impls() {
-    let db = init_db().unwrap();
+/// 创建命令应支持完整的 CRUD 流程。
+#[tokio::test]
+async fn test_channel_commands_cover_crud_flow() {
+    let state = helpers::test_state().await;
 
     let created = create_channel_impl(
-        &db,
+        &state,
         CreateChannelInput {
             name: "My OpenAI".to_string(),
             base_url: "https://api.openai.com".to_string(),
@@ -26,41 +30,48 @@ fn create_get_update_list_and_delete_channel_via_command_impls() {
             enabled: None,
         },
     )
+    .await
     .unwrap();
-    let channel_id = created.id.clone();
 
-    let listed = list_channels_impl(&db, None).unwrap();
+    let listed = list_channels_impl(&state, None).await.unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, created.id);
 
-    let fetched = get_channel_impl(&db, created.id.clone()).unwrap();
+    let fetched = get_channel_impl(&state, created.id.clone()).await.unwrap();
     assert_eq!(fetched.name, "My OpenAI");
 
     let updated = update_channel_impl(
-        &db,
+        &state,
         created.id.clone(),
         UpdateChannelInput {
             name: Some("OpenAI Pro".to_string()),
             ..UpdateChannelInput::default()
         },
     )
+    .await
     .unwrap();
     assert_eq!(updated.name, "OpenAI Pro");
 
-    delete_channel_impl(&db, channel_id.clone()).unwrap();
+    delete_channel_impl(&state, created.id.clone())
+        .await
+        .unwrap();
 
-    let err = get_channel_impl(&db, channel_id.clone()).unwrap_err();
+    let missing = get_channel_impl(&state, created.id.clone())
+        .await
+        .unwrap_err();
     assert_eq!(
-        err,
-        AppError::not_found(format!("channel '{channel_id}' not found"))
+        missing,
+        AppError::not_found(format!("channel '{}' not found", created.id))
     );
 }
 
-#[test]
-fn list_channels_defaults_to_include_disabled_true() {
-    let db = init_db().unwrap();
-    let created = create_channel_impl(
-        &db,
+/// list_channels 未传 include_disabled 时应默认包含已禁用渠道。
+#[tokio::test]
+async fn test_list_channels_defaults_to_include_disabled_true() {
+    let state = helpers::test_state().await;
+
+    create_channel_impl(
+        &state,
         CreateChannelInput {
             name: "Disabled".to_string(),
             base_url: "https://disabled.example.com".to_string(),
@@ -73,20 +84,21 @@ fn list_channels_defaults_to_include_disabled_true() {
             enabled: Some(false),
         },
     )
+    .await
     .unwrap();
 
-    let listed = list_channels_impl(&db, None).unwrap();
-
+    let listed = list_channels_impl(&state, None).await.unwrap();
     assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].id, created.id);
+    assert!(!listed[0].enabled);
 }
 
-#[test]
-fn create_channel_invalid_url_returns_structured_error() {
-    let db = init_db().unwrap();
+/// 参数非法时应返回结构化错误。
+#[tokio::test]
+async fn test_create_channel_returns_structured_validation_error() {
+    let state = helpers::test_state().await;
 
-    let err = create_channel_impl(
-        &db,
+    let error = create_channel_impl(
+        &state,
         CreateChannelInput {
             name: "Bad".to_string(),
             base_url: "api.openai.com".to_string(),
@@ -99,10 +111,11 @@ fn create_channel_invalid_url_returns_structured_error() {
             enabled: None,
         },
     )
+    .await
     .unwrap_err();
 
     assert_eq!(
-        err,
+        error,
         AppError::validation(
             "INVALID_URL",
             "base_url must start with http:// or https://"
@@ -110,11 +123,13 @@ fn create_channel_invalid_url_returns_structured_error() {
     );
 }
 
-#[test]
-fn test_channel_missing_resource_returns_not_found() {
-    let db = init_db().unwrap();
+/// test_channel 读取缺失资源时应返回 NOT_FOUND。
+#[tokio::test]
+async fn test_test_channel_returns_not_found_for_missing_channel() {
+    let state = helpers::test_state().await;
 
-    let err = test_channel_impl(&db, "missing".to_string()).unwrap_err();
-
-    assert_eq!(err, AppError::not_found("channel 'missing' not found"));
+    let error = test_channel_impl(&state, "missing".to_string())
+        .await
+        .unwrap_err();
+    assert_eq!(error, AppError::not_found("channel 'missing' not found"));
 }
