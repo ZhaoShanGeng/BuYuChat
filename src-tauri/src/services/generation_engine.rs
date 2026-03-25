@@ -257,7 +257,9 @@ async fn finalize_completion(
     completion: AiChatCompletion,
     existing_content_bytes: Option<usize>,
 ) -> Result<(), AppError> {
-    if completion.text.trim().is_empty() {
+    // 流式兼容层在部分服务商上可能只返回 delta，不在最终消息里回填完整正文。
+    // 只要前面已经有内容刷入 `message_contents`，这里就不能再按“空消息”回滚。
+    if completion.text.trim().is_empty() && existing_content_bytes.unwrap_or(0) == 0 {
         rollback_empty_version(state, request).await?;
         return Ok(());
     }

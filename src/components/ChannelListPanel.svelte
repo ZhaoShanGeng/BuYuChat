@@ -1,8 +1,11 @@
 <script lang="ts">
   /**
-   * 渠道列表面板，展示列表、通知与列表侧操作按钮。
+   * 渠道列表面板 — CherryStudio 风格：带首字母头像和 ON/OFF 状态。
    */
-
+  import { Button } from "$lib/components/ui/button/index.js";
+  import * as Avatar from "$lib/components/ui/avatar/index.js";
+  import { Badge } from "$lib/components/ui/badge/index.js";
+  import PlusIcon from "@lucide/svelte/icons/plus";
   import type { Channel } from "../lib/transport/channels";
   import type { Notice } from "./channel-settings-state";
 
@@ -11,80 +14,66 @@
     loading: boolean;
     notice: Notice | null;
     testingId: string | null;
+    editingId: string | null;
     onCreate: () => void;
     onEdit: (channel: Channel) => void;
     onDelete: (id: string) => void | Promise<void>;
     onTest: (id: string) => void | Promise<void>;
   };
 
-  const { channels, loading, notice, testingId, onCreate, onEdit, onDelete, onTest }: Props =
-    $props();
+  const { channels, loading, notice, testingId, editingId, onCreate, onEdit, onDelete, onTest }: Props = $props();
 </script>
 
-<div class="rounded-[1.75rem] border border-stone-300 bg-white p-6 shadow-[0_24px_60px_rgba(28,25,23,0.08)]">
-  <div class="mb-5 flex items-end justify-between gap-4 border-b border-stone-200 pb-4">
-    <div>
-      <p class="text-xs font-semibold uppercase tracking-[0.3em] text-orange-700">Channels</p>
-      <h2 class="mt-2 text-2xl font-semibold tracking-[-0.04em] text-stone-950">渠道列表</h2>
-    </div>
-    <button
-      class="rounded-full border border-stone-300 px-4 py-2 text-sm font-medium text-stone-700 transition hover:border-stone-900 hover:text-stone-950"
-      onclick={onCreate}
-      type="button"
-    >
-      新建渠道
-    </button>
+<div class="flex h-full flex-col">
+  <!-- 标题 + 添加按钮 -->
+  <div class="flex h-12 items-center justify-between border-b px-4">
+    <span class="text-sm font-medium">渠道</span>
   </div>
 
+  <!-- 通知 -->
   {#if notice}
-    <div class={`mb-4 rounded-2xl px-4 py-3 text-sm ${notice.kind === "success" ? "bg-emerald-50 text-emerald-800" : "bg-rose-50 text-rose-800"}`}>
+    <div class={`mx-3 mt-3 rounded-lg px-3 py-2 text-xs ${notice.kind === "success" ? "bg-emerald-500/10 text-emerald-600" : "bg-rose-500/10 text-rose-600"}`}>
       {notice.text}
     </div>
   {/if}
 
-  {#if loading}
-    <div class="rounded-3xl border border-dashed border-stone-300 bg-stone-50 px-5 py-10 text-center text-sm text-stone-500">
-      正在加载渠道...
-    </div>
-  {:else if channels.length === 0}
-    <div class="rounded-3xl border border-dashed border-stone-300 bg-stone-50 px-5 py-10 text-center text-sm text-stone-500">
-      还没有渠道，先在右侧创建一个 OpenAI-compatible 渠道。
-    </div>
-  {:else}
-    <div class="space-y-3">
-      {#each channels as channel}
-        <article class="rounded-[1.5rem] border border-stone-200 bg-stone-50/70 p-4">
-          <div class="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
-            <div class="space-y-2">
-              <div class="flex items-center gap-3">
-                <h3 class="text-lg font-semibold text-stone-950">{channel.name}</h3>
-                <span class={`rounded-full px-2.5 py-1 text-xs font-semibold ${channel.enabled ? "bg-emerald-100 text-emerald-800" : "bg-stone-200 text-stone-700"}`}>
-                  {channel.enabled ? "启用中" : "已禁用"}
-                </span>
-              </div>
-              <div class="text-sm text-stone-600">{channel.baseUrl}</div>
-              <div class="text-xs uppercase tracking-[0.24em] text-stone-400">{channel.channelType}</div>
-            </div>
+  <!-- 渠道列表 -->
+  <div class="min-h-0 flex-1 overflow-y-auto p-2">
+    {#if loading}
+      <div class="px-3 py-8 text-center text-xs text-muted-foreground">正在加载...</div>
+    {:else if channels.length === 0}
+      <div class="px-3 py-8 text-center text-xs text-muted-foreground">还没有渠道</div>
+    {:else}
+      <div class="flex flex-col gap-0.5">
+        {#each channels as channel}
+          {@const isActive = editingId === channel.id}
+          <button
+            class={`flex w-full items-center gap-3 rounded-lg px-3 py-2.5 text-left transition-colors ${
+              isActive ? "bg-accent" : "hover:bg-accent/50"
+            }`}
+            onclick={() => onEdit(channel)}
+            type="button"
+          >
+            <Avatar.Root class="size-8 shrink-0 rounded-lg text-xs font-bold">
+              <Avatar.Fallback class={`rounded-lg ${channel.enabled ? "bg-emerald-600 text-white" : "bg-muted text-muted-foreground"}`}>
+                {channel.name.charAt(0).toLowerCase()}
+              </Avatar.Fallback>
+            </Avatar.Root>
+            <span class="min-w-0 flex-1 truncate text-[13px]">{channel.name}</span>
+            {#if channel.enabled}
+              <Badge class="shrink-0 rounded-full bg-emerald-500/15 px-2 py-0.5 text-[10px] font-semibold text-emerald-600" variant="secondary">ON</Badge>
+            {/if}
+          </button>
+        {/each}
+      </div>
+    {/if}
+  </div>
 
-            <div class="flex flex-wrap gap-2">
-              <button class="rounded-full bg-stone-950 px-3 py-2 text-sm font-medium text-white" onclick={() => onEdit(channel)} type="button">
-                编辑
-              </button>
-              <button
-                class="rounded-full border border-stone-300 px-3 py-2 text-sm font-medium text-stone-700"
-                disabled={testingId === channel.id}
-                onclick={() => onTest(channel.id)}
-                type="button"
-              >
-                {testingId === channel.id ? "测试中..." : "测试连通性"}
-              </button>
-              <button class="rounded-full border border-rose-200 px-3 py-2 text-sm font-medium text-rose-700" onclick={() => onDelete(channel.id)} type="button">
-                删除
-              </button>
-            </div>
-          </div>
-        </article>
-      {/each}
-    </div>
-  {/if}
+  <!-- 底部添加按钮 -->
+  <div class="border-t p-3">
+    <Button class="w-full" onclick={onCreate} variant="outline" size="sm">
+      <PlusIcon class="size-4" />
+      添加
+    </Button>
+  </div>
 </div>

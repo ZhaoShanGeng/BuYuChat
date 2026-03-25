@@ -277,6 +277,61 @@ async fn test_send_message_non_stream_persists_final_assistant_content() {
     );
 }
 
+/// 流式发送在只返回 delta、最终 Done 不带完整文本时，也应保留 assistant 节点与正文。
+#[tokio::test]
+async fn test_send_message_stream_persists_delta_content_without_empty_rollback() {
+    let state = helpers::test_state().await;
+    let server = MockServer::start().await;
+    let conversation_id = create_bound_conversation(&state, &server.uri()).await;
+
+    let sse_body = concat!(
+        "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1735000000,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":\"当然\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1735000000,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"可以，这是结果。\"},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"chatcmpl-1\",\"object\":\"chat.completion.chunk\",\"created\":1735000000,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":12,\"completion_tokens\":8,\"total_tokens\":20}}\n\n",
+        "data: [DONE]\n\n"
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_raw(sse_body, "text/event-stream"),
+        )
+        .mount(&server)
+        .await;
+
+    let response = send_message_impl(
+        &state,
+        conversation_id.clone(),
+        SendMessageInput {
+            content: "请给我一个流式结果".to_string(),
+            stream: Some(true),
+            dry_run: Some(false),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+
+    let SendMessageResponse::Started(result) = response else {
+        panic!("expected started response");
+    };
+
+    let status = wait_for_terminal_status(&state.db, &result.assistant_version_id).await;
+    assert_eq!(status, "committed");
+
+    let messages = list_messages_impl(&state, conversation_id, None, None)
+        .await
+        .unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[1].role, "assistant");
+    assert_eq!(
+        messages[1].versions[0].content.as_deref(),
+        Some("当然可以，这是结果。")
+    );
+}
+
 /// 当 user node 不是最后一个楼层时，reroll 应返回 NOT_LAST_USER_NODE。
 #[tokio::test]
 async fn test_reroll_user_node_returns_not_last_user_node() {

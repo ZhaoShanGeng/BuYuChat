@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "WebFetch(domain:www.assistant-ui.com)",
+      "WebFetch(domain:lobechat.zhaoshangeng.top)",
+      "WebFetch(domain:docs.cherry-ai.com)",
+      "WebFetch(domain:lobechat.com)",
+      "WebFetch(domain:app.lobehub.com)",
+      "WebFetch(domain:github.com)"
+    ]
+  }
+}

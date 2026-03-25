@@ -1,0 +1,96 @@
+<script lang="ts">
+  /**
+   * 聊天面板 — ChatHeader + MessageTimeline + ChatComposer。
+   */
+  import type { Agent } from "../lib/transport/agents";
+  import type { Channel } from "../lib/transport/channels";
+  import type { Conversation } from "../lib/transport/conversations";
+  import type { ChannelModel } from "../lib/transport/models";
+  import type { MessageNode } from "../lib/transport/messages";
+  import type { Notice } from "./workspace-state";
+  import { isNodeGenerating } from "./workspace-state";
+  import ChatHeader from "./ChatHeader.svelte";
+  import ChatComposer from "./ChatComposer.svelte";
+  import MessageTimeline from "./MessageTimeline.svelte";
+
+  type Props = {
+    conversation: Conversation | null;
+    messages: MessageNode[];
+    agents: Agent[];
+    channels: Channel[];
+    models: ChannelModel[];
+    loading: boolean;
+    sending: boolean;
+    composer: string;
+    notice: Notice | null;
+    dryRunSummary: string | null;
+    agentName: string;
+    modelName: string;
+    onComposerChange: (value: string) => void;
+    onSend: () => void | Promise<void>;
+    onDryRun: () => void | Promise<void>;
+    onCancel: (versionId: string) => void | Promise<void>;
+    onReroll: (nodeId: string) => void | Promise<void>;
+    onSwitchVersion: (nodeId: string, versionId: string) => void | Promise<void>;
+    onDeleteVersion: (nodeId: string, versionId: string) => void | Promise<void>;
+    onEditMessage: (nodeId: string, versionId: string, content: string) => void | Promise<void>;
+    onOpenSettings: () => void;
+    onQuickModelChange: (modelId: string) => void | Promise<void>;
+    onQuickAgentChange: (agentId: string) => void | Promise<void>;
+    onQuickChannelChange: (channelId: string) => void | Promise<void>;
+    onQuickTitleChange: (title: string) => void | Promise<void>;
+  };
+
+  const props: Props = $props();
+
+  /** 当前是否有正在生成的版本。 */
+  let generatingVersionId = $derived.by(() => {
+    for (const node of props.messages) {
+      if (isNodeGenerating(node)) {
+        const v = node.versions.find((v) => v.status === "generating");
+        if (v) return v.id;
+      }
+    }
+    return null;
+  });
+</script>
+
+<section class="flex h-full min-h-0 flex-col">
+  <ChatHeader
+    agentName={props.agentName}
+    agents={props.agents}
+    channels={props.channels}
+    conversation={props.conversation}
+    modelName={props.modelName}
+    models={props.models}
+    onOpenSettings={props.onOpenSettings}
+    onQuickAgentChange={props.onQuickAgentChange}
+    onQuickChannelChange={props.onQuickChannelChange}
+    onQuickModelChange={props.onQuickModelChange}
+    onQuickTitleChange={props.onQuickTitleChange}
+  />
+
+  <MessageTimeline
+    conversation={props.conversation}
+    dryRunSummary={props.dryRunSummary}
+    loading={props.loading}
+    messages={props.messages}
+    notice={props.notice}
+    onCancel={props.onCancel}
+    onDeleteVersion={props.onDeleteVersion}
+    onEditMessage={props.onEditMessage}
+    onReroll={props.onReroll}
+    onSwitchVersion={props.onSwitchVersion}
+  />
+
+  <ChatComposer
+    composer={props.composer}
+    conversation={props.conversation}
+    {generatingVersionId}
+    onCancel={props.onCancel}
+    onComposerChange={props.onComposerChange}
+    onDryRun={props.onDryRun}
+    onSend={props.onSend}
+    sending={props.sending}
+  />
+</section>

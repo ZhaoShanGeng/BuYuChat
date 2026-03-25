@@ -1,6 +1,6 @@
 # 步语 BuYu — 文档体系
 
-**版本：** 0.2
+**版本：** 0.3
 
 目标：任何新来的开发者，靠读文档就能理解系统、找到接口、上手开发。
 
@@ -22,6 +22,7 @@
 | 08 | `08_collaboration.md` | 协作指南：分支策略、PR 流程、Issue 规范 | 所有人 |
 | 09 | `09_testing_ci.md` | 测试与 CI：策略、覆盖率、流水线 | 开发 |
 | 10 | `10_progress.md` | 进度追踪：功能完成状态 | 所有人 |
+| 11 | `11_backend_mvp_baseline.md` | 后端 MVP 基线：当前已落地能力、数据库基线、测试基线、已知边界 | 开发/产品 |
 
 ---
 
@@ -48,6 +49,7 @@
 | 新增/修改 API 接口 | 04_api_openapi.yaml + 05_api_reference.md |
 | 架构调整 | 02_architecture.md |
 | 完成功能模块 | 10_progress.md |
+| 完成一个可复用的阶段性基线 | 11_backend_mvp_baseline.md |
 | 发现设计问题 | 07_design_review.md |
 | 工具链/流程变更 | 08_collaboration.md / 09_testing_ci.md |
 

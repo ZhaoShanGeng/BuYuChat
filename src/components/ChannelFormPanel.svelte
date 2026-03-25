@@ -1,8 +1,11 @@
 <script lang="ts">
   /**
-   * 渠道表单面板，负责创建与编辑渠道字段。
+   * 渠道详情表单 — CherryStudio 风格：右侧详情面板。
    */
-
+  import { Button } from "$lib/components/ui/button/index.js";
+  import { Input } from "$lib/components/ui/input/index.js";
+  import { Label } from "$lib/components/ui/label/index.js";
+  import * as Switch from "$lib/components/ui/switch/index.js";
   import type { ChannelInput } from "../lib/transport/channels";
 
   type Props = {
@@ -16,68 +19,81 @@
   const { editingId, form, saving, onReset, onSubmit }: Props = $props();
 </script>
 
-<div class="rounded-[1.75rem] border border-stone-300 bg-[linear-gradient(180deg,_#fff7ed_0%,_#fffbeb_100%)] p-6 shadow-[0_24px_60px_rgba(120,53,15,0.12)]">
-  <div class="mb-5 border-b border-orange-200 pb-4">
-    <p class="text-xs font-semibold uppercase tracking-[0.3em] text-orange-700">Editor</p>
-    <h2 class="mt-2 text-2xl font-semibold tracking-[-0.04em] text-stone-950">
-      {editingId ? "编辑渠道" : "创建渠道"}
+<div class="p-6">
+  <!-- 标题 + 启用开关 -->
+  <div class="mb-6 flex items-center justify-between">
+    <h2 class="text-base font-semibold">
+      {editingId ? form.name || "编辑渠道" : "新建渠道"}
     </h2>
+    <div class="flex items-center gap-2">
+      <Label class="text-xs text-muted-foreground">启用</Label>
+      <Switch.Root
+        checked={form.enabled ?? true}
+        onCheckedChange={(checked) => (form.enabled = checked)}
+      />
+    </div>
   </div>
 
-  <form class="space-y-4" onsubmit={onSubmit}>
-    <label class="block space-y-2">
-      <span class="text-sm font-medium text-stone-700">名称</span>
-      <input bind:value={form.name} class="w-full rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm text-stone-950 outline-none focus:border-orange-400" />
-    </label>
-
-    <label class="block space-y-2">
-      <span class="text-sm font-medium text-stone-700">Base URL</span>
-      <input bind:value={form.baseUrl} class="w-full rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm text-stone-950 outline-none focus:border-orange-400" />
-    </label>
-
-    <label class="block space-y-2">
-      <span class="text-sm font-medium text-stone-700">API Key</span>
-      <input bind:value={form.apiKey} class="w-full rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm text-stone-950 outline-none focus:border-orange-400" placeholder="sk-..." />
-    </label>
-
-    <div class="grid gap-4 sm:grid-cols-2">
-      <label class="block space-y-2">
-        <span class="text-sm font-medium text-stone-700">鉴权方式</span>
-        <select bind:value={form.authType} class="w-full rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm text-stone-950 outline-none focus:border-orange-400">
-          <option value="bearer">bearer</option>
-          <option value="x_api_key">x_api_key</option>
-          <option value="none">none</option>
-        </select>
-      </label>
-
-      <label class="flex items-center gap-3 rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm text-stone-700">
-        <input bind:checked={form.enabled} type="checkbox" />
-        启用渠道
-      </label>
+  <form class="space-y-5" onsubmit={onSubmit}>
+    <!-- API 密钥 -->
+    <div class="space-y-2">
+      <Label class="text-sm">API 密钥</Label>
+      <div class="flex gap-2">
+        <Input bind:value={form.apiKey} class="flex-1" placeholder="sk-..." type="password" />
+        <Button disabled={!editingId} size="sm" type="button" variant="outline">检测</Button>
+      </div>
     </div>
 
-    <label class="block space-y-2">
-      <span class="text-sm font-medium text-stone-700">Models Endpoint</span>
-      <input bind:value={form.modelsEndpoint} class="w-full rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm text-stone-950 outline-none focus:border-orange-400" />
-    </label>
+    <!-- API 地址 -->
+    <div class="space-y-2">
+      <Label class="text-sm">API 地址</Label>
+      <Input bind:value={form.baseUrl} placeholder="https://api.openai.com" />
+      {#if form.baseUrl}
+        <p class="text-xs text-muted-foreground">预览：{form.baseUrl}{form.chatEndpoint || "/v1/chat/completions"}</p>
+      {/if}
+    </div>
 
-    <label class="block space-y-2">
-      <span class="text-sm font-medium text-stone-700">Chat Endpoint</span>
-      <input bind:value={form.chatEndpoint} class="w-full rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm text-stone-950 outline-none focus:border-orange-400" />
-    </label>
+    <!-- 名称 -->
+    <div class="space-y-2">
+      <Label class="text-sm">名称</Label>
+      <Input bind:value={form.name} placeholder="例如：OpenAI" />
+    </div>
 
-    <label class="block space-y-2">
-      <span class="text-sm font-medium text-stone-700">Stream Endpoint</span>
-      <input bind:value={form.streamEndpoint} class="w-full rounded-2xl border border-orange-200 bg-white px-4 py-3 text-sm text-stone-950 outline-none focus:border-orange-400" />
-    </label>
+    <!-- 鉴权方式 -->
+    <div class="space-y-2">
+      <Label class="text-sm">鉴权方式</Label>
+      <select bind:value={form.authType} class="flex h-9 w-full rounded-md border border-input bg-transparent px-3 py-1 text-sm shadow-sm transition-colors focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring">
+        <option value="bearer">Bearer Token</option>
+        <option value="x_api_key">X-API-Key</option>
+        <option value="none">无鉴权</option>
+      </select>
+    </div>
 
-    <div class="flex flex-wrap gap-3 pt-2">
-      <button class="rounded-full bg-stone-950 px-5 py-3 text-sm font-semibold text-white" disabled={saving} type="submit">
+    <!-- 端点（折叠区） -->
+    <details class="group">
+      <summary class="cursor-pointer text-sm text-muted-foreground hover:text-foreground">高级端点设置</summary>
+      <div class="mt-3 space-y-4">
+        <div class="space-y-2">
+          <Label class="text-xs text-muted-foreground">Models Endpoint</Label>
+          <Input bind:value={form.modelsEndpoint} placeholder="/v1/models" />
+        </div>
+        <div class="space-y-2">
+          <Label class="text-xs text-muted-foreground">Chat Endpoint</Label>
+          <Input bind:value={form.chatEndpoint} placeholder="/v1/chat/completions" />
+        </div>
+        <div class="space-y-2">
+          <Label class="text-xs text-muted-foreground">Stream Endpoint</Label>
+          <Input bind:value={form.streamEndpoint} placeholder="/v1/chat/completions" />
+        </div>
+      </div>
+    </details>
+
+    <!-- 操作按钮 -->
+    <div class="flex items-center gap-3 pt-2">
+      <Button disabled={saving} type="submit">
         {saving ? "保存中..." : editingId ? "保存修改" : "创建渠道"}
-      </button>
-      <button class="rounded-full border border-stone-300 px-5 py-3 text-sm font-medium text-stone-700" onclick={onReset} type="button">
-        清空
-      </button>
+      </Button>
+      <Button onclick={onReset} type="button" variant="outline">重置</Button>
     </div>
   </form>
 </div>

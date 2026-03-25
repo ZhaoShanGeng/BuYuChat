@@ -4,7 +4,7 @@ Thumbs.db
 .idea/
 .vscode/
 .codex/
-docs/
+.agent/
 
 node_modules/
 dist/
@@ -28,3 +28,5 @@ coverage/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
+
+Claude.md

@@ -160,6 +160,51 @@ type GenerationEvent =
 - 使用 `$effect` 替代 `afterUpdate` / `onMount`（副作用）
 - 不使用 Svelte 4 的 store（`writable` / `readable`）
 
+#### 4.2.1 Svelte 5 使用边界
+
+- `$state` 只用于**会驱动 UI 的可变状态**，例如加载中、当前选中项、表单草稿、消息列表缓存
+- `const` 继续用于常量、依赖注入对象、纯函数引用
+- 普通 `let` 只允许用于**非响应式哨兵或局部临时变量**，例如 `initialized`、上一次草稿值、循环内中间值
+- 纯函数 helper 保持在普通 `.ts`；只有持有 runes 状态的模块才使用 `*.svelte.ts`
+- 当某个 `.svelte` 文件接近 200 行，或 `<script>` 接近 80 行时，必须把页面级状态和异步逻辑下沉到 `*.svelte.ts`
+
+```typescript
+/**
+ * 页面级状态应收敛到 `.svelte.ts`
+ */
+export function createWorkspaceState() {
+  let initialized = false; // 非响应式哨兵，允许使用普通 let
+  const state = $state({
+    loading: true,
+    query: "",
+    items: [] as string[]
+  });
+  const itemCount = $derived(state.items.length);
+
+  $effect(() => {
+    if (initialized) {
+      return;
+    }
+
+    initialized = true;
+    void loadInitialData();
+  });
+
+  async function loadInitialData() {
+    state.loading = true;
+    state.items = ["a", "b"];
+    state.loading = false;
+  }
+
+  return {
+    state,
+    get itemCount() {
+      return itemCount;
+    }
+  };
+}
+```
+
 ### 4.3 组件设计
 
 - 每个 `.svelte` 文件 ≤ 200 行（含模板）

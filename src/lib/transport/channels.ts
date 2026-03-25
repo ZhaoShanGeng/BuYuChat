@@ -3,6 +3,7 @@
  */
 
 import { invoke } from "@tauri-apps/api/core";
+import { toAppError, toOptionalValue, type AppError } from "./common";
 
 /**
  * 前端使用的渠道模型。
@@ -51,14 +52,6 @@ export type ChannelTestResult = {
 };
 
 /**
- * 前端统一使用的错误模型。
- */
-export type AppError = {
-  errorCode: string;
-  message: string;
-};
-
-/**
  * Tauri IPC 返回的原始渠道载荷。
  */
 type RawChannel = {
@@ -74,14 +67,6 @@ type RawChannel = {
   enabled: boolean;
   created_at: number;
   updated_at: number;
-};
-
-/**
- * Tauri IPC 返回的原始错误载荷。
- */
-type RawError = {
-  error_code?: string;
-  message?: string;
 };
 
 /**
@@ -111,33 +96,13 @@ function toRawInput(input: ChannelInput | ChannelPatch) {
   return {
     name: input.name,
     base_url: input.baseUrl,
-    channel_type: input.channelType ?? undefined,
-    api_key: input.apiKey ?? undefined,
-    auth_type: input.authType ?? undefined,
-    models_endpoint: input.modelsEndpoint ?? undefined,
-    chat_endpoint: input.chatEndpoint ?? undefined,
-    stream_endpoint: input.streamEndpoint ?? undefined,
-    enabled: input.enabled ?? undefined
-  };
-}
-
-/**
- * 将未知错误归一化为前端统一错误结构。
- */
-export function toAppError(error: unknown): AppError {
-  const fallback: AppError = {
-    errorCode: "INTERNAL_ERROR",
-    message: "unexpected client error"
-  };
-
-  if (!error || typeof error !== "object") {
-    return fallback;
-  }
-
-  const raw = error as RawError;
-  return {
-    errorCode: raw.error_code ?? fallback.errorCode,
-    message: raw.message ?? fallback.message
+    channel_type: toOptionalValue(input.channelType),
+    api_key: toOptionalValue(input.apiKey),
+    auth_type: toOptionalValue(input.authType),
+    models_endpoint: toOptionalValue(input.modelsEndpoint),
+    chat_endpoint: toOptionalValue(input.chatEndpoint),
+    stream_endpoint: toOptionalValue(input.streamEndpoint),
+    enabled: toOptionalValue(input.enabled)
   };
 }
 
@@ -185,3 +150,5 @@ export async function deleteChannel(id: string): Promise<void> {
 export async function testChannel(id: string): Promise<ChannelTestResult> {
   return invoke<ChannelTestResult>("test_channel", { id });
 }
+
+export { toAppError, type AppError };
