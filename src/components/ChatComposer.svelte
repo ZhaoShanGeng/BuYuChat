@@ -1,13 +1,19 @@
 <script lang="ts">
-  /**
-   * 聊天输入框 — 大输入区 + 附件占位 + stop/send 按钮 + toast。
-   */
+  import { onMount } from "svelte";
   import { Button } from "$lib/components/ui/button/index.js";
+  import { Textarea } from "$lib/components/ui/textarea/index.js";
   import ArrowUpIcon from "@lucide/svelte/icons/arrow-up";
-  import SquareIcon from "@lucide/svelte/icons/square";
+  import GripHorizontalIcon from "@lucide/svelte/icons/grip-horizontal";
   import PaperclipIcon from "@lucide/svelte/icons/paperclip";
-  import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
+  import SquareIcon from "@lucide/svelte/icons/square";
   import type { Conversation } from "../lib/transport/conversations";
+
+  const STORAGE_KEY = "buyu:composer-height";
+  const DEFAULT_HEIGHT = 188;
+  const MIN_HEIGHT = 140;
+  const MIN_VIEWPORT_HEIGHT = 112;
+  const MAX_HEIGHT = 360;
+  const RESERVED_VIEWPORT_HEIGHT = 240;
 
   type Props = {
     conversation: Conversation | null;
@@ -20,77 +26,121 @@
     onCancel: (versionId: string) => void | Promise<void>;
   };
 
-  const { conversation, sending, composer, generatingVersionId, onComposerChange, onDryRun, onSend, onCancel }: Props = $props();
+  const { conversation, sending, composer, generatingVersionId, onComposerChange, onSend, onCancel }: Props =
+    $props();
 
+  let composerHeight = $state(DEFAULT_HEIGHT);
   let canSend = $derived(!!conversation && !sending && composer.trim().length > 0);
   let isGenerating = $derived(!!generatingVersionId);
 
-  /** 生成中 toast — 3 秒后自动消失。 */
-  let toastVisible = $state(false);
-  let toastTimer: ReturnType<typeof setTimeout> | null = null;
+  function getHeightBounds() {
+    const viewportMax =
+      typeof window === "undefined"
+        ? MAX_HEIGHT
+        : Math.max(MIN_VIEWPORT_HEIGHT, window.innerHeight - RESERVED_VIEWPORT_HEIGHT);
+    const maxHeight = Math.max(MIN_VIEWPORT_HEIGHT, Math.min(MAX_HEIGHT, viewportMax));
+    const minHeight = Math.min(MIN_HEIGHT, maxHeight);
 
-  $effect(() => {
-    if (sending) {
-      toastVisible = true;
-      if (toastTimer) clearTimeout(toastTimer);
-      toastTimer = setTimeout(() => { toastVisible = false; }, 3000);
+    return { minHeight, maxHeight };
+  }
+
+  function clampHeight(nextHeight: number) {
+    const { minHeight, maxHeight } = getHeightBounds();
+    return Math.max(minHeight, Math.min(maxHeight, nextHeight));
+  }
+
+  onMount(() => {
+    const saved = window.localStorage.getItem(STORAGE_KEY);
+    if (saved) {
+      const numericHeight = Number(saved);
+      if (Number.isFinite(numericHeight)) {
+        composerHeight = clampHeight(numericHeight);
+      }
     }
+
+    const handleResize = () => {
+      const nextHeight = clampHeight(composerHeight);
+      if (nextHeight !== composerHeight) {
+        composerHeight = nextHeight;
+      }
+    };
+
+    handleResize();
+    window.addEventListener("resize", handleResize);
+
+    return () => {
+      window.removeEventListener("resize", handleResize);
+    };
   });
 
-  /** Enter 发送，Shift+Enter 换行。 */
+  function persistHeight(nextHeight: number) {
+    composerHeight = clampHeight(nextHeight);
+    window.localStorage.setItem(STORAGE_KEY, String(composerHeight));
+  }
+
+  function handleResizeStart(event: PointerEvent) {
+    const startY = event.clientY;
+    const startHeight = composerHeight;
+    const handle = event.currentTarget as HTMLElement;
+    handle.setPointerCapture(event.pointerId);
+
+    const onMove = (moveEvent: PointerEvent) => {
+      const delta = startY - moveEvent.clientY;
+      persistHeight(startHeight + delta);
+    };
+
+    const onEnd = () => {
+      window.removeEventListener("pointermove", onMove);
+      window.removeEventListener("pointerup", onEnd);
+      window.removeEventListener("pointercancel", onEnd);
+    };
+
+    window.addEventListener("pointermove", onMove);
+    window.addEventListener("pointerup", onEnd);
+    window.addEventListener("pointercancel", onEnd);
+  }
+
   function handleKeydown(event: KeyboardEvent) {
     if (event.key === "Enter" && !event.shiftKey) {
       event.preventDefault();
-      if (canSend) void onSend();
+      if (canSend) {
+        void onSend();
+      }
     }
-  }
-
-  /** 自动高度。 */
-  function handleInput(event: Event) {
-    const el = event.currentTarget as HTMLTextAreaElement;
-    onComposerChange(el.value);
-    el.style.height = "auto";
-    el.style.height = `${Math.min(el.scrollHeight, 240)}px`;
   }
 </script>
 
-<div class="mx-auto w-full max-w-3xl px-4 pb-6 pt-2">
-  <!-- Toast -->
-  {#if toastVisible && isGenerating}
-    <div class="mb-2 flex items-center justify-center">
-      <div class="inline-flex items-center gap-2 rounded-full bg-muted/80 px-3 py-1 text-xs text-muted-foreground">
-        <LoaderCircleIcon class="size-3 animate-spin" />
-        正在生成回复...
-      </div>
-    </div>
-  {/if}
+<div class="mx-auto w-full max-w-[56rem] shrink-0 px-4 pb-4 pt-1">
+  <div class="flex flex-col rounded-[1.75rem] border bg-background shadow-sm transition-shadow focus-within:shadow-md" style={`height:${composerHeight}px;`}>
+    <button
+      aria-label="调整输入框高度"
+      class="flex h-7 items-center justify-center rounded-t-[1.75rem] text-muted-foreground transition-colors hover:bg-muted/50 hover:text-foreground"
+      onpointerdown={handleResizeStart}
+      type="button"
+    >
+      <GripHorizontalIcon class="size-4" />
+    </button>
 
-  <!-- 输入区域 -->
-  <div class="flex flex-col overflow-hidden rounded-[1.5rem] border bg-background/60 shadow-sm backdrop-blur-xl transition-colors focus-within:border-primary/50 focus-within:ring-[3px] focus-within:ring-primary/10">
-    <!-- 顶部工具栏 -->
-    <div class="flex items-center gap-1 px-3 pt-2">
-      <Button class="size-7" disabled size="icon" variant="ghost" title="附件（即将支持）">
+    <div class="flex items-center gap-1 px-3">
+      <Button class="size-7 rounded-xl" disabled size="icon" variant="ghost" title="附件（即将支持）">
         <PaperclipIcon class="size-4 text-muted-foreground/40" />
       </Button>
     </div>
 
-    <!-- 输入框 -->
-    <textarea
+    <Textarea
       aria-label="聊天输入框"
-      class="max-h-[240px] min-h-[72px] flex-1 resize-none bg-transparent px-4 py-2 text-sm leading-relaxed outline-none placeholder:text-muted-foreground/50"
+      class="min-h-0 flex-1 resize-none rounded-none border-0 bg-transparent px-4 py-3 text-sm leading-relaxed shadow-none ring-0 outline-none focus-visible:border-0 focus-visible:ring-0 placeholder:text-muted-foreground/50"
       disabled={!conversation || sending}
-      oninput={handleInput}
+      oninput={(event: Event) => onComposerChange((event.currentTarget as HTMLTextAreaElement).value)}
       onkeydown={handleKeydown}
       placeholder={conversation ? "输入消息，Enter 发送，Shift+Enter 换行" : "请先选择会话"}
-      rows={2}
       value={composer}
-    ></textarea>
+    />
 
-    <!-- 底部按钮栏 -->
-    <div class="flex items-center justify-end gap-1.5 px-3 pb-2">
+    <div class="flex items-center justify-end gap-1.5 px-3 pb-3">
       {#if isGenerating}
         <Button
-          class="size-8 rounded-lg"
+          class="size-9 rounded-xl"
           onclick={() => generatingVersionId && onCancel(generatingVersionId)}
           size="icon"
           variant="destructive"
@@ -100,7 +150,7 @@
         </Button>
       {/if}
       <Button
-        class="size-8 rounded-lg"
+        class="size-9 rounded-xl"
         disabled={!canSend}
         onclick={() => void onSend()}
         size="icon"

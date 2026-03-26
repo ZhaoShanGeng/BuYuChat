@@ -1,15 +1,58 @@
 <script lang="ts">
+  import { onDestroy } from "svelte";
   import { cn } from "$lib/utils.js";
   import { renderRichText } from "$lib/rich-text";
 
   type Props = {
     content: string | null | undefined;
     class?: string;
+    throttleMs?: number;
   };
 
-  let { content, class: className = "" }: Props = $props();
+  let { content, class: className = "", throttleMs = 0 }: Props = $props();
+  let renderedContent = $state("");
+  let queuedContent = $state("");
+  let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
-  let html = $derived(renderRichText(content));
+  onDestroy(() => {
+    if (flushTimer) {
+      clearTimeout(flushTimer);
+    }
+  });
+
+  function flushQueuedContent() {
+    renderedContent = queuedContent;
+    flushTimer = null;
+  }
+
+  $effect(() => {
+    const nextContent = content ?? "";
+
+    if (throttleMs <= 0 || nextContent.length < renderedContent.length) {
+      queuedContent = nextContent;
+      renderedContent = nextContent;
+      if (flushTimer) {
+        clearTimeout(flushTimer);
+        flushTimer = null;
+      }
+      return;
+    }
+
+    if (renderedContent === "") {
+      queuedContent = nextContent;
+      renderedContent = nextContent;
+      return;
+    }
+
+    queuedContent = nextContent;
+    if (flushTimer || queuedContent === renderedContent) {
+      return;
+    }
+
+    flushTimer = setTimeout(flushQueuedContent, throttleMs);
+  });
+
+  let html = $derived(renderRichText(renderedContent));
 </script>
 
 <div class={cn("rich-text-content", className)}>
@@ -17,6 +60,13 @@
 </div>
 
 <style>
+  .rich-text-content {
+    max-width: 100%;
+    min-width: 0;
+    overflow-wrap: anywhere;
+    user-select: text;
+  }
+
   .rich-text-content :global(*:first-child) {
     margin-top: 0;
   }
@@ -57,6 +107,15 @@
     margin: 0.9rem 0;
   }
 
+  .rich-text-content :global(p),
+  .rich-text-content :global(li),
+  .rich-text-content :global(blockquote),
+  .rich-text-content :global(td),
+  .rich-text-content :global(th) {
+    overflow-wrap: anywhere;
+    word-break: break-word;
+  }
+
   .rich-text-content :global(ul),
   .rich-text-content :global(ol) {
     padding-left: 1.4rem;
@@ -93,6 +152,7 @@
     color: hsl(0 0% 90%);
     font-size: 0.8125rem;
     line-height: 1.6;
+    max-width: 100%;
     overflow-x: auto;
     padding: 0.9rem 1rem;
   }

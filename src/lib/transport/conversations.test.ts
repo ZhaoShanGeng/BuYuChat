@@ -70,8 +70,11 @@ describe("conversations transport", () => {
       id: "conv-1",
       input: {
         title: undefined,
+        agent_id_set: true,
         agent_id: null,
+        channel_id_set: true,
         channel_id: null,
+        channel_model_id_set: true,
         channel_model_id: null,
         archived: undefined,
         pinned: undefined
@@ -102,8 +105,11 @@ describe("conversations transport", () => {
       id: "conv-1",
       input: {
         title: undefined,
+        agent_id_set: false,
         agent_id: undefined,
+        channel_id_set: false,
         channel_id: undefined,
+        channel_model_id_set: false,
         channel_model_id: undefined,
         archived: false,
         pinned: false

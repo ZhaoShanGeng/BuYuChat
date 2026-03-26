@@ -9,8 +9,8 @@ use tauri::{State, ipc::Channel};
 use crate::{
     error::AppError,
     models::{
-        DeleteVersionResult, GenerationEvent, MessageNode, RerollInput, RerollResult,
-        SendMessageInput, SendMessageResponse, VersionContent,
+        DeleteVersionResult, EditMessageInput, EditMessageResult, GenerationEvent, MessageNode,
+        RerollInput, RerollResult, SendMessageInput, SendMessageResponse, VersionContent,
     },
     services::message_service,
     state::AppState,
@@ -22,8 +22,16 @@ pub async fn list_messages_impl(
     id: String,
     before_order_key: Option<String>,
     limit: Option<i64>,
+    from_latest: Option<bool>,
 ) -> Result<Vec<MessageNode>, AppError> {
-    message_service::list_messages(state, &id, before_order_key, limit).await
+    message_service::list_messages(
+        state,
+        &id,
+        before_order_key,
+        limit,
+        from_latest.unwrap_or(false),
+    )
+    .await
 }
 
 /// Tauri 命令：查询会话下的消息列表。
@@ -33,8 +41,9 @@ pub async fn list_messages(
     id: String,
     before_order_key: Option<String>,
     limit: Option<i64>,
+    from_latest: Option<bool>,
 ) -> Result<Vec<MessageNode>, AppError> {
-    list_messages_impl(state.inner(), id, before_order_key, limit).await
+    list_messages_impl(state.inner(), id, before_order_key, limit, from_latest).await
 }
 
 /// 按需加载某个版本的完整内容。
@@ -145,6 +154,29 @@ pub async fn reroll(
     event_channel: Channel<GenerationEvent>,
 ) -> Result<RerollResult, AppError> {
     reroll_impl(state.inner(), id, node_id, input, Some(event_channel)).await
+}
+
+/// 编辑当前楼层的 active version，并可选地重新发送。
+pub async fn edit_message_impl(
+    state: &AppState,
+    id: String,
+    node_id: String,
+    input: EditMessageInput,
+    event_channel: Option<Channel<GenerationEvent>>,
+) -> Result<EditMessageResult, AppError> {
+    message_service::edit_message(state, &id, &node_id, input, event_channel).await
+}
+
+/// Tauri 命令：编辑当前楼层的 active version，并可选地重新发送。
+#[tauri::command]
+pub async fn edit_message(
+    state: State<'_, AppState>,
+    id: String,
+    node_id: String,
+    input: EditMessageInput,
+    event_channel: Channel<GenerationEvent>,
+) -> Result<EditMessageResult, AppError> {
+    edit_message_impl(state.inner(), id, node_id, input, Some(event_channel)).await
 }
 
 /// 取消某个 generating version。

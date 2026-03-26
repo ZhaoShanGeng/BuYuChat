@@ -8,8 +8,8 @@
 //! 设计要点：
 //! - MVP 阶段会话直接内嵌 `agent_id`、`channel_id`、`channel_model_id`，不引入中间表。
 //! - 列表接口只返回 `ConversationSummary`，避免把完整详情结构用于侧边栏等轻量场景。
-//! - 更新模型使用补丁语义，因此三个绑定字段都采用 `Option<Option<String>>`，
-//!   用来表达“保留原值 / 设为具体值 / 显式清空”三种状态。
+//! - IPC 层显式携带 `*_set` 标记，避免 `null` 在 JSON/Tauri 序列化里与“字段缺失”
+//!   混淆；repo 层仍使用 `Option<Option<String>>` 表达“保留原值 / 设为具体值 / 显式清空”。
 
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
@@ -62,9 +62,15 @@ pub struct CreateConversationInput {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
 pub struct UpdateConversationInput {
     pub title: Option<String>,
-    pub agent_id: Option<Option<String>>,
-    pub channel_id: Option<Option<String>>,
-    pub channel_model_id: Option<Option<String>>,
+    #[serde(default)]
+    pub agent_id_set: bool,
+    pub agent_id: Option<String>,
+    #[serde(default)]
+    pub channel_id_set: bool,
+    pub channel_id: Option<String>,
+    #[serde(default)]
+    pub channel_model_id_set: bool,
+    pub channel_model_id: Option<String>,
     pub archived: Option<bool>,
     pub pinned: Option<bool>,
 }

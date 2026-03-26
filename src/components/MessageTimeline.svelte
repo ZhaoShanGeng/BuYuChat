@@ -1,19 +1,21 @@
 <script lang="ts">
-  /**
-   * 消息时间线 — 可滚动消息列表，自动滚到底部。
-   */
-  import SparklesIcon from "@lucide/svelte/icons/sparkles";
-  import MessageCircleIcon from "@lucide/svelte/icons/message-circle";
-  import WandSparklesIcon from "@lucide/svelte/icons/wand-sparkles";
+  import { Button } from "$lib/components/ui/button/index.js";
   import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
+  import MessageCircleIcon from "@lucide/svelte/icons/message-circle";
+  import SparklesIcon from "@lucide/svelte/icons/sparkles";
+  import WandSparklesIcon from "@lucide/svelte/icons/wand-sparkles";
   import type { Conversation } from "../lib/transport/conversations";
   import type { MessageNode } from "../lib/transport/messages";
   import type { Notice } from "./workspace-state";
   import MessageCard from "./MessageCard.svelte";
 
+  const BOTTOM_STICK_THRESHOLD = 80;
+
   type Props = {
     conversation: Conversation | null;
     loading: boolean;
+    loadingOlderMessages: boolean;
+    hasOlderMessages: boolean;
     messages: MessageNode[];
     notice: Notice | null;
     dryRunSummary: string | null;
@@ -21,32 +23,134 @@
     onReroll: (nodeId: string) => void | Promise<void>;
     onSwitchVersion: (nodeId: string, versionId: string) => void | Promise<void>;
     onDeleteVersion: (nodeId: string, versionId: string) => void | Promise<void>;
-    onEditMessage: (nodeId: string, versionId: string, content: string) => void | Promise<void>;
+    onEditMessage: (
+      nodeId: string,
+      content: string,
+      options?: { resend?: boolean }
+    ) => void | Promise<void>;
+    onLoadVersionContent: (nodeId: string, versionId: string) => Promise<string>;
+    onLoadOlderMessages: () => void | Promise<void>;
   };
 
   const {
-    conversation, loading, messages, notice, dryRunSummary,
-    onCancel, onReroll, onSwitchVersion, onDeleteVersion, onEditMessage
+    conversation,
+    loading,
+    loadingOlderMessages,
+    hasOlderMessages,
+    messages,
+    notice,
+    dryRunSummary,
+    onCancel,
+    onReroll,
+    onSwitchVersion,
+    onDeleteVersion,
+    onEditMessage,
+    onLoadVersionContent,
+    onLoadOlderMessages
   }: Props = $props();
 
-  let scrollRef: HTMLDivElement | undefined = $state();
+  let scrollRef = $state<HTMLDivElement>();
+  let shouldStickToBottom = $state(true);
+  let pendingAnchor = $state<{ nodeId: string; offset: number } | null>(null);
+  let previousConversationId = $state<string | null>(null);
 
-  /** 消息变化时自动滚到底部。 */
+  function captureAnchor(nodeId: string) {
+    if (!scrollRef) {
+      return;
+    }
+
+    const nodeElement = scrollRef.querySelector<HTMLElement>(`[data-node-id="${nodeId}"]`);
+    if (!nodeElement) {
+      return;
+    }
+
+    const containerTop = scrollRef.getBoundingClientRect().top;
+    pendingAnchor = {
+      nodeId,
+      offset: nodeElement.getBoundingClientRect().top - containerTop
+    };
+  }
+
+  function handleScroll() {
+    if (!scrollRef) {
+      return;
+    }
+
+    const remaining = scrollRef.scrollHeight - scrollRef.clientHeight - scrollRef.scrollTop;
+    shouldStickToBottom = remaining < BOTTOM_STICK_THRESHOLD;
+  }
+
+  async function runAnchored<T>(nodeId: string, task: () => Promise<T>) {
+    captureAnchor(nodeId);
+    return task();
+  }
+
+  async function handleLoadOlderMessages() {
+    if (loadingOlderMessages || !hasOlderMessages || messages.length === 0) {
+      return;
+    }
+
+    captureAnchor(messages[0].id);
+    await onLoadOlderMessages();
+  }
+
+  $effect(() => {
+    const conversationId = conversation?.id ?? null;
+    if (conversationId === previousConversationId) {
+      return;
+    }
+
+    previousConversationId = conversationId;
+    shouldStickToBottom = true;
+    pendingAnchor = null;
+
+    requestAnimationFrame(() => {
+      if (!scrollRef) {
+        return;
+      }
+
+      scrollRef.scrollTop = scrollRef.scrollHeight;
+    });
+  });
+
   $effect(() => {
     void messages.length;
-    if (scrollRef) {
-      requestAnimationFrame(() => { scrollRef!.scrollTop = scrollRef!.scrollHeight; });
-    }
+    void loadingOlderMessages;
+
+    requestAnimationFrame(() => {
+      if (!scrollRef) {
+        return;
+      }
+
+      if (pendingAnchor) {
+        const nodeElement = scrollRef.querySelector<HTMLElement>(
+          `[data-node-id="${pendingAnchor.nodeId}"]`
+        );
+        if (nodeElement) {
+          const containerTop = scrollRef.getBoundingClientRect().top;
+          const nextOffset = nodeElement.getBoundingClientRect().top - containerTop;
+          scrollRef.scrollTop += nextOffset - pendingAnchor.offset;
+        }
+        pendingAnchor = null;
+        return;
+      }
+
+      if (shouldStickToBottom) {
+        scrollRef.scrollTop = scrollRef.scrollHeight;
+      }
+    });
   });
 </script>
 
-<div class="relative flex min-h-0 flex-1 flex-col">
-  <!-- 滚动区域 -->
-  <div bind:this={scrollRef} class="min-h-0 flex-1 overflow-y-auto">
-    <div class="mx-auto flex w-full max-w-3xl flex-col gap-6 px-4 py-8">
-      <!-- Dry Run -->
+<div class="relative flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+  <div
+    bind:this={scrollRef}
+    class="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-y-contain overflow-x-hidden"
+    onscroll={handleScroll}
+  >
+    <div class="mx-auto flex w-full min-w-0 max-w-[56rem] flex-col gap-5 px-4 py-6">
       {#if dryRunSummary}
-        <div class="rounded-lg border border-dashed bg-muted/20 px-4 py-3">
+        <div class="rounded-2xl border border-dashed bg-muted/20 px-4 py-3">
           <div class="mb-1 flex items-center gap-1.5 text-xs font-medium text-muted-foreground">
             <WandSparklesIcon class="size-3.5" />
             Prompt 预览
@@ -72,26 +176,51 @@
           <p class="mt-1 text-sm text-muted-foreground">在下方输入你的问题</p>
         </div>
       {:else}
-        <div class="flex flex-col gap-5">
-          {#each messages as node}
-            <MessageCard
-              isLastUserNode={node.role === "user" && messages.at(-1)?.id === node.id}
-              {node}
-              {onCancel}
-              {onDeleteVersion}
-              {onEditMessage}
-              {onReroll}
-              {onSwitchVersion}
-            />
+        <div class="flex min-w-0 flex-col gap-5">
+          {#if hasOlderMessages || loadingOlderMessages}
+            <div class="flex justify-center">
+              <Button
+                disabled={loadingOlderMessages}
+                onclick={() => void handleLoadOlderMessages()}
+                size="sm"
+                variant="secondary"
+              >
+                {#if loadingOlderMessages}
+                  <LoaderCircleIcon class="mr-2 size-3.5 animate-spin" />
+                  正在加载更早消息
+                {:else}
+                  加载更早消息
+                {/if}
+              </Button>
+            </div>
+          {/if}
+
+          {#each messages as node (node.id)}
+            <div data-node-id={node.id}>
+              <MessageCard
+                {node}
+                onCancel={onCancel}
+                onDeleteVersion={(nodeId, versionId) =>
+                  runAnchored(nodeId, () => Promise.resolve(onDeleteVersion(nodeId, versionId)))
+                }
+                onEditMessage={(nodeId, content, options) =>
+                  runAnchored(nodeId, () => Promise.resolve(onEditMessage(nodeId, content, options)))
+                }
+                onLoadVersionContent={onLoadVersionContent}
+                onReroll={(nodeId) => runAnchored(nodeId, () => Promise.resolve(onReroll(nodeId)))}
+                onSwitchVersion={(nodeId, versionId) =>
+                  runAnchored(nodeId, () => Promise.resolve(onSwitchVersion(nodeId, versionId)))
+                }
+              />
+            </div>
           {/each}
         </div>
       {/if}
     </div>
   </div>
 
-  <!-- 顶部通知（非持久） -->
   {#if notice}
-    <div class="absolute inset-x-0 top-0 z-10 flex justify-center px-4 pt-2">
+    <div class="pointer-events-none absolute inset-x-0 top-0 z-10 flex justify-center px-4 pt-2">
       <div
         class={`inline-flex items-center gap-2 rounded-full px-4 py-1.5 text-xs font-medium shadow-sm ${
           notice.kind === "success"

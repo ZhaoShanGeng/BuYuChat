@@ -1,90 +1,182 @@
 <script lang="ts">
-  /**
-   * 消息卡片 — 支持右键菜单、hover 操作栏、用户和助手头像。
-   * 两种角色都支持：复制、编辑、重发、删除。
-   */
+  import { onDestroy } from "svelte";
   import { Button } from "$lib/components/ui/button/index.js";
   import * as Avatar from "$lib/components/ui/avatar/index.js";
-  import * as ContextMenu from "$lib/components/ui/context-menu/index.js";
+  import * as Textarea from "$lib/components/ui/textarea/index.js";
   import BotIcon from "@lucide/svelte/icons/bot";
-  import CircleUserIcon from "@lucide/svelte/icons/circle-user";
+  import CheckIcon from "@lucide/svelte/icons/check";
   import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
   import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
+  import CircleUserIcon from "@lucide/svelte/icons/circle-user";
   import CopyIcon from "@lucide/svelte/icons/copy";
-  import CheckIcon from "@lucide/svelte/icons/check";
+  import LoaderCircleIcon from "@lucide/svelte/icons/loader-circle";
   import PencilIcon from "@lucide/svelte/icons/pencil";
   import RotateCcwIcon from "@lucide/svelte/icons/rotate-ccw";
-  import Trash2Icon from "@lucide/svelte/icons/trash-2";
   import SquareIcon from "@lucide/svelte/icons/square";
+  import Trash2Icon from "@lucide/svelte/icons/trash-2";
   import RichTextContent from "./RichTextContent.svelte";
   import type { MessageNode } from "../lib/transport/messages";
   import { getActiveVersion, isNodeGenerating } from "./workspace-state";
 
   type Props = {
     node: MessageNode;
-    isLastUserNode: boolean;
     onCancel: (versionId: string) => void | Promise<void>;
     onReroll: (nodeId: string) => void | Promise<void>;
     onSwitchVersion: (nodeId: string, versionId: string) => void | Promise<void>;
     onDeleteVersion: (nodeId: string, versionId: string) => void | Promise<void>;
-    onEditMessage: (nodeId: string, versionId: string, content: string) => void | Promise<void>;
+    onEditMessage: (
+      nodeId: string,
+      content: string,
+      options?: { resend?: boolean }
+    ) => void | Promise<void>;
+    onLoadVersionContent: (nodeId: string, versionId: string) => Promise<string>;
   };
 
-  const { node, isLastUserNode, onCancel, onReroll, onSwitchVersion, onDeleteVersion, onEditMessage }: Props = $props();
+  const { node, onCancel, onReroll, onSwitchVersion, onDeleteVersion, onEditMessage, onLoadVersionContent }: Props =
+    $props();
 
   let activeVersion = $derived.by(() => getActiveVersion(node));
-  let activeIndex = $derived(node.versions.findIndex((v) => v.id === node.activeVersionId) + 1);
+  let activeIndex = $derived(node.versions.findIndex((version) => version.id === node.activeVersionId) + 1);
   let copied = $state(false);
   let generating = $derived(isNodeGenerating(node));
+  let editing = $state(false);
+  let loadingEditContent = $state(false);
+  let saving = $state(false);
+  let draft = $state("");
+  let toolbarVisible = $state(false);
+  let copyResetTimer: ReturnType<typeof setTimeout> | null = null;
+  let showToolbar = $derived(toolbarVisible || editing);
 
-  /** 复制到剪贴板。 */
+  onDestroy(() => {
+    if (copyResetTimer) {
+      clearTimeout(copyResetTimer);
+    }
+  });
+
+  function handlePointerEnter() {
+    toolbarVisible = true;
+  }
+
+  function handlePointerLeave() {
+    if (!editing) {
+      toolbarVisible = false;
+    }
+  }
+
   async function handleCopy() {
     const text = activeVersion?.content;
     if (!text) return;
     await navigator.clipboard.writeText(text);
     copied = true;
-    setTimeout(() => (copied = false), 1500);
+    if (copyResetTimer) {
+      clearTimeout(copyResetTimer);
+    }
+    copyResetTimer = setTimeout(() => {
+      copied = false;
+      copyResetTimer = null;
+    }, 1500);
   }
 
-  /** 编辑：复制内容到 composer + 删除版本。 */
-  function handleEdit() {
+  async function startEdit() {
     if (!activeVersion) return;
-    void onEditMessage(node.id, activeVersion.id, activeVersion.content ?? "");
+    loadingEditContent = true;
+    try {
+      draft =
+        activeVersion.content ??
+        (await onLoadVersionContent(node.id, activeVersion.id));
+      editing = true;
+    } finally {
+      loadingEditContent = false;
+    }
   }
 
-  /** 删除当前版本。 */
+  function cancelEdit() {
+    editing = false;
+    draft = "";
+  }
+
+  async function saveEdit(resend = false) {
+    if (!draft.trim()) {
+      return;
+    }
+
+    saving = true;
+    try {
+      await onEditMessage(node.id, draft, { resend });
+      editing = false;
+      draft = "";
+    } finally {
+      saving = false;
+    }
+  }
+
   function handleDelete() {
     if (!activeVersion) return;
     void onDeleteVersion(node.id, activeVersion.id);
   }
 
   function prevVersion() {
-    const idx = activeIndex - 2;
-    if (idx >= 0) onSwitchVersion(node.id, node.versions[idx].id);
+    const index = activeIndex - 2;
+    if (index >= 0) {
+      void onSwitchVersion(node.id, node.versions[index].id);
+    }
   }
 
   function nextVersion() {
-    const idx = activeIndex;
-    if (idx < node.versions.length) onSwitchVersion(node.id, node.versions[idx].id);
+    const index = activeIndex;
+    if (index < node.versions.length) {
+      void onSwitchVersion(node.id, node.versions[index].id);
+    }
   }
 </script>
 
-<ContextMenu.Root>
-  <ContextMenu.Trigger>
-    {#if node.role === "user"}
-      <!-- 用户消息 -->
-      <div class="group flex items-start justify-end gap-3 pl-16">
-        <div class="max-w-[85%]">
-          <div class="rounded-3xl rounded-br-sm bg-primary px-5 py-3 text-[15px] leading-relaxed text-primary-foreground shadow-sm">
-            <RichTextContent content={activeVersion?.content ?? ""} />
+{#if node.role === "user"}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="flex items-start justify-end gap-2.5 pl-20"
+    onmouseenter={handlePointerEnter}
+    onmouseleave={handlePointerLeave}
+  >
+    <div class="relative max-w-[80%]">
+      <div class="rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground shadow-sm">
+        {#if editing}
+          <div class="space-y-3">
+            <Textarea.Root
+              bind:value={draft}
+              class="min-h-[120px] resize-y border-primary-foreground/20 bg-primary/20 text-primary-foreground placeholder:text-primary-foreground/45"
+              placeholder="编辑当前消息"
+            />
+            <div class="flex items-center justify-end gap-2">
+              <Button disabled={saving} onclick={cancelEdit} size="sm" variant="secondary">取消</Button>
+              <Button disabled={saving || !draft.trim()} onclick={() => void saveEdit(false)} size="sm" variant="secondary">
+                保存
+              </Button>
+              <Button disabled={saving || !draft.trim()} onclick={() => void saveEdit(true)} size="sm">
+                保存并重新发送
+              </Button>
+            </div>
           </div>
-          <!-- hover 操作栏 -->
-          <div class="mt-1 flex items-center justify-end gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        {:else}
+          <RichTextContent content={activeVersion?.content ?? ""} />
+        {/if}
+      </div>
+
+      <div class="relative mt-1 h-6">
+        {#if showToolbar}
+          <div class="absolute right-0 top-0 flex items-center gap-0.5">
             <Button class="size-6" onclick={handleCopy} size="icon" variant="ghost" title="复制">
-              {#if copied}<CheckIcon class="size-3 text-emerald-500" />{:else}<CopyIcon class="size-3 text-muted-foreground" />{/if}
+              {#if copied}
+                <CheckIcon class="size-3 text-emerald-500" />
+              {:else}
+                <CopyIcon class="size-3 text-muted-foreground" />
+              {/if}
             </Button>
-            <Button class="size-6" onclick={handleEdit} size="icon" variant="ghost" title="编辑">
-              <PencilIcon class="size-3 text-muted-foreground" />
+            <Button class="size-6" disabled={loadingEditContent || saving} onclick={() => void startEdit()} size="icon" variant="ghost" title="编辑">
+              {#if loadingEditContent}
+                <LoaderCircleIcon class="size-3 animate-spin text-muted-foreground" />
+              {:else}
+                <PencilIcon class="size-3 text-muted-foreground" />
+              {/if}
             </Button>
             <Button class="size-6" onclick={() => onReroll(node.id)} size="icon" variant="ghost" title="重发">
               <RotateCcwIcon class="size-3 text-muted-foreground" />
@@ -104,43 +196,79 @@
               </div>
             {/if}
           </div>
-        </div>
-        <!-- 用户头像 -->
-        <Avatar.Root class="size-8 shrink-0 rounded-full shadow-sm ring-1 ring-border">
-          <Avatar.Fallback class="bg-primary/5">
-            <CircleUserIcon class="size-4.5 text-primary" />
-          </Avatar.Fallback>
-        </Avatar.Root>
+        {/if}
       </div>
-    {:else}
-      <!-- 助手消息 -->
-      <div class="group flex items-start gap-4 pr-16">
-        <Avatar.Root class="mt-0.5 size-8 shrink-0 rounded-[0.6rem] border shadow-sm">
-          <Avatar.Fallback class="bg-muted/50">
-            <BotIcon class="size-4 text-primary" />
-          </Avatar.Fallback>
-        </Avatar.Root>
-        <div class="min-w-0 flex-1">
-          <!-- 状态 -->
-          {#if activeVersion?.status === "failed"}
-            <div class="mb-1 text-xs text-destructive">生成失败</div>
-          {:else if activeVersion?.status === "cancelled"}
-            <div class="mb-1 text-xs text-muted-foreground">已取消</div>
-          {/if}
-          <!-- 正文 -->
-          <div class="text-[15px] leading-relaxed text-foreground/90">
-            <RichTextContent content={activeVersion?.content ?? ""} />
-            {#if generating}
-              <span class="ml-0.5 inline-block size-1.5 animate-pulse rounded-full bg-foreground/40"></span>
-            {/if}
+    </div>
+
+    <Avatar.Root class="size-7 shrink-0 rounded-full">
+      <Avatar.Fallback class="bg-primary/10">
+        <CircleUserIcon class="size-4 text-primary" />
+      </Avatar.Fallback>
+    </Avatar.Root>
+  </div>
+{:else}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div
+    class="flex items-start gap-2.5 pr-20"
+    onmouseenter={handlePointerEnter}
+    onmouseleave={handlePointerLeave}
+  >
+    <Avatar.Root class="size-7 shrink-0 rounded-full border">
+      <Avatar.Fallback class="bg-muted">
+        <BotIcon class="size-3.5 text-muted-foreground" />
+      </Avatar.Fallback>
+    </Avatar.Root>
+    <div class="min-w-0 flex-1">
+      {#if activeVersion?.status === "failed"}
+        <div class="mb-1 text-xs text-destructive">生成失败</div>
+      {:else if activeVersion?.status === "cancelled"}
+        <div class="mb-1 text-xs text-muted-foreground">已取消</div>
+      {/if}
+
+      <div class="rounded-2xl rounded-tl-sm px-1 py-0.5 text-sm leading-relaxed">
+        {#if editing}
+          <div class="rounded-2xl border bg-card px-4 py-3 shadow-sm">
+            <div class="space-y-3">
+              <Textarea.Root
+                bind:value={draft}
+                class="min-h-[120px] resize-y"
+                placeholder="编辑当前消息"
+              />
+              <div class="flex items-center justify-end gap-2">
+                <Button disabled={saving} onclick={cancelEdit} size="sm" variant="outline">取消</Button>
+                <Button disabled={saving || !draft.trim()} onclick={() => void saveEdit(false)} size="sm" variant="outline">
+                  保存
+                </Button>
+                <Button disabled={saving || !draft.trim()} onclick={() => void saveEdit(true)} size="sm">
+                  保存并重新发送
+                </Button>
+              </div>
+            </div>
           </div>
-          <!-- hover 操作栏 -->
-          <div class="mt-2 flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100">
+        {:else}
+          <RichTextContent content={activeVersion?.content ?? ""} throttleMs={generating ? 160 : 0} />
+          {#if generating}
+            <span class="ml-0.5 inline-block size-1.5 animate-pulse rounded-full bg-foreground/40"></span>
+          {/if}
+        {/if}
+      </div>
+
+      <div class="relative mt-2 h-6">
+        {#if showToolbar}
+          <div class="absolute left-0 top-0 flex min-w-0 items-center gap-0.5">
             <Button class="size-6" onclick={handleCopy} size="icon" variant="ghost" title="复制">
-              {#if copied}<CheckIcon class="size-3 text-emerald-500" />{:else}<CopyIcon class="size-3 text-muted-foreground" />{/if}
+              {#if copied}
+                <CheckIcon class="size-3 text-emerald-500" />
+              {:else}
+                <CopyIcon class="size-3 text-muted-foreground" />
+              {/if}
             </Button>
-            <Button class="size-6" onclick={handleEdit} size="icon" variant="ghost" title="编辑（复制到输入框 + 重新生成）">
-              <PencilIcon class="size-3 text-muted-foreground" />
+            <Button class="size-6" disabled={loadingEditContent || saving} onclick={() => void startEdit()} size="icon" variant="ghost" title="编辑">
+              {#if loadingEditContent}
+                <LoaderCircleIcon class="size-3 animate-spin text-muted-foreground" />
+              {:else}
+                <PencilIcon class="size-3 text-muted-foreground" />
+              {/if}
             </Button>
             <Button class="size-6" onclick={() => onReroll(node.id)} size="icon" variant="ghost" title="重新生成">
               <RotateCcwIcon class="size-3 text-muted-foreground" />
@@ -165,34 +293,13 @@
               </div>
             {/if}
             {#if activeVersion?.status === "committed" && (activeVersion.modelName || activeVersion.promptTokens !== null)}
-              <span class="ml-2 text-[10px] text-muted-foreground/50">
+              <span class="ml-2 max-w-[16rem] truncate text-[10px] text-muted-foreground/60">
                 {activeVersion.modelName ?? ""}{activeVersion.promptTokens !== null ? ` · ${(activeVersion.promptTokens ?? 0) + (activeVersion.completionTokens ?? 0)} tokens` : ""}
               </span>
             {/if}
           </div>
-        </div>
+        {/if}
       </div>
-    {/if}
-  </ContextMenu.Trigger>
-
-  <!-- 右键上下文菜单 -->
-  <ContextMenu.Content class="w-40">
-    <ContextMenu.Item onclick={handleCopy}>
-      <CopyIcon class="text-muted-foreground" />
-      复制
-    </ContextMenu.Item>
-    <ContextMenu.Item onclick={handleEdit}>
-      <PencilIcon class="text-muted-foreground" />
-      编辑
-    </ContextMenu.Item>
-    <ContextMenu.Item onclick={() => onReroll(node.id)}>
-      <RotateCcwIcon class="text-muted-foreground" />
-      重新生成
-    </ContextMenu.Item>
-    <ContextMenu.Separator />
-    <ContextMenu.Item onclick={handleDelete}>
-      <Trash2Icon class="text-muted-foreground" />
-      删除
-    </ContextMenu.Item>
-  </ContextMenu.Content>
-</ContextMenu.Root>
+    </div>
+  </div>
+{/if}

@@ -5,6 +5,7 @@ Thumbs.db
 .vscode/
 .codex/
 .agent/
+.claude/
 
 node_modules/
 dist/
@@ -30,3 +31,4 @@ vite.config.js
 vite.config.d.ts
 
 Claude.md
+*.png

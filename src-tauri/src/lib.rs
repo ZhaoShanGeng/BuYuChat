@@ -40,6 +40,7 @@ pub fn run() {
             commands::messages::delete_version,
             commands::messages::send_message,
             commands::messages::reroll,
+            commands::messages::edit_message,
             commands::messages::cancel_generation,
             commands::models::list_models,
             commands::models::create_model,

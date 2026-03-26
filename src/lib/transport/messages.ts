@@ -12,25 +12,30 @@ import { toAppError, toOptionalValue, type AppError } from "./common";
 import {
   createGenerationChannel,
   fromRawDeleteVersionResult,
+  fromRawEditMessageResult,
   fromRawMessageNode,
   fromRawRerollResult,
   fromRawSendMessageResponse,
   fromRawVersionContent,
+  toRawEditMessageInput,
   toRawRerollInput,
   toRawSendMessageInput
 } from "./message-codecs";
 import type {
   DeleteVersionResult,
+  EditMessageResult,
   GenerationEvent,
   MessageNode,
   RawDeleteVersionResult,
   RawDryRunResult,
+  RawEditMessageResult,
   RawMessageNode,
   RawRerollResult,
   RawStartedResult,
   RawVersionContent
 } from "./message-types";
 import type {
+  EditMessageInput,
   RerollInput,
   RerollResult,
   SendMessageInput,
@@ -44,12 +49,14 @@ import type {
 export async function listMessages(
   id: string,
   beforeOrderKey?: string | null,
-  limit?: number
+  limit?: number,
+  fromLatest?: boolean
 ): Promise<MessageNode[]> {
   const messages = await invoke<RawMessageNode[]>("list_messages", {
     id,
     beforeOrderKey: toOptionalValue(beforeOrderKey),
-    limit: toOptionalValue(limit)
+    limit: toOptionalValue(limit),
+    fromLatest: toOptionalValue(fromLatest)
   });
   return messages.map(fromRawMessageNode);
 }
@@ -130,6 +137,25 @@ export async function reroll(
 }
 
 /**
+ * 编辑当前楼层的 active version，并可选地重新发送。
+ */
+export async function editMessage(
+  id: string,
+  nodeId: string,
+  input: EditMessageInput,
+  onEvent?: (event: GenerationEvent) => void
+): Promise<EditMessageResult> {
+  const eventChannel = createGenerationChannel(onEvent);
+  const result = await invoke<RawEditMessageResult>("edit_message", {
+    id,
+    nodeId,
+    input: toRawEditMessageInput(input),
+    eventChannel
+  });
+  return fromRawEditMessageResult(result);
+}
+
+/**
  * 取消某个生成中的版本。
  */
 export async function cancelGeneration(versionId: string): Promise<void> {
@@ -139,6 +165,8 @@ export async function cancelGeneration(versionId: string): Promise<void> {
 export type {
   DeleteVersionResult,
   DryRunResult,
+  EditMessageInput,
+  EditMessageResult,
   GenerationEvent,
   MessageNode,
   MessageVersion,

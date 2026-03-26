@@ -112,6 +112,16 @@ pub struct RerollInput {
     pub stream: Option<bool>,
 }
 
+/// 编辑消息的输入载荷。
+///
+/// 该结构用于在原 node 下创建一个新的 committed version，并可选触发重新发送。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct EditMessageInput {
+    pub content: String,
+    pub resend: Option<bool>,
+    pub stream: Option<bool>,
+}
+
 /// Reroll 的即时返回值。
 ///
 /// assistant reroll 与 user reroll 都复用这个结果结构。
@@ -120,6 +130,17 @@ pub struct RerollResult {
     pub new_user_version_id: Option<String>,
     pub assistant_node_id: String,
     pub assistant_version_id: String,
+}
+
+/// 编辑消息的即时返回值。
+///
+/// 若 `resend = false`，只返回新的已提交版本 ID。
+/// 若 `resend = true`，则额外返回用于生成的新 assistant node/version。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct EditMessageResult {
+    pub edited_version_id: String,
+    pub assistant_node_id: Option<String>,
+    pub assistant_version_id: Option<String>,
 }
 
 /// 删除版本的结果。

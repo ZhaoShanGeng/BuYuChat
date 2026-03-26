@@ -125,7 +125,8 @@ async fn test_update_conversation_requires_channel_when_model_is_set() {
         &state,
         created.id,
         UpdateConversationInput {
-            channel_model_id: Some(Some(model_id)),
+            channel_model_id_set: true,
+            channel_model_id: Some(model_id),
             ..UpdateConversationInput::default()
         },
     )
@@ -136,4 +137,56 @@ async fn test_update_conversation_requires_channel_when_model_is_set() {
         error,
         AppError::validation("VALIDATION_ERROR", "channel_model_id requires channel_id")
     );
+}
+
+/// 切换渠道时显式清空旧模型绑定，应避免旧模型跨渠道残留导致的 NOT_FOUND。
+#[tokio::test]
+async fn test_update_conversation_can_switch_channel_while_clearing_old_model_binding() {
+    let state = helpers::test_state().await;
+    let (_, channel_a_id, model_a_id) = create_dependencies(&state).await;
+    let channel_b = create_channel_impl(
+        &state,
+        CreateChannelInput {
+            name: "Second OpenAI".to_string(),
+            base_url: "https://example.com".to_string(),
+            channel_type: None,
+            api_key: Some("sk-yyy".to_string()),
+            auth_type: None,
+            models_endpoint: None,
+            chat_endpoint: None,
+            stream_endpoint: None,
+            enabled: None,
+        },
+    )
+    .await
+    .unwrap();
+
+    let created = create_conversation_impl(
+        &state,
+        Some(CreateConversationInput {
+            title: Some("切换渠道".to_string()),
+            agent_id: None,
+            channel_id: Some(channel_a_id),
+            channel_model_id: Some(model_a_id),
+        }),
+    )
+    .await
+    .unwrap();
+
+    let updated = update_conversation_impl(
+        &state,
+        created.id,
+        UpdateConversationInput {
+          channel_id_set: true,
+          channel_id: Some(channel_b.id.clone()),
+          channel_model_id_set: true,
+          channel_model_id: None,
+          ..UpdateConversationInput::default()
+        },
+    )
+    .await
+    .unwrap();
+
+    assert_eq!(updated.channel_id.as_deref(), Some(channel_b.id.as_str()));
+    assert_eq!(updated.channel_model_id, None);
 }

@@ -17,6 +17,15 @@
   };
 
   const { editingId, form, saving, onReset, onSubmit }: Props = $props();
+  let enabledDraft = $state(true);
+
+  $effect(() => {
+    enabledDraft = form.enabled ?? true;
+  });
+
+  $effect(() => {
+    form.enabled = enabledDraft;
+  });
 </script>
 
 <div class="p-6">
@@ -25,12 +34,8 @@
     <h2 class="text-base font-semibold">
       {editingId ? form.name || "编辑渠道" : "新建渠道"}
     </h2>
-    <div class="flex items-center gap-2">
-      <Label class="text-xs text-muted-foreground">启用</Label>
-      <Switch.Root
-        checked={form.enabled ?? true}
-        onCheckedChange={(checked) => (form.enabled = checked)}
-      />
+    <div class="flex items-center">
+      <Switch.Root bind:checked={enabledDraft} />
     </div>
   </div>
 

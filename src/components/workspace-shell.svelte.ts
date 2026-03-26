@@ -41,12 +41,15 @@ import {
 } from "../lib/transport/models";
 import {
   cancelGeneration,
+  editMessage,
   getVersionContent,
   listMessages,
   reroll,
   sendMessage,
   setActiveVersion,
   type GenerationEvent,
+  type EditMessageInput,
+  type EditMessageResult,
   type MessageNode,
   type RerollInput,
   type RerollResult,
@@ -61,11 +64,6 @@ import {
   withVersionContent,
   type Notice
 } from "./workspace-state";
-
-/**
- * 设置抽屉的页签类型。
- */
-export type SettingsTab = "channels" | "models" | "agents" | "conversation";
 
 /**
  * 顶层区域类型。
@@ -100,6 +98,13 @@ export type ConversationDraft = {
   modelId: string;
 };
 
+export type MessageHistoryState = {
+  hasOlder: boolean;
+  loadingOlder: boolean;
+  loadedCount: number;
+  oldestOrderKey: string | null;
+};
+
 /**
  * 工作台依赖的 transport 能力集合。
  */
@@ -122,7 +127,8 @@ export type WorkspaceShellDeps = {
   listMessages: (
     id: string,
     beforeOrderKey?: string | null,
-    limit?: number
+    limit?: number,
+    fromLatest?: boolean
   ) => Promise<MessageNode[]>;
   getVersionContent: (versionId: string) => Promise<VersionContent>;
   setActiveVersion: (
@@ -141,6 +147,12 @@ export type WorkspaceShellDeps = {
     input?: RerollInput,
     onEvent?: (event: GenerationEvent) => void
   ) => Promise<RerollResult>;
+  editMessage: (
+    id: string,
+    nodeId: string,
+    input: EditMessageInput,
+    onEvent?: (event: GenerationEvent) => void
+  ) => Promise<EditMessageResult>;
   cancelGeneration: (versionId: string) => Promise<void>;
 };
 
@@ -172,6 +184,8 @@ const EMPTY_CONVERSATION_DRAFT: ConversationDraft = {
   modelId: ""
 };
 
+const MESSAGE_PAGE_SIZE = 40;
+
 /**
  * 工作台状态使用的默认 transport 依赖。
  */
@@ -196,6 +210,7 @@ const defaultDeps: WorkspaceShellDeps = {
   setActiveVersion,
   sendMessage,
   reroll,
+  editMessage,
   cancelGeneration
 };
 
@@ -218,16 +233,20 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     conversations: [] as ConversationSummary[],
     activeConversationId: null as string | null,
     activeConversation: null as Conversation | null,
+    /** 正在切换中的目标会话 ID，用于侧边栏即时高亮。 */
+    pendingConversationId: null as string | null,
     messagesByConversation: {} as Record<string, MessageNode[]>,
+    messageHistoryByConversation: {} as Record<string, MessageHistoryState>,
     modelsByChannel: {} as Record<string, ChannelModel[]>,
     remoteModelsByChannel: {} as Record<string, RemoteModelInfo[]>,
-    settingsOpen: false,
-    settingsTab: "conversation" as SettingsTab,
     notice: null as Notice | null,
     composer: "",
     sending: false,
     dryRunSummary: null as string | null,
+    renamingConversationId: null as string | null,
+    renamingConversationTitle: "",
     agentEditingId: null as string | null,
+    agentEditorMode: null as null | "create" | "edit",
     agentForm: { ...EMPTY_AGENT_FORM },
     agentSaving: false,
     selectedModelChannelId: "",
@@ -247,6 +266,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     Map<string, Extract<GenerationEvent, { type: "chunk" }>>
   >();
   const messageReloadVersions = new Map<string, number>();
+  let noticeTimer: ReturnType<typeof setTimeout> | null = null;
 
   /**
    * 获取当前活跃会话对应的消息列表。
@@ -255,6 +275,29 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     return state.activeConversationId
       ? state.messagesByConversation[state.activeConversationId] ?? []
       : [];
+  }
+
+  function getEmptyMessageHistory(): MessageHistoryState {
+    return {
+      hasOlder: false,
+      loadingOlder: false,
+      loadedCount: 0,
+      oldestOrderKey: null
+    };
+  }
+
+  function ensureMessageHistory(conversationId: string): MessageHistoryState {
+    if (!state.messageHistoryByConversation[conversationId]) {
+      state.messageHistoryByConversation[conversationId] = getEmptyMessageHistory();
+    }
+
+    return state.messageHistoryByConversation[conversationId];
+  }
+
+  function getActiveMessageHistory() {
+    return state.activeConversationId
+      ? ensureMessageHistory(state.activeConversationId)
+      : getEmptyMessageHistory();
   }
 
   /**
@@ -294,20 +337,65 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   }
 
   /**
+   * 判断当前渠道缓存里是否已经包含指定渠道。
+   */
+  function hasKnownChannel(channelId: string | null | undefined) {
+    return !!channelId && state.channels.some((channel) => channel.id === channelId);
+  }
+
+  /**
+   * 判断错误是否来自缺失渠道资源。
+   */
+  function isChannelNotFoundError(error: unknown) {
+    const appError = toAppError(error);
+    return appError.errorCode === "NOT_FOUND" && /channel/i.test(appError.message);
+  }
+
+  /**
    * 将错误写入顶部通知。
    */
   function setErrorNotice(error: unknown) {
-    state.notice = {
+    setNotice({
       kind: "error",
       text: humanizeWorkspaceError(toAppError(error))
-    };
+    });
+  }
+
+  /**
+   * 统一设置顶部通知，并在 3 秒后自动消失。
+   */
+  function setNotice(notice: Notice | null) {
+    state.notice = notice;
+    if (noticeTimer) {
+      clearTimeout(noticeTimer);
+      noticeTimer = null;
+    }
+    if (notice) {
+      noticeTimer = setTimeout(() => {
+        state.notice = null;
+        noticeTimer = null;
+      }, 3000);
+    }
   }
 
   /**
    * 更新某个会话的消息缓存。
    */
-  function setConversationMessages(conversationId: string, nodes: MessageNode[]) {
+  function setConversationMessages(
+    conversationId: string,
+    nodes: MessageNode[],
+    historyPatch: Partial<MessageHistoryState> = {}
+  ) {
     state.messagesByConversation[conversationId] = nodes;
+    const history = ensureMessageHistory(conversationId);
+    history.loadedCount = historyPatch.loadedCount ?? nodes.length;
+    history.oldestOrderKey = nodes[0]?.orderKey ?? null;
+    if (historyPatch.hasOlder !== undefined) {
+      history.hasOlder = historyPatch.hasOlder;
+    }
+    if (historyPatch.loadingOlder !== undefined) {
+      history.loadingOlder = historyPatch.loadingOlder;
+    }
   }
 
   /**
@@ -529,8 +617,9 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
       }
       case "empty_rollback": {
         if (event.nodeDeleted) {
-          state.messagesByConversation[event.conversationId] = nodes.filter(
-            (node) => node.id !== event.nodeId
+          setConversationMessages(
+            event.conversationId,
+            nodes.filter((node) => node.id !== event.nodeId)
           );
           return;
         }
@@ -619,7 +708,65 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   }
 
   /**
+   * 同步当前活跃会话依赖的最新渠道与模型绑定。
+   *
+   * - `force = false` 时，仅在本地缓存缺失当前绑定渠道时刷新渠道列表。
+   * - `force = true` 时，会强制刷新渠道列表、会话详情和模型缓存，用于自愈陈旧状态。
+   */
+  async function syncLatestChannelBindings(force = false) {
+    if (force) {
+      await reloadChannels();
+    }
+
+    if (!state.activeConversationId) {
+      return;
+    }
+
+    if (force || !state.activeConversation) {
+      state.activeConversation = await deps.getConversation(state.activeConversationId);
+      syncConversationDraft(state.activeConversation);
+    }
+
+    const channelId = state.activeConversation?.channelId;
+    if (channelId && !hasKnownChannel(channelId)) {
+      await reloadChannels();
+    }
+
+    if (channelId) {
+      try {
+        await ensureModelsLoaded(channelId, force);
+      } catch {
+        clearModelCache(channelId);
+      }
+    }
+  }
+
+  /**
+   * 执行依赖渠道绑定的操作；若命中陈旧渠道缓存导致的 NOT_FOUND，则自动同步一次后重试。
+   */
+  async function runWithChannelBindingRecovery<T>(task: () => Promise<T>) {
+    if (state.activeConversation?.channelId && !hasKnownChannel(state.activeConversation.channelId)) {
+      await syncLatestChannelBindings(true);
+    }
+
+    try {
+      return await task();
+    } catch (error) {
+      if (!isChannelNotFoundError(error)) {
+        throw error;
+      }
+
+      await syncLatestChannelBindings(true);
+      await reloadConversations();
+      return task();
+    }
+  }
+
+  /**
    * 刷新当前活跃会话详情。
+   *
+   * ensureModelsLoaded 的失败不会中断整体刷新流程，
+   * 以避免渠道被删除后导致会话页面不可用。
    */
   async function refreshActiveConversation() {
     if (!state.activeConversationId) {
@@ -628,26 +775,40 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
 
     state.activeConversation = await deps.getConversation(state.activeConversationId);
     syncConversationDraft(state.activeConversation);
-
-    if (state.activeConversation.channelId) {
-      await ensureModelsLoaded(state.activeConversation.channelId);
-    }
+    await syncLatestChannelBindings();
   }
 
   /**
    * 读取某个会话的消息列表。
    */
-  async function reloadMessages(conversationId: string) {
+  async function reloadMessages(conversationId: string, resetPage = false) {
     const reloadVersion = (messageReloadVersions.get(conversationId) ?? 0) + 1;
     messageReloadVersions.set(conversationId, reloadVersion);
     state.messagesLoading = true;
     try {
-      const nodes = await deps.listMessages(conversationId);
+      const history = ensureMessageHistory(conversationId);
+      const targetCount =
+        resetPage || history.loadedCount === 0
+          ? MESSAGE_PAGE_SIZE
+          : Math.max(history.loadedCount, MESSAGE_PAGE_SIZE);
+      const nodes = await deps.listMessages(
+        conversationId,
+        null,
+        targetCount + 1,
+        true
+      );
       if (messageReloadVersions.get(conversationId) !== reloadVersion) {
         return;
       }
 
-      setConversationMessages(conversationId, nodes);
+      const hasOlder = nodes.length > targetCount;
+      const visibleNodes = hasOlder ? nodes.slice(nodes.length - targetCount) : nodes;
+
+      setConversationMessages(conversationId, visibleNodes, {
+        hasOlder,
+        loadingOlder: false,
+        loadedCount: visibleNodes.length
+      });
       if (pendingChunkEvents.has(conversationId)) {
         replayPendingChunkEvents(conversationId);
       }
@@ -660,24 +821,75 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     }
   }
 
+  async function loadOlderMessages(conversationId: string) {
+    const history = ensureMessageHistory(conversationId);
+    if (
+      state.messagesLoading ||
+      history.loadingOlder ||
+      !history.hasOlder ||
+      !history.oldestOrderKey
+    ) {
+      return;
+    }
+
+    history.loadingOlder = true;
+    try {
+      const olderNodes = await deps.listMessages(
+        conversationId,
+        history.oldestOrderKey,
+        MESSAGE_PAGE_SIZE + 1,
+        false
+      );
+      const hasOlder = olderNodes.length > MESSAGE_PAGE_SIZE;
+      const visibleOlderNodes = hasOlder
+        ? olderNodes.slice(olderNodes.length - MESSAGE_PAGE_SIZE)
+        : olderNodes;
+      const currentNodes = state.messagesByConversation[conversationId] ?? [];
+
+      setConversationMessages(conversationId, [...visibleOlderNodes, ...currentNodes], {
+        hasOlder,
+        loadingOlder: false,
+        loadedCount: visibleOlderNodes.length + currentNodes.length
+      });
+    } catch (error) {
+      history.loadingOlder = false;
+      setErrorNotice(error);
+    }
+  }
+
   /**
    * 选择会话并加载详情与消息。
+   *
+   * 延迟切换 activeConversationId，确保旧消息保持显示直到新数据就绪，
+   * 避免切换过程中出现空白闪烁。
    */
   async function selectConversation(id: string) {
+    if (state.activeConversationId === id && state.activeConversation) {
+      return;
+    }
+
+    state.pendingConversationId = id;
     state.conversationsLoading = true;
-    state.activeConversationId = id;
-    state.dryRunSummary = null;
 
     try {
-      state.activeConversation = await deps.getConversation(id);
-      syncConversationDraft(state.activeConversation);
-      if (state.activeConversation.channelId) {
-        await ensureModelsLoaded(state.activeConversation.channelId);
+      const conversation = await deps.getConversation(id);
+      state.activeConversationId = id;
+      state.activeConversation = conversation;
+      state.dryRunSummary = null;
+      syncConversationDraft(conversation);
+
+      if (conversation.channelId && !hasKnownChannel(conversation.channelId)) {
+        await reloadChannels();
       }
-      await reloadMessages(id);
+
+      await Promise.all([
+        reloadMessages(id, true),
+        conversation.channelId ? ensureModelsLoaded(conversation.channelId) : Promise.resolve()
+      ]);
     } catch (error) {
       setErrorNotice(error);
     } finally {
+      state.pendingConversationId = null;
       state.conversationsLoading = false;
     }
   }
@@ -704,6 +916,9 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
 
   /**
    * 初始化页面所需的基础数据。
+   *
+   * 分两阶段：Phase 1 加载列表数据后立即解除 bootstrapping 显示侧边栏，
+   * Phase 2 并行加载模型和首个会话详情。
    */
   async function bootstrap() {
     state.bootstrapping = true;
@@ -718,41 +933,26 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
       state.agents = loadedAgents;
       state.conversations = loadedConversations;
 
+      // Phase 1 完成：侧边栏可以立即渲染。
+      state.bootstrapping = false;
+
+      // Phase 2：并行加载模型缓存和首个会话详情。
+      const phase2: Promise<void>[] = [];
+
       if (loadedChannels.length > 0) {
         state.selectedModelChannelId = loadedChannels[0].id;
-        await ensureModelsLoaded(loadedChannels[0].id);
+        phase2.push(ensureModelsLoaded(loadedChannels[0].id));
       }
 
       if (loadedConversations.length > 0) {
-        await selectConversation(loadedConversations[0].id);
+        phase2.push(selectConversation(loadedConversations[0].id));
       }
+
+      await Promise.all(phase2);
     } catch (error) {
       setErrorNotice(error);
-    } finally {
       state.bootstrapping = false;
     }
-  }
-
-  /**
-   * 打开设置抽屉并切到指定页签。
-   */
-  function openSettings(tab: SettingsTab) {
-    state.settingsTab = tab;
-    state.settingsOpen = true;
-  }
-
-  /**
-   * 关闭设置抽屉。
-   */
-  function closeSettings() {
-    state.settingsOpen = false;
-  }
-
-  /**
-   * 切换设置抽屉页签。
-   */
-  function selectSettingsTab(tab: SettingsTab) {
-    state.settingsTab = tab;
   }
 
   /**
@@ -775,10 +975,9 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   async function handleCreateConversation() {
     try {
       const conversation = await deps.createConversation();
-      state.notice = { kind: "success", text: "会话已创建" };
+      setNotice({ kind: "success", text: "会话已创建" });
       await reloadConversations();
       await selectConversation(conversation.id);
-      openSettings("conversation");
     } catch (error) {
       setErrorNotice(error);
     }
@@ -805,10 +1004,10 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   async function handleToggleArchive(conversation: ConversationSummary) {
     try {
       await deps.updateConversation(conversation.id, { archived: !conversation.archived });
-      state.notice = {
+      setNotice({
         kind: "info",
         text: conversation.archived ? "会话已恢复到主列表" : "会话已归档"
-      };
+      });
       await reloadConversations();
     } catch (error) {
       setErrorNotice(error);
@@ -821,8 +1020,47 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   async function handleDeleteConversation(id: string) {
     try {
       await deps.deleteConversation(id);
-      state.notice = { kind: "success", text: "会话已删除" };
+      setNotice({ kind: "success", text: "会话已删除" });
       await reloadConversations();
+    } catch (error) {
+      setErrorNotice(error);
+    }
+  }
+
+  /**
+   * 开始重命名会话。
+   */
+  function startConversationRename(conversation: ConversationSummary) {
+    state.renamingConversationId = conversation.id;
+    state.renamingConversationTitle = conversation.title;
+  }
+
+  /**
+   * 取消会话重命名。
+   */
+  function cancelConversationRename() {
+    state.renamingConversationId = null;
+    state.renamingConversationTitle = "";
+  }
+
+  /**
+   * 提交会话重命名。
+   */
+  async function commitConversationRename() {
+    if (!state.renamingConversationId || !state.renamingConversationTitle.trim()) {
+      cancelConversationRename();
+      return;
+    }
+
+    try {
+      await deps.updateConversation(state.renamingConversationId, {
+        title: state.renamingConversationTitle.trim()
+      });
+      await reloadConversations();
+      if (state.activeConversationId === state.renamingConversationId) {
+        await refreshActiveConversation();
+      }
+      cancelConversationRename();
     } catch (error) {
       setErrorNotice(error);
     }
@@ -838,27 +1076,32 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
 
     state.sending = true;
     state.dryRunSummary = null;
+    const content = state.composer;
 
     try {
-      const content = state.composer;
       state.composer = "";
-      const response = await deps.sendMessage(
-        state.activeConversationId,
-        {
-          content,
-          stream: true,
-          dryRun: false
-        },
-        handleGenerationEvent
+      const response = await runWithChannelBindingRecovery(() =>
+        deps.sendMessage(
+          state.activeConversationId!,
+          {
+            content,
+            stream: true,
+            dryRun: false
+          },
+          handleGenerationEvent
+        )
       );
 
       if (response.kind === "dryRun") {
         state.dryRunSummary = `模型 ${response.model}，估算 tokens ${response.totalTokensEstimate}`;
       } else {
         insertStartedMessageNodes(state.activeConversationId, response, content);
-        state.notice = { kind: "info", text: "消息已发送，正在生成回复" };
+        setNotice({ kind: "info", text: "消息已发送，正在生成回复" });
       }
     } catch (error) {
+      if (!state.composer.trim()) {
+        state.composer = content;
+      }
       setErrorNotice(error);
     } finally {
       state.sending = false;
@@ -874,15 +1117,17 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     }
 
     try {
-      const response = await deps.sendMessage(state.activeConversationId, {
-        content: state.composer,
-        stream: false,
-        dryRun: true
-      });
+      const response = await runWithChannelBindingRecovery(() =>
+        deps.sendMessage(state.activeConversationId!, {
+          content: state.composer,
+          stream: false,
+          dryRun: true
+        })
+      );
 
       if (response.kind === "dryRun") {
         state.dryRunSummary = `目标模型：${response.model}；估算 tokens：${response.totalTokensEstimate}；消息数：${response.messages.length}`;
-        state.notice = { kind: "info", text: "已生成 prompt 预览" };
+        setNotice({ kind: "info", text: "已生成 prompt 预览" });
       }
     } catch (error) {
       setErrorNotice(error);
@@ -895,7 +1140,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   async function handleCancelGeneration(versionId: string) {
     try {
       await deps.cancelGeneration(versionId);
-      state.notice = { kind: "info", text: "已请求取消当前生成" };
+      setNotice({ kind: "info", text: "已请求取消当前生成" });
       if (state.activeConversationId) {
         await reloadMessages(state.activeConversationId);
       }
@@ -913,13 +1158,15 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     }
 
     try {
-      const result = await deps.reroll(
-        state.activeConversationId,
-        nodeId,
-        { stream: true },
-        handleGenerationEvent
+      const result = await runWithChannelBindingRecovery(() =>
+        deps.reroll(
+          state.activeConversationId!,
+          nodeId,
+          { stream: true },
+          handleGenerationEvent
+        )
       );
-      state.notice = { kind: "info", text: "已开始重新生成" };
+      setNotice({ kind: "info", text: "已开始重新生成" });
       void reloadConversations();
 
       const currentNodes = state.messagesByConversation[state.activeConversationId] ?? [];
@@ -1008,6 +1255,13 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   }
 
   /**
+   * 设置页数据变更后的统一刷新入口。
+   */
+  async function handleSettingsChanged() {
+    await handleChannelsChanged();
+  }
+
+  /**
    * 更新 Agent 表单名称。
    */
   function setAgentName(value: string) {
@@ -1025,6 +1279,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
    * 进入 Agent 编辑模式。
    */
   function startEditAgent(agent: Agent) {
+    state.agentEditorMode = "edit";
     state.agentEditingId = agent.id;
     state.agentForm = {
       name: agent.name,
@@ -1033,9 +1288,34 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   }
 
   /**
+   * 进入 Agent 新建模式。
+   */
+  function startCreateAgent() {
+    state.agentEditorMode = "create";
+    state.agentEditingId = null;
+    state.agentForm = { ...EMPTY_AGENT_FORM };
+  }
+
+  /**
    * 重置 Agent 表单。
    */
   function resetAgentForm() {
+    if (state.agentEditorMode === "edit" && state.agentEditingId) {
+      const editingAgent = state.agents.find((agent) => agent.id === state.agentEditingId);
+      if (editingAgent) {
+        state.agentForm = {
+          name: editingAgent.name,
+          systemPrompt: editingAgent.systemPrompt ?? ""
+        };
+        return;
+      }
+    }
+
+    if (state.agentEditorMode === "create") {
+      state.agentForm = { ...EMPTY_AGENT_FORM };
+      return;
+    }
+
     state.agentEditingId = null;
     state.agentForm = { ...EMPTY_AGENT_FORM };
   }
@@ -1055,7 +1335,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
             ? state.agentForm.systemPrompt
             : null
         });
-        state.notice = { kind: "success", text: "Agent 已更新" };
+        setNotice({ kind: "success", text: "Agent 已更新" });
       } else {
         await deps.createAgent({
           name: state.agentForm.name,
@@ -1063,14 +1343,16 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
             ? state.agentForm.systemPrompt
             : null
         });
-        state.notice = { kind: "success", text: "Agent 已创建" };
+        setNotice({ kind: "success", text: "Agent 已创建" });
       }
 
       await reloadAgents();
       if (state.activeConversationId) {
         await refreshActiveConversation();
       }
-      resetAgentForm();
+      state.agentEditorMode = null;
+      state.agentEditingId = null;
+      state.agentForm = { ...EMPTY_AGENT_FORM };
     } catch (error) {
       setErrorNotice(error);
     } finally {
@@ -1099,7 +1381,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   async function handleDeleteAgent(id: string) {
     try {
       await deps.deleteAgent(id);
-      state.notice = { kind: "success", text: "Agent 已删除" };
+      setNotice({ kind: "success", text: "Agent 已删除" });
       await reloadAgents();
       await reloadConversations();
       if (state.activeConversationId) {
@@ -1185,10 +1467,10 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
           contextWindow: payload.contextWindow,
           maxOutputTokens: payload.maxOutputTokens
         });
-        state.notice = { kind: "success", text: "模型已更新" };
+        setNotice({ kind: "success", text: "模型已更新" });
       } else {
         await deps.createModel(state.selectedModelChannelId, payload);
-        state.notice = { kind: "success", text: "模型已创建" };
+        setNotice({ kind: "success", text: "模型已创建" });
       }
 
       clearModelCache(state.selectedModelChannelId);
@@ -1214,7 +1496,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
 
     try {
       await deps.deleteModel(state.selectedModelChannelId, id);
-      state.notice = { kind: "success", text: "模型已删除" };
+      setNotice({ kind: "success", text: "模型已删除" });
       clearModelCache(state.selectedModelChannelId);
       await ensureModelsLoaded(state.selectedModelChannelId, true);
       if (state.activeConversation?.channelId === state.selectedModelChannelId) {
@@ -1239,7 +1521,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
         state.selectedModelChannelId,
         await deps.fetchRemoteModels(state.selectedModelChannelId)
       );
-      state.notice = { kind: "info", text: "远程模型候选已刷新" };
+      setNotice({ kind: "info", text: "远程模型候选已刷新" });
     } catch (error) {
       setErrorNotice(error);
     } finally {
@@ -1262,7 +1544,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
         contextWindow: model.contextWindow,
         maxOutputTokens: null
       });
-      state.notice = { kind: "success", text: `已导入模型 ${model.modelId}` };
+      setNotice({ kind: "success", text: `已导入模型 ${model.modelId}` });
       clearModelCache(state.selectedModelChannelId);
       await ensureModelsLoaded(state.selectedModelChannelId, true);
     } catch (error) {
@@ -1315,10 +1597,9 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
         channelId: state.conversationDraft.channelId || null,
         channelModelId: state.conversationDraft.modelId || null
       });
-      state.notice = { kind: "success", text: "会话设置已保存" };
+      setNotice({ kind: "success", text: "会话设置已保存" });
       await reloadConversations();
       await refreshActiveConversation();
-      closeSettings();
     } catch (error) {
       setErrorNotice(error);
     } finally {
@@ -1343,11 +1624,61 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   }
 
   /**
-   * "编辑"消息：复制内容到 composer，删除当前版本。
+   * 确保某个版本的正文已经加载到本地缓存。
    */
-  async function handleEditMessage(nodeId: string, versionId: string, content: string) {
-    state.composer = content;
-    await handleDeleteVersion(nodeId, versionId);
+  async function ensureMessageVersionContent(nodeId: string, versionId: string) {
+    if (!state.activeConversationId) {
+      return "";
+    }
+
+    const currentNodes = state.messagesByConversation[state.activeConversationId] ?? [];
+    const existingVersion = currentNodes
+      .find((node) => node.id === nodeId)
+      ?.versions.find((version) => version.id === versionId);
+    if (existingVersion?.content !== null && existingVersion?.content !== undefined) {
+      return existingVersion.content;
+    }
+
+    const content = await deps.getVersionContent(versionId);
+    const nextNodes = withVersionContent(currentNodes, versionId, content.content);
+    setConversationMessages(state.activeConversationId, nextNodes);
+    return content.content;
+  }
+
+  /**
+   * 在当前 node 下新建版本，并可选地重新发送。
+   */
+  async function handleEditMessage(
+    nodeId: string,
+    content: string,
+    options?: { resend?: boolean }
+  ) {
+    if (!state.activeConversationId) {
+      return;
+    }
+
+    try {
+      await runWithChannelBindingRecovery(() =>
+        deps.editMessage(
+          state.activeConversationId!,
+          nodeId,
+          {
+            content,
+            resend: options?.resend ?? false,
+            stream: options?.resend ?? false
+          },
+          handleGenerationEvent
+        )
+      );
+      setNotice({
+        kind: "info",
+        text: options?.resend ? "已保存并重新发送" : "已保存新版本"
+      });
+      await reloadMessages(state.activeConversationId);
+      void reloadConversations();
+    } catch (error) {
+      setErrorNotice(error);
+    }
   }
 
   /**
@@ -1384,18 +1715,43 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
 
   /**
    * 快速切换当前会话的渠道绑定。
+   *
+   * 模型加载失败时降级处理，不阻塞渠道切换流程。
    */
   async function handleQuickChannelChange(channelId: string) {
     if (!state.activeConversationId) return;
     try {
-      await deps.updateConversation(state.activeConversationId, {
-        channelId: channelId || null,
-        channelModelId: null
-      });
+      if (channelId && !hasKnownChannel(channelId)) {
+        await reloadChannels();
+      }
+
+      try {
+        await deps.updateConversation(state.activeConversationId, {
+          channelId: channelId || null,
+          channelModelId: null
+        });
+      } catch (error) {
+        if (!channelId || !isChannelNotFoundError(error)) {
+          throw error;
+        }
+
+        await reloadChannels();
+        await deps.updateConversation(state.activeConversationId, {
+          channelId: channelId,
+          channelModelId: null
+        });
+      }
+
       await refreshActiveConversation();
       await reloadConversations();
+
       if (channelId) {
-        await ensureModelsLoaded(channelId, true);
+        try {
+          await ensureModelsLoaded(channelId, true);
+        } catch {
+          clearModelCache(channelId);
+          setNotice({ kind: "error", text: "无法加载该渠道的模型列表" });
+        }
       }
     } catch (error) {
       setErrorNotice(error);
@@ -1411,6 +1767,9 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
       await deps.updateConversation(state.activeConversationId, { title: title.trim() });
       await reloadConversations();
       await refreshActiveConversation();
+      if (state.renamingConversationId === state.activeConversationId) {
+        cancelConversationRename();
+      }
     } catch (error) {
       setErrorNotice(error);
     }
@@ -1459,10 +1818,16 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     state,
     destroy: () => {
       pendingChunkEvents.clear();
+      if (noticeTimer) {
+        clearTimeout(noticeTimer);
+      }
       destroy();
     },
     get activeMessages() {
       return getActiveMessages();
+    },
+    get activeMessageHistory() {
+      return getActiveMessageHistory();
     },
     get activeChannelModels() {
       return getActiveChannelModels();
@@ -1476,11 +1841,11 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     get draftedConversationModels() {
       return getDraftedConversationModels();
     },
-    openSettings,
-    closeSettings,
-    selectSettingsTab,
     selectConversation,
     handleCreateConversation,
+    startConversationRename,
+    cancelConversationRename,
+    commitConversationRename,
     handleTogglePin,
     handleToggleArchive,
     handleDeleteConversation,
@@ -1491,8 +1856,10 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     handleReroll,
     handleSwitchVersion,
     handleChannelsChanged,
+    handleSettingsChanged,
     setAgentName,
     setAgentSystemPrompt,
+    startCreateAgent,
     startEditAgent,
     resetAgentForm,
     handleSubmitAgent,
@@ -1514,11 +1881,14 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     refreshActiveConversation,
     reloadConversations,
     reloadChannels,
+    syncLatestChannelBindings,
     reloadAgents,
     reloadMessages,
+    loadOlderMessages,
     handleGenerationEvent,
     switchSection,
     handleDeleteVersion,
+    ensureMessageVersionContent,
     handleEditMessage,
     handleQuickModelChange,
     handleQuickAgentChange,

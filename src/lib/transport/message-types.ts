@@ -96,12 +96,30 @@ export type RerollInput = {
 };
 
 /**
+ * 编辑消息输入。
+ */
+export type EditMessageInput = {
+  content: string;
+  resend?: boolean;
+  stream?: boolean;
+};
+
+/**
  * Reroll 返回值。
  */
 export type RerollResult = {
   newUserVersionId: string | null;
   assistantNodeId: string;
   assistantVersionId: string;
+};
+
+/**
+ * 编辑消息返回值。
+ */
+export type EditMessageResult = {
+  editedVersionId: string;
+  assistantNodeId: string | null;
+  assistantVersionId: string | null;
 };
 
 /**
@@ -226,6 +244,15 @@ export type RawRerollResult = {
   new_user_version_id: string | null;
   assistant_node_id: string;
   assistant_version_id: string;
+};
+
+/**
+ * 后端返回的原始编辑消息结果。
+ */
+export type RawEditMessageResult = {
+  edited_version_id: string;
+  assistant_node_id: string | null;
+  assistant_version_id: string | null;
 };
 
 /**

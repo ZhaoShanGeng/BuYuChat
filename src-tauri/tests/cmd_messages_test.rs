@@ -10,15 +10,15 @@ use buyu_lib::{
         channels::create_channel_impl,
         conversations::create_conversation_impl,
         messages::{
-            cancel_generation_impl, delete_version_impl, get_version_content_impl,
-            list_messages_impl, reroll_impl, send_message_impl, set_active_version_impl,
+            cancel_generation_impl, delete_version_impl, edit_message_impl,
+            get_version_content_impl, list_messages_impl, reroll_impl, send_message_impl,
+            set_active_version_impl,
         },
         models::create_model_impl,
     },
-    error::AppError,
     models::{
         CreateAgentInput, CreateChannelInput, CreateConversationInput, CreateModelInput,
-        RerollInput, SendMessageInput, SendMessageResponse,
+        EditMessageInput, RerollInput, SendMessageInput, SendMessageResponse,
     },
     utils::ids::new_uuid_v7,
 };
@@ -267,7 +267,7 @@ async fn test_send_message_non_stream_persists_final_assistant_content() {
     let status = wait_for_terminal_status(&state.db, &result.assistant_version_id).await;
     assert_eq!(status, "committed");
 
-    let messages = list_messages_impl(&state, conversation_id, None, None)
+    let messages = list_messages_impl(&state, conversation_id, None, None, None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 2);
@@ -321,7 +321,7 @@ async fn test_send_message_stream_persists_delta_content_without_empty_rollback(
     let status = wait_for_terminal_status(&state.db, &result.assistant_version_id).await;
     assert_eq!(status, "committed");
 
-    let messages = list_messages_impl(&state, conversation_id, None, None)
+    let messages = list_messages_impl(&state, conversation_id, None, None, None)
         .await
         .unwrap();
     assert_eq!(messages.len(), 2);
@@ -332,9 +332,9 @@ async fn test_send_message_stream_persists_delta_content_without_empty_rollback(
     );
 }
 
-/// 当 user node 不是最后一个楼层时，reroll 应返回 NOT_LAST_USER_NODE。
+/// 当 user node 后已有 assistant 楼层时，reroll 应复用该 assistant node 创建新版本。
 #[tokio::test]
-async fn test_reroll_user_node_returns_not_last_user_node() {
+async fn test_reroll_user_node_reuses_following_assistant_node() {
     let state = helpers::test_state().await;
     let server = MockServer::start().await;
     let conversation_id = create_bound_conversation(&state, &server.uri()).await;
@@ -380,17 +380,76 @@ async fn test_reroll_user_node_returns_not_last_user_node() {
     };
     let _ = wait_for_terminal_status(&state.db, &started.assistant_version_id).await;
 
-    let error = reroll_impl(
+    let reroll_result = reroll_impl(
         &state,
-        conversation_id,
-        started.user_node_id,
+        conversation_id.clone(),
+        started.user_node_id.clone(),
         Some(RerollInput { stream: Some(false) }),
         None,
     )
     .await
-    .unwrap_err();
+    .unwrap();
 
-    assert_eq!(error, AppError::not_last_user_node());
+    assert_eq!(reroll_result.new_user_version_id, None);
+    assert_eq!(reroll_result.assistant_node_id, started.assistant_node_id);
+
+    let status = wait_for_terminal_status(&state.db, &reroll_result.assistant_version_id).await;
+    assert_eq!(status, "committed");
+
+    let messages = list_messages_impl(&state, conversation_id, None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[1].versions.len(), 2);
+}
+
+/// edit_message(save) 应在原 node 下创建 committed 新版本。
+#[tokio::test]
+async fn test_edit_message_creates_new_version_on_same_node() {
+    let state = helpers::test_state().await;
+    let conversation_id = create_bound_conversation(&state, "https://api.openai.com").await;
+    seed_history(&state.db, &conversation_id).await;
+
+    let messages = list_messages_impl(&state, conversation_id.clone(), None, None, None)
+        .await
+        .unwrap();
+    let user_node = messages
+        .iter()
+        .find(|node| node.role == "user")
+        .expect("user node should exist");
+
+    let result = edit_message_impl(
+        &state,
+        conversation_id.clone(),
+        user_node.id.clone(),
+        EditMessageInput {
+            content: "编辑后的用户消息".to_string(),
+            resend: Some(false),
+            stream: Some(false),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+
+    let messages = list_messages_impl(&state, conversation_id, None, None, None)
+        .await
+        .unwrap();
+    let updated_user_node = messages
+        .iter()
+        .find(|node| node.id == user_node.id)
+        .expect("edited user node should exist");
+
+    assert_eq!(updated_user_node.active_version_id.as_deref(), Some(result.edited_version_id.as_str()));
+    assert_eq!(updated_user_node.versions.len(), 2);
+    assert_eq!(
+        updated_user_node
+            .versions
+            .iter()
+            .find(|version| version.id == result.edited_version_id)
+            .and_then(|version| version.content.as_deref()),
+        Some("编辑后的用户消息")
+    );
 }
 
 /// 版本切换与删除命令应能围绕同一楼层完成基本管理。

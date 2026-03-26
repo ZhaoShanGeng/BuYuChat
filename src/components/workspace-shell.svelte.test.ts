@@ -126,6 +126,11 @@ function createWorkspaceDeps() {
     setActiveVersion: vi.fn().mockResolvedValue(undefined),
     sendMessage: vi.fn(),
     reroll: vi.fn(),
+    editMessage: vi.fn().mockResolvedValue({
+      editedVersionId: "ver-3",
+      assistantNodeId: null,
+      assistantVersionId: null
+    }),
     cancelGeneration: vi.fn()
   };
 }
@@ -412,6 +417,130 @@ describe("workspace shell runes state", () => {
     expect(workspace.activeMessages.at(-1)?.id).toBe("node-assistant-2");
     expect(workspace.activeMessages.at(-1)?.versions[0]?.status).toBe("generating");
 
+    workspace.destroy();
+  });
+
+  it("refreshes latest channels before sending when the bound channel is missing from cache", async () => {
+    const deps = createWorkspaceDeps();
+    deps.listChannels = vi
+      .fn()
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([
+        {
+          id: "channel-1",
+          name: "OpenAI",
+          channelType: "openai_compatible",
+          baseUrl: "https://api.openai.com",
+          apiKey: null,
+          authType: "bearer",
+          modelsEndpoint: "/v1/models",
+          chatEndpoint: "/v1/chat/completions",
+          streamEndpoint: "/v1/chat/completions",
+          enabled: true,
+          createdAt: 1,
+          updatedAt: 1
+        }
+      ]);
+    deps.sendMessage.mockResolvedValue({
+      kind: "started",
+      userNodeId: "node-user-2",
+      userVersionId: "ver-user-2",
+      assistantNodeId: "node-assistant-2",
+      assistantVersionId: "ver-assistant-2"
+    });
+
+    const workspace = createWorkspaceShellState(deps);
+    await settleState();
+    workspace.setComposer("同步后再发");
+
+    await workspace.handleSendMessage();
+
+    expect(deps.listChannels).toHaveBeenCalledTimes(2);
+    expect(workspace.state.channels[0]?.id).toBe("channel-1");
+    expect(deps.sendMessage).toHaveBeenCalledTimes(1);
+    workspace.destroy();
+  });
+
+  it("retries once after syncing channels when send_message hits channel not found", async () => {
+    const deps = createWorkspaceDeps();
+    deps.sendMessage
+      .mockRejectedValueOnce({
+        error_code: "NOT_FOUND",
+        message: "channel 'channel-1' not found"
+      })
+      .mockResolvedValueOnce({
+        kind: "started",
+        userNodeId: "node-user-2",
+        userVersionId: "ver-user-2",
+        assistantNodeId: "node-assistant-2",
+        assistantVersionId: "ver-assistant-2"
+      });
+
+    const workspace = createWorkspaceShellState(deps);
+    await settleState();
+    workspace.setComposer("重试一次");
+
+    await workspace.handleSendMessage();
+
+    expect(deps.sendMessage).toHaveBeenCalledTimes(2);
+    expect(deps.listChannels).toHaveBeenCalledTimes(2);
+    expect(workspace.activeMessages.at(-1)?.id).toBe("node-assistant-2");
+    workspace.destroy();
+  });
+
+  it("retries quick channel binding after refreshing channels when update hits channel not found", async () => {
+    const deps = createWorkspaceDeps();
+    deps.updateConversation
+      .mockRejectedValueOnce({
+        error_code: "NOT_FOUND",
+        message: "channel 'channel-1' not found"
+      })
+      .mockResolvedValueOnce({
+        id: "conv-1",
+        title: "新会话",
+        agentId: "agent-1",
+        channelId: "channel-1",
+        channelModelId: null,
+        archived: false,
+        pinned: false,
+        createdAt: 1,
+        updatedAt: 3
+      });
+
+    const workspace = createWorkspaceShellState(deps);
+    await settleState();
+
+    await workspace.handleQuickChannelChange("channel-1");
+
+    expect(deps.updateConversation).toHaveBeenCalledTimes(2);
+    expect(deps.listChannels).toHaveBeenCalledTimes(2);
+    expect(workspace.state.activeConversation?.channelId).toBe("channel-1");
+    workspace.destroy();
+  });
+
+  it("loads version content before inline edit save", async () => {
+    const deps = createWorkspaceDeps();
+    const workspace = createWorkspaceShellState(deps);
+
+    await settleState();
+    const content = await workspace.ensureMessageVersionContent("node-1", "ver-2");
+
+    expect(deps.getVersionContent).toHaveBeenCalledWith("ver-2");
+    expect(content).toBe("第二版正文");
+    expect(workspace.activeMessages[0]?.versions[1]?.content).toBe("第二版正文");
+    workspace.destroy();
+  });
+
+  it("enters create mode when starting a new agent", async () => {
+    const deps = createWorkspaceDeps();
+    const workspace = createWorkspaceShellState(deps);
+
+    await settleState();
+    workspace.startCreateAgent();
+
+    expect(workspace.state.agentEditorMode).toBe("create");
+    expect(workspace.state.agentEditingId).toBeNull();
+    expect(workspace.state.agentForm.name).toBe("");
     workspace.destroy();
   });
 });

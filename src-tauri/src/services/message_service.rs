@@ -16,10 +16,10 @@ use crate::{
     ai::adapter::AiChannelConfig,
     error::AppError,
     models::{
-        Agent, ChannelModel, DeleteVersionResult, DryRunResult, GenerationEvent, MessageNode,
-        MessageNodeRecord, NewMessageContent, NewMessageNode, NewMessageVersion, PromptMessage,
-        RerollInput, RerollResult, SendMessageInput, SendMessageResponse, SendMessageResult,
-        VersionContent,
+        Agent, ChannelModel, DeleteVersionResult, DryRunResult, EditMessageInput,
+        EditMessageResult, GenerationEvent, MessageNode, MessageNodeRecord, NewMessageContent,
+        NewMessageNode, NewMessageVersion, PromptMessage, RerollInput, RerollResult,
+        SendMessageInput, SendMessageResponse, SendMessageResult, VersionContent,
     },
     repo::{
         agent_repo::{AgentRepo, SqlxAgentRepo},
@@ -49,12 +49,14 @@ pub async fn list_messages(
     conversation_id: &str,
     before_order_key: Option<String>,
     limit: Option<i64>,
+    from_latest: bool,
 ) -> Result<Vec<MessageNode>, AppError> {
     message_repo::list_messages(
         &state.db,
         conversation_id,
         before_order_key.as_deref(),
         limit,
+        from_latest,
     )
     .await
     .map_err(|error| AppError::internal(format!("failed to list messages: {error}")))?
@@ -296,7 +298,6 @@ pub async fn reroll(
             Ok(result)
         }
         "user" => {
-            ensure_last_user_node(state, conversation_id, &node).await?;
             let active_content = message_repo::get_active_version_content_for_node(&state.db, &node)
                 .await
                 .map_err(|error| {
@@ -324,14 +325,8 @@ pub async fn reroll(
                 content: active_content.content.clone(),
             });
 
-            let result = create_user_reroll_records(
-                state,
-                conversation_id,
-                &context,
-                &node,
-                &active_content,
-            )
-            .await?;
+            let result =
+                create_user_followup_records(state, conversation_id, &context, &node).await?;
 
             generation_engine::spawn_generation(
                 state,
@@ -348,6 +343,147 @@ pub async fn reroll(
             );
 
             Ok(result)
+        }
+        _ => Err(AppError::internal(format!(
+            "unsupported node role '{}'",
+            node.role
+        ))),
+    }
+}
+
+/// 编辑当前楼层的 active version，并可选地基于新版本重新发送。
+pub async fn edit_message(
+    state: &AppState,
+    conversation_id: &str,
+    node_id: &str,
+    input: EditMessageInput,
+    event_channel: Option<EventChannel<GenerationEvent>>,
+) -> Result<EditMessageResult, AppError> {
+    let node = message_repo::get_node_record(&state.db, conversation_id, node_id)
+        .await
+        .map_err(|error| AppError::internal(format!("failed to load node: {error}")))?
+        .ok_or_else(|| AppError::not_found(format!("node '{node_id}' not found")))?;
+    let active_version_id = node
+        .active_version_id
+        .as_deref()
+        .ok_or_else(|| AppError::internal("node has no active version".to_string()))?;
+    let active_version = message_repo::get_version_meta(&state.db, active_version_id)
+        .await
+        .map_err(|error| AppError::internal(format!("failed to load active version: {error}")))?
+        .ok_or_else(|| AppError::not_found(format!("version '{active_version_id}' not found")))?;
+    if active_version.status == "generating" {
+        return Err(AppError::validation(
+            "MESSAGE_STILL_GENERATING",
+            "cannot edit a generating version",
+        ));
+    }
+
+    let active_content = message_repo::get_active_version_content_for_node(&state.db, &node)
+        .await
+        .map_err(|error| {
+            AppError::internal(format!("failed to load active version content: {error}"))
+        })?
+        .ok_or_else(|| AppError::internal("active version content missing".to_string()))?;
+    let content = normalize_message_content(&input.content)?;
+    let edited_version_id = create_committed_version_for_node(
+        state,
+        conversation_id,
+        &node,
+        &content,
+        &active_content.content_type,
+    )
+    .await?;
+
+    if !input.resend.unwrap_or(false) {
+        return Ok(EditMessageResult {
+            edited_version_id,
+            assistant_node_id: None,
+            assistant_version_id: None,
+        });
+    }
+
+    let context = resolve_generation_context(state, conversation_id).await?;
+    let stream = input.stream.unwrap_or(true);
+
+    match node.role.as_str() {
+        "assistant" => {
+            let prompt_messages = build_prompt_with_system(
+                &context.agent,
+                message_repo::build_prompt_messages(
+                    &state.db,
+                    conversation_id,
+                    Some(&node.order_key),
+                    None,
+                )
+                .await
+                .map_err(|error| {
+                    AppError::internal(format!("failed to build assistant resend prompt: {error}"))
+                })?,
+            );
+            let reroll_result =
+                create_assistant_reroll_records(state, conversation_id, &context, &node).await?;
+
+            generation_engine::spawn_generation(
+                state,
+                GenerationRequest {
+                    conversation_id: conversation_id.to_string(),
+                    assistant_node_id: reroll_result.assistant_node_id.clone(),
+                    assistant_version_id: reroll_result.assistant_version_id.clone(),
+                    prompt_messages,
+                    config: context.config,
+                    max_output_tokens: context.model.max_output_tokens,
+                    stream,
+                    event_channel,
+                },
+            );
+
+            Ok(EditMessageResult {
+                edited_version_id,
+                assistant_node_id: Some(reroll_result.assistant_node_id),
+                assistant_version_id: Some(reroll_result.assistant_version_id),
+            })
+        }
+        "user" => {
+            let mut prompt_messages = build_prompt_with_system(
+                &context.agent,
+                message_repo::build_prompt_messages(
+                    &state.db,
+                    conversation_id,
+                    Some(&node.order_key),
+                    None,
+                )
+                .await
+                .map_err(|error| {
+                    AppError::internal(format!("failed to build user resend prompt: {error}"))
+                })?,
+            );
+            prompt_messages.push(PromptMessage {
+                role: "user".to_string(),
+                content: content.clone(),
+            });
+
+            let reroll_result =
+                create_user_followup_records(state, conversation_id, &context, &node).await?;
+
+            generation_engine::spawn_generation(
+                state,
+                GenerationRequest {
+                    conversation_id: conversation_id.to_string(),
+                    assistant_node_id: reroll_result.assistant_node_id.clone(),
+                    assistant_version_id: reroll_result.assistant_version_id.clone(),
+                    prompt_messages,
+                    config: context.config,
+                    max_output_tokens: context.model.max_output_tokens,
+                    stream,
+                    event_channel,
+                },
+            );
+
+            Ok(EditMessageResult {
+                edited_version_id,
+                assistant_node_id: Some(reroll_result.assistant_node_id),
+                assistant_version_id: Some(reroll_result.assistant_version_id),
+            })
         }
         _ => Err(AppError::internal(format!(
             "unsupported node role '{}'",
@@ -614,141 +750,204 @@ async fn create_assistant_reroll_records(
     })
 }
 
-/// 在 user reroll 路径下创建新 user version 与新的 assistant node/version。
-async fn create_user_reroll_records(
+/// 在当前楼层下创建一个 committed version 并切换 active version。
+async fn create_committed_version_for_node(
+    state: &AppState,
+    conversation_id: &str,
+    node: &MessageNodeRecord,
+    content: &str,
+    content_type: &str,
+) -> Result<String, AppError> {
+    let timestamp = current_timestamp_ms();
+    let edited_version_id = new_uuid_v7();
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|error| AppError::internal(format!("failed to open transaction: {error}")))?;
+
+    message_repo::insert_version_tx(
+        &mut tx,
+        &NewMessageVersion {
+            id: edited_version_id.clone(),
+            node_id: node.id.clone(),
+            status: "committed".to_string(),
+            model_name: None,
+            created_at: timestamp,
+        },
+    )
+    .await
+    .map_err(|error| AppError::internal(format!("failed to create edited version: {error}")))?;
+    message_repo::insert_content_tx(
+        &mut tx,
+        &NewMessageContent {
+            id: new_uuid_v7(),
+            version_id: edited_version_id.clone(),
+            chunk_index: 0,
+            content_type: content_type.to_string(),
+            body: content.to_string(),
+            created_at: timestamp,
+        },
+    )
+    .await
+    .map_err(|error| AppError::internal(format!("failed to persist edited content: {error}")))?;
+    message_repo::set_node_active_version_tx(&mut tx, &node.id, Some(&edited_version_id))
+        .await
+        .map_err(|error| AppError::internal(format!("failed to activate edited version: {error}")))?;
+    message_repo::touch_conversation_updated_at_tx(&mut tx, conversation_id, timestamp)
+        .await
+        .map_err(|error| {
+            AppError::internal(format!("failed to touch conversation timestamp: {error}"))
+        })?;
+    tx.commit()
+        .await
+        .map_err(|error| AppError::internal(format!("failed to commit edited version: {error}")))?;
+
+    Ok(edited_version_id)
+}
+
+/// 为 user node 生成回复：优先复用紧邻 assistant node，否则插入新的 assistant node。
+async fn create_user_followup_records(
     state: &AppState,
     conversation_id: &str,
     context: &GenerationContext,
     user_node: &MessageNodeRecord,
-    active_content: &VersionContent,
 ) -> Result<RerollResult, AppError> {
-    for _ in 0..3 {
-        let timestamp = current_timestamp_ms();
-        let new_user_version_id = new_uuid_v7();
-        let assistant_node_id = new_uuid_v7();
-        let assistant_version_id = new_uuid_v7();
-        let assistant_order_key = build_order_key(timestamp, ASSISTANT_POSITION_TAG)?;
-        let mut tx = state
-            .db
-            .begin()
-            .await
-            .map_err(|error| AppError::internal(format!("failed to open transaction: {error}")))?;
+    let next_node = message_repo::get_next_node(&state.db, conversation_id, &user_node.order_key)
+        .await
+        .map_err(|error| AppError::internal(format!("failed to load next node: {error}")))?;
 
-        let result = async {
-            message_repo::insert_version_tx(
-                &mut tx,
-                &NewMessageVersion {
-                    id: new_user_version_id.clone(),
-                    node_id: user_node.id.clone(),
-                    status: "committed".to_string(),
-                    model_name: None,
-                    created_at: timestamp,
-                },
-            )
-            .await?;
-            message_repo::insert_content_tx(
-                &mut tx,
-                &NewMessageContent {
-                    id: new_uuid_v7(),
-                    version_id: new_user_version_id.clone(),
-                    chunk_index: 0,
-                    content_type: active_content.content_type.clone(),
-                    body: active_content.content.clone(),
-                    created_at: timestamp,
-                },
-            )
-            .await?;
-            message_repo::set_node_active_version_tx(
-                &mut tx,
-                &user_node.id,
-                Some(&new_user_version_id),
-            )
-            .await?;
-
-            message_repo::insert_node_tx(
-                &mut tx,
-                &NewMessageNode {
-                    id: assistant_node_id.clone(),
-                    conversation_id: conversation_id.to_string(),
-                    author_agent_id: Some(context.agent.id.clone()),
-                    role: "assistant".to_string(),
-                    order_key: assistant_order_key,
-                    created_at: timestamp,
-                },
-            )
-            .await?;
-            message_repo::insert_version_tx(
-                &mut tx,
-                &NewMessageVersion {
-                    id: assistant_version_id.clone(),
-                    node_id: assistant_node_id.clone(),
-                    status: "generating".to_string(),
-                    model_name: Some(context.model.model_id.clone()),
-                    created_at: timestamp,
-                },
-            )
-            .await?;
-            message_repo::set_node_active_version_tx(
-                &mut tx,
-                &assistant_node_id,
-                Some(&assistant_version_id),
-            )
-            .await?;
-            message_repo::touch_conversation_updated_at_tx(&mut tx, conversation_id, timestamp)
-                .await?;
-            Ok::<(), String>(())
-        }
-        .await;
-
-        match result {
-            Ok(()) => {
-                tx.commit().await.map_err(|error| {
-                    AppError::internal(format!("failed to commit user reroll transaction: {error}"))
-                })?;
-                return Ok(RerollResult {
-                    new_user_version_id: Some(new_user_version_id),
-                    assistant_node_id,
-                    assistant_version_id,
-                });
-            }
-            Err(error) if is_order_key_conflict(&error) => {
-                tx.rollback().await.map_err(|rollback_error| {
-                    AppError::internal(format!(
-                        "failed to rollback user reroll order key retry: {rollback_error}"
-                    ))
-                })?;
-            }
-            Err(error) => {
-                tx.rollback().await.map_err(|rollback_error| {
-                    AppError::internal(format!(
-                        "failed to rollback user reroll transaction: {rollback_error}"
-                    ))
-                })?;
-                return Err(AppError::internal(format!(
-                    "failed to create user reroll records: {error}"
-                )));
-            }
+    if let Some(next_node) = next_node {
+        if next_node.role == "assistant" {
+            return create_assistant_reroll_records(state, conversation_id, context, &next_node)
+                .await;
         }
     }
 
-    Err(AppError::internal(
-        "failed to allocate unique order_key after 3 attempts",
-    ))
+    create_inserted_assistant_records(state, conversation_id, context, user_node).await
 }
 
-/// 校验 user reroll 只允许发生在最后一个 user node。
-async fn ensure_last_user_node(
+/// 在指定 user node 后插入一个新的 assistant node，并重新分配该会话的顺序键。
+async fn create_inserted_assistant_records(
     state: &AppState,
     conversation_id: &str,
-    node: &MessageNodeRecord,
-) -> Result<(), AppError> {
-    let last_node = message_repo::get_last_node(&state.db, conversation_id)
+    context: &GenerationContext,
+    user_node: &MessageNodeRecord,
+) -> Result<RerollResult, AppError> {
+    let existing_nodes = message_repo::list_node_records(&state.db, conversation_id)
         .await
-        .map_err(|error| AppError::internal(format!("failed to load last node: {error}")))?
-        .ok_or_else(|| AppError::not_found(format!("conversation '{conversation_id}' not found")))?;
+        .map_err(|error| AppError::internal(format!("failed to list conversation nodes: {error}")))?;
+    let insert_index = existing_nodes
+        .iter()
+        .position(|node| node.id == user_node.id)
+        .ok_or_else(|| AppError::not_found(format!("node '{}' not found", user_node.id)))?
+        + 1;
+    let timestamp = current_timestamp_ms();
+    let assistant_node_id = new_uuid_v7();
+    let assistant_version_id = new_uuid_v7();
+    let temporary_order_key = format!("tmp-{timestamp:016}-{assistant_node_id}");
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|error| AppError::internal(format!("failed to open transaction: {error}")))?;
 
-    if last_node.id != node.id {
-        return Err(AppError::not_last_user_node());
+    message_repo::insert_node_tx(
+        &mut tx,
+        &NewMessageNode {
+            id: assistant_node_id.clone(),
+            conversation_id: conversation_id.to_string(),
+            author_agent_id: Some(context.agent.id.clone()),
+            role: "assistant".to_string(),
+            order_key: temporary_order_key,
+            created_at: timestamp,
+        },
+    )
+    .await
+    .map_err(|error| AppError::internal(format!("failed to insert assistant node: {error}")))?;
+    message_repo::insert_version_tx(
+        &mut tx,
+        &NewMessageVersion {
+            id: assistant_version_id.clone(),
+            node_id: assistant_node_id.clone(),
+            status: "generating".to_string(),
+            model_name: Some(context.model.model_id.clone()),
+            created_at: timestamp,
+        },
+    )
+    .await
+    .map_err(|error| AppError::internal(format!("failed to create assistant version: {error}")))?;
+    message_repo::set_node_active_version_tx(&mut tx, &assistant_node_id, Some(&assistant_version_id))
+        .await
+        .map_err(|error| {
+            AppError::internal(format!("failed to activate assistant version: {error}"))
+        })?;
+
+    reindex_conversation_nodes_tx(
+        &mut tx,
+        &existing_nodes,
+        insert_index,
+        &assistant_node_id,
+        "assistant",
+    )
+    .await?;
+
+    message_repo::touch_conversation_updated_at_tx(&mut tx, conversation_id, timestamp)
+        .await
+        .map_err(|error| {
+            AppError::internal(format!("failed to touch conversation timestamp: {error}"))
+        })?;
+    tx.commit().await.map_err(|error| {
+        AppError::internal(format!("failed to commit inserted assistant node: {error}"))
+    })?;
+
+    Ok(RerollResult {
+        new_user_version_id: None,
+        assistant_node_id,
+        assistant_version_id,
+    })
+}
+
+/// 为包含插入节点的新顺序重建整段会话的 order_key。
+async fn reindex_conversation_nodes_tx(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    existing_nodes: &[MessageNodeRecord],
+    insert_index: usize,
+    inserted_node_id: &str,
+    inserted_role: &str,
+) -> Result<(), AppError> {
+    let temp_prefix = format!("tmp-reindex-{}-", current_timestamp_ms());
+    let mut ordered_nodes = existing_nodes
+        .iter()
+        .map(|node| (node.id.clone(), node.role.clone()))
+        .collect::<Vec<_>>();
+    ordered_nodes.insert(
+        insert_index,
+        (inserted_node_id.to_string(), inserted_role.to_string()),
+    );
+
+    for (index, (node_id, _)) in ordered_nodes.iter().enumerate() {
+        let temporary_key = format!("{temp_prefix}{index:04}-{node_id}");
+        message_repo::update_node_order_key_tx(tx, node_id, &temporary_key)
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("failed to assign temporary order key: {error}"))
+            })?;
+    }
+
+    let base_timestamp = current_timestamp_ms();
+    for (index, (node_id, role)) in ordered_nodes.iter().enumerate() {
+        let position_tag = if role == "assistant" {
+            ASSISTANT_POSITION_TAG
+        } else {
+            USER_POSITION_TAG
+        };
+        let order_key = build_order_key(base_timestamp + index as i64, position_tag)?;
+        message_repo::update_node_order_key_tx(tx, node_id, &order_key)
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("failed to assign final order key: {error}"))
+            })?;
     }
 
     Ok(())

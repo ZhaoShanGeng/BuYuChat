@@ -67,24 +67,29 @@ pub async fn list_messages(
     conversation_id: &str,
     before_order_key: Option<&str>,
     limit: Option<i64>,
+    from_latest: bool,
 ) -> Result<Option<Vec<MessageNode>>, String> {
     if !conversation_exists(pool, conversation_id).await? {
         return Ok(None);
     }
 
+    let descending_page = before_order_key.is_some() || from_latest;
+
     let mut query = QueryBuilder::<Sqlite>::new(
         r#"
         WITH selected_nodes AS (
-            SELECT
-                id,
-                conversation_id,
-                author_agent_id,
-                role,
-                order_key,
-                active_version_id,
-                created_at
-            FROM message_nodes
-            WHERE conversation_id = 
+            SELECT *
+            FROM (
+                SELECT
+                    id,
+                    conversation_id,
+                    author_agent_id,
+                    role,
+                    order_key,
+                    active_version_id,
+                    created_at
+                FROM message_nodes
+                WHERE conversation_id =
         "#,
     );
     query.push_bind(conversation_id);
@@ -94,10 +99,14 @@ pub async fn list_messages(
         query.push_bind(before_order_key);
     }
 
-    query.push(" ORDER BY order_key ASC LIMIT ");
+    query.push(" ORDER BY order_key ");
+    query.push(if descending_page { "DESC" } else { "ASC" });
+    query.push(" LIMIT ");
     query.push_bind(limit.unwrap_or(200));
     query.push(
         r#"
+            ) paged_nodes
+            ORDER BY order_key ASC
         )
         SELECT
             n.id AS node_id,
@@ -301,6 +310,48 @@ pub async fn get_last_node(
     .map_err(|error| error.to_string())
 }
 
+/// 读取指定楼层在会话中的紧邻后继楼层。
+pub async fn get_next_node(
+    pool: &SqlitePool,
+    conversation_id: &str,
+    order_key: &str,
+) -> Result<Option<MessageNodeRecord>, String> {
+    sqlx::query_as::<_, MessageNodeRecord>(
+        r#"
+        SELECT *
+        FROM message_nodes
+        WHERE conversation_id = ?1
+          AND order_key > ?2
+        ORDER BY order_key ASC
+        LIMIT 1
+        "#,
+    )
+    .bind(conversation_id)
+    .bind(order_key)
+    .fetch_optional(pool)
+    .await
+    .map_err(|error| error.to_string())
+}
+
+/// 读取会话中的全部楼层记录。
+pub async fn list_node_records(
+    pool: &SqlitePool,
+    conversation_id: &str,
+) -> Result<Vec<MessageNodeRecord>, String> {
+    sqlx::query_as::<_, MessageNodeRecord>(
+        r#"
+        SELECT *
+        FROM message_nodes
+        WHERE conversation_id = ?1
+        ORDER BY order_key ASC
+        "#,
+    )
+    .bind(conversation_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| error.to_string())
+}
+
 /// 读取某个楼层当前 active version 的完整正文。
 pub async fn get_active_version_content_for_node(
     pool: &SqlitePool,
@@ -476,6 +527,22 @@ pub async fn set_node_active_version_tx(
 ) -> Result<(), String> {
     sqlx::query("UPDATE message_nodes SET active_version_id = ?1 WHERE id = ?2")
         .bind(active_version_id)
+        .bind(node_id)
+        .execute(&mut **tx)
+        .await
+        .map_err(|error| error.to_string())?;
+
+    Ok(())
+}
+
+/// 在事务中更新楼层的顺序键。
+pub async fn update_node_order_key_tx(
+    tx: &mut Transaction<'_, Sqlite>,
+    node_id: &str,
+    order_key: &str,
+) -> Result<(), String> {
+    sqlx::query("UPDATE message_nodes SET order_key = ?1 WHERE id = ?2")
+        .bind(order_key)
         .bind(node_id)
         .execute(&mut **tx)
         .await

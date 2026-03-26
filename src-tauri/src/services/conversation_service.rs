@@ -177,12 +177,20 @@ where
         .map_err(|error| AppError::internal(format!("failed to load conversation: {error}")))?
         .ok_or_else(|| AppError::not_found(format!("conversation '{id}' not found")))?;
 
-    let next_agent_id = merge_optional_patch(current.agent_id.as_deref(), input.agent_id.as_ref());
-    let next_channel_id =
-        merge_optional_patch(current.channel_id.as_deref(), input.channel_id.as_ref());
-    let next_channel_model_id = merge_optional_patch(
+    let next_agent_id = merge_string_patch(
+        current.agent_id.as_deref(),
+        input.agent_id_set,
+        input.agent_id.as_deref(),
+    );
+    let next_channel_id = merge_string_patch(
+        current.channel_id.as_deref(),
+        input.channel_id_set,
+        input.channel_id.as_deref(),
+    );
+    let next_channel_model_id = merge_string_patch(
         current.channel_model_id.as_deref(),
-        input.channel_model_id.as_ref(),
+        input.channel_model_id_set,
+        input.channel_model_id.as_deref(),
     );
 
     validate_bindings(
@@ -206,9 +214,9 @@ where
             id,
             &ConversationPatch {
                 title,
-                agent_id: input.agent_id,
-                channel_id: input.channel_id,
-                channel_model_id: input.channel_model_id,
+                agent_id: input.agent_id_set.then_some(input.agent_id),
+                channel_id: input.channel_id_set.then_some(input.channel_id),
+                channel_model_id: input.channel_model_id_set.then_some(input.channel_model_id),
                 archived: input.archived,
                 pinned: input.pinned,
                 updated_at: clock.now_ms().await,
@@ -299,10 +307,10 @@ fn normalize_title(value: Option<String>) -> Result<String, AppError> {
 }
 
 /// 将补丁字段与当前值合并成“更新后的最终值”。
-fn merge_optional_patch(current: Option<&str>, patch: Option<&Option<String>>) -> Option<String> {
-    match patch {
-        Some(Some(value)) => Some(value.clone()),
-        Some(None) => None,
-        None => current.map(ToOwned::to_owned),
+fn merge_string_patch(current: Option<&str>, is_set: bool, patch: Option<&str>) -> Option<String> {
+    if is_set {
+        patch.map(ToOwned::to_owned)
+    } else {
+        current.map(ToOwned::to_owned)
     }
 }

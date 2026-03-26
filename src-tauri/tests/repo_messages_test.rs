@@ -101,7 +101,7 @@ async fn test_list_messages_only_populates_active_version_content() {
     insert_conversation(&state.db, &conversation_id).await;
     let (_, version_a, version_b) = insert_node_with_versions(&state.db, &conversation_id).await;
 
-    let messages = message_repo::list_messages(&state.db, &conversation_id, None, None)
+    let messages = message_repo::list_messages(&state.db, &conversation_id, None, None, false)
         .await
         .unwrap()
         .unwrap();
@@ -113,6 +113,89 @@ async fn test_list_messages_only_populates_active_version_content() {
 
     assert_eq!(older.content, None);
     assert_eq!(active.content.as_deref(), Some("新版本正文"));
+}
+
+/// `list_messages` 应支持从最新消息向前分页读取。
+#[tokio::test]
+async fn test_list_messages_supports_latest_page_and_before_cursor() {
+    let state = helpers::test_state().await;
+    let conversation_id = new_uuid_v7();
+
+    insert_conversation(&state.db, &conversation_id).await;
+
+    let mut tx = state.db.begin().await.unwrap();
+    for index in 0..5 {
+        let node_id = new_uuid_v7();
+        let version_id = new_uuid_v7();
+        let order_key = format!("000000000000010{}-0-node{:04}", index, index);
+        let body = format!("消息{}", index);
+
+        sqlx::query(
+            r#"
+            INSERT INTO message_nodes (
+                id, conversation_id, role, order_key, active_version_id, created_at
+            ) VALUES (?1, ?2, 'user', ?3, ?4, ?5)
+            "#,
+        )
+        .bind(&node_id)
+        .bind(&conversation_id)
+        .bind(&order_key)
+        .bind(&version_id)
+        .bind(100_i64 + index as i64)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            INSERT INTO message_versions (id, node_id, status, created_at)
+            VALUES (?1, ?2, 'committed', ?3)
+            "#,
+        )
+        .bind(&version_id)
+        .bind(&node_id)
+        .bind(100_i64 + index as i64)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+
+        sqlx::query(
+            r#"
+            INSERT INTO message_contents (id, version_id, chunk_index, content_type, body, created_at)
+            VALUES (?1, ?2, 0, 'text/plain', ?3, ?4)
+            "#,
+        )
+        .bind(new_uuid_v7())
+        .bind(&version_id)
+        .bind(&body)
+        .bind(100_i64 + index as i64)
+        .execute(&mut *tx)
+        .await
+        .unwrap();
+    }
+    tx.commit().await.unwrap();
+
+    let latest_page = message_repo::list_messages(&state.db, &conversation_id, None, Some(2), true)
+        .await
+        .unwrap()
+        .unwrap();
+    assert_eq!(latest_page.len(), 2);
+    assert_eq!(latest_page[0].versions[0].content.as_deref(), Some("消息3"));
+    assert_eq!(latest_page[1].versions[0].content.as_deref(), Some("消息4"));
+
+    let older_page = message_repo::list_messages(
+        &state.db,
+        &conversation_id,
+        latest_page.first().map(|node| node.order_key.as_str()),
+        Some(2),
+        false,
+    )
+    .await
+    .unwrap()
+    .unwrap();
+    assert_eq!(older_page.len(), 2);
+    assert_eq!(older_page[0].versions[0].content.as_deref(), Some("消息1"));
+    assert_eq!(older_page[1].versions[0].content.as_deref(), Some("消息2"));
 }
 
 /// `get_version_content` 应按 chunk_index 拼接完整正文。

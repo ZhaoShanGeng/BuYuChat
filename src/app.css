@@ -1,4 +1,3 @@
-@import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
 @import "tailwindcss";
 @import "tw-animate-css";
 
@@ -8,62 +7,62 @@
   color-scheme: light;
   --background: hsl(0 0% 100%);
   --foreground: hsl(240 10% 3.9%);
-  --muted: hsl(240 5% 96%);
-  --muted-foreground: hsl(240 4% 46%);
+  --muted: hsl(240 4.8% 95.9%);
+  --muted-foreground: hsl(240 3.8% 46.1%);
   --popover: hsl(0 0% 100%);
   --popover-foreground: hsl(240 10% 3.9%);
   --card: hsl(0 0% 100%);
   --card-foreground: hsl(240 10% 3.9%);
-  --border: hsl(240 6% 90%);
-  --input: hsl(240 6% 90%);
-  --primary: hsl(221 83% 53%);
-  --primary-foreground: hsl(210 40% 98%);
-  --secondary: hsl(240 5% 96%);
-  --secondary-foreground: hsl(240 6% 10%);
-  --accent: hsl(240 5% 96%);
-  --accent-foreground: hsl(240 6% 10%);
-  --destructive: hsl(0 84% 60%);
-  --destructive-foreground: hsl(210 40% 98%);
-  --ring: hsl(221 83% 53%);
-  --sidebar: hsl(240 5% 98%);
-  --sidebar-foreground: hsl(240 5% 26%);
-  --sidebar-primary: hsl(221 83% 53%);
-  --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(240 5% 92%);
-  --sidebar-accent-foreground: hsl(240 6% 10%);
-  --sidebar-border: hsl(240 6% 90%);
-  --sidebar-ring: hsl(221 83% 53%);
-  --radius: 0.75rem;
+  --border: hsl(240 5.9% 90%);
+  --input: hsl(240 5.9% 90%);
+  --primary: hsl(240 5.9% 10%);
+  --primary-foreground: hsl(0 0% 98%);
+  --secondary: hsl(240 4.8% 95.9%);
+  --secondary-foreground: hsl(240 5.9% 10%);
+  --accent: hsl(240 4.8% 95.9%);
+  --accent-foreground: hsl(240 5.9% 10%);
+  --destructive: hsl(0 72.2% 50.6%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --ring: hsl(240 5.9% 10%);
+  --sidebar: hsl(0 0% 98%);
+  --sidebar-foreground: hsl(240 5.3% 26.1%);
+  --sidebar-primary: hsl(240 5.9% 10%);
+  --sidebar-primary-foreground: hsl(0 0% 98%);
+  --sidebar-accent: hsl(240 4.8% 95.9%);
+  --sidebar-accent-foreground: hsl(240 5.9% 10%);
+  --sidebar-border: hsl(220 13% 91%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+  --radius: 0.625rem;
 }
 
 .dark {
-  --background: hsl(224 71% 4%);
-  --foreground: hsl(210 40% 98%);
-  --muted: hsl(215 28% 17%);
-  --muted-foreground: hsl(215 20% 65%);
-  --popover: hsl(224 71% 4%);
-  --popover-foreground: hsl(210 40% 98%);
-  --card: hsl(224 71% 4%);
-  --card-foreground: hsl(210 40% 98%);
-  --border: hsl(215 28% 17%);
-  --input: hsl(215 28% 17%);
-  --primary: hsl(217 92% 51%);
-  --primary-foreground: hsl(210 40% 98%);
-  --secondary: hsl(215 28% 17%);
-  --secondary-foreground: hsl(210 40% 98%);
-  --accent: hsl(215 28% 17%);
-  --accent-foreground: hsl(210 40% 98%);
-  --destructive: hsl(0 63% 31%);
-  --destructive-foreground: hsl(210 40% 98%);
-  --ring: hsl(217 92% 51%);
-  --sidebar: hsl(224 71% 4%);
-  --sidebar-foreground: hsl(215 20% 65%);
-  --sidebar-primary: hsl(217 92% 51%);
+  --background: hsl(240 10% 3.9%);
+  --foreground: hsl(0 0% 98%);
+  --muted: hsl(240 3.7% 15.9%);
+  --muted-foreground: hsl(240 5% 64.9%);
+  --popover: hsl(240 10% 3.9%);
+  --popover-foreground: hsl(0 0% 98%);
+  --card: hsl(240 10% 3.9%);
+  --card-foreground: hsl(0 0% 98%);
+  --border: hsl(240 3.7% 15.9%);
+  --input: hsl(240 3.7% 15.9%);
+  --primary: hsl(0 0% 98%);
+  --primary-foreground: hsl(240 5.9% 10%);
+  --secondary: hsl(240 3.7% 15.9%);
+  --secondary-foreground: hsl(0 0% 98%);
+  --accent: hsl(240 3.7% 15.9%);
+  --accent-foreground: hsl(0 0% 98%);
+  --destructive: hsl(0 62.8% 30.6%);
+  --destructive-foreground: hsl(0 0% 98%);
+  --ring: hsl(240 4.9% 83.9%);
+  --sidebar: hsl(240 5.9% 10%);
+  --sidebar-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-primary: hsl(224.3 76.3% 48%);
   --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(215 28% 17%);
-  --sidebar-accent-foreground: hsl(210 40% 98%);
-  --sidebar-border: hsl(215 28% 17%);
-  --sidebar-ring: hsl(217 92% 51%);
+  --sidebar-accent: hsl(240 3.7% 15.9%);
+  --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
+  --sidebar-border: hsl(240 3.7% 15.9%);
+  --sidebar-ring: hsl(217.2 91.2% 59.8%);
 }
 
 @theme inline {
@@ -107,8 +106,10 @@
 html,
 body,
 #app {
-  min-height: 100%;
+  height: 100%;
   margin: 0;
+  width: 100%;
+  overflow: hidden;
 }
 
 *,
@@ -125,7 +126,9 @@ body {
   @apply bg-background text-foreground antialiased;
   font-family: var(--font-sans);
   font-feature-settings: "rlig" 1, "calt" 1;
-  min-height: 100vh;
+  min-height: 0;
+  overflow: hidden;
+  overscroll-behavior: none;
 }
 
 button,
@@ -141,4 +144,12 @@ button {
 
 ::selection {
   background: hsl(240 5.9% 10% / 0.14);
+}
+
+/* 窗口 resize 期间抑制所有过渡与动画以避免卡顿。 */
+.resize-active *,
+.resize-active *::before,
+.resize-active *::after {
+  transition-duration: 0s !important;
+  animation-duration: 0s !important;
 }

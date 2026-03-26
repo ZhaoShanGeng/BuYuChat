@@ -111,4 +111,43 @@ describe("messages transport", () => {
       model: "gpt-4o-mini"
     });
   });
+
+  it("maps edit_message payload and result", async () => {
+    invokeMock.mockResolvedValue({
+      edited_version_id: "ver-3",
+      assistant_node_id: "node-2",
+      assistant_version_id: "ver-4"
+    });
+
+    const { editMessage } = await import("./messages");
+    const result = await editMessage(
+      "conv-1",
+      "node-1",
+      {
+        content: "编辑后的内容",
+        resend: true,
+        stream: true
+      },
+      vi.fn()
+    );
+
+    expect(invokeMock).toHaveBeenCalledWith(
+      "edit_message",
+      expect.objectContaining({
+        id: "conv-1",
+        nodeId: "node-1",
+        input: {
+          content: "编辑后的内容",
+          resend: true,
+          stream: true
+        },
+        eventChannel: expect.any(MockChannel)
+      })
+    );
+    expect(result).toEqual({
+      editedVersionId: "ver-3",
+      assistantNodeId: "node-2",
+      assistantVersionId: "ver-4"
+    });
+  });
 });

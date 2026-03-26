@@ -4,16 +4,20 @@
    * 列表已在 WorkspaceShell 的 ContextPanel 中渲染。
    */
   import { Button } from "$lib/components/ui/button/index.js";
+  import { Badge } from "$lib/components/ui/badge/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
   import { Label } from "$lib/components/ui/label/index.js";
   import * as Switch from "$lib/components/ui/switch/index.js";
   import * as Textarea from "$lib/components/ui/textarea/index.js";
+  import { getCurrentWindow } from "@tauri-apps/api/window";
   import type { Agent } from "../lib/transport/agents";
   import type { AgentFormState } from "./workspace-shell.svelte.js";
+  import WindowControls from "./WindowControls.svelte";
 
   type Props = {
     agents: Agent[];
     editingId: string | null;
+    isCreating?: boolean;
     form: AgentFormState;
     saving: boolean;
     onNameChange: (value: string) => void;
@@ -26,15 +30,53 @@
   };
 
   const {
-    agents, editingId, form, saving,
+    agents, editingId, isCreating = false, form, saving,
     onNameChange, onSystemPromptChange, onReset, onEdit, onDelete, onSubmit, onToggleEnabled
   }: Props = $props();
 
+  const currentWindow = getCurrentWindow();
   let editingAgent = $derived(editingId ? agents.find((a) => a.id === editingId) : null);
+  async function handleHeaderMouseDown(event: MouseEvent) {
+    const target = event.target as HTMLElement | null;
+    if (
+      event.button !== 0 ||
+      target?.closest("button, input, textarea, select, a, [role='button'], [data-no-drag]")
+    ) {
+      return;
+    }
+
+    await currentWindow.startDragging();
+  }
+
+  async function handleToggleAgent(nextChecked: boolean) {
+    if (!editingAgent) {
+      return;
+    }
+
+    if (nextChecked !== editingAgent.enabled) {
+      await onToggleEnabled(editingAgent);
+    }
+  }
 </script>
 
 <div class="flex h-full flex-col">
-  {#if !editingId}
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="flex h-14 items-center justify-between border-b px-6" onmousedown={handleHeaderMouseDown}>
+    <h2 class="text-sm font-semibold">{editingId ? "编辑 Agent" : isCreating ? "新建 Agent" : "Agent"}</h2>
+    <div class="flex items-center gap-3">
+      {#if editingAgent}
+        <div class="flex items-center rounded-full bg-muted px-3 py-1.5">
+          <Switch.Root checked={editingAgent.enabled} onclick={() => void handleToggleAgent(!editingAgent.enabled)} />
+        </div>
+        <Button onclick={() => onDelete(editingAgent!.id)} size="sm" variant="destructive">删除</Button>
+      {:else if isCreating}
+        <Badge class="rounded-full border border-blue-200 bg-blue-50 text-blue-700" variant="outline">新建</Badge>
+      {/if}
+      <WindowControls compact />
+    </div>
+  </div>
+
+  {#if !editingId && !isCreating}
     <!-- 空状态 -->
     <div class="flex flex-1 items-center justify-center">
       <div class="text-center">
@@ -43,22 +85,6 @@
     </div>
   {:else}
     <!-- 编辑器 -->
-    <div class="flex h-12 items-center justify-between border-b px-6">
-      <h2 class="text-sm font-semibold">{editingId ? "编辑 Agent" : "新建 Agent"}</h2>
-      {#if editingAgent}
-        <div class="flex items-center gap-3">
-          <div class="flex items-center gap-2">
-            <Label class="text-xs text-muted-foreground">启用</Label>
-            <Switch.Root
-              checked={editingAgent.enabled}
-              onCheckedChange={() => onToggleEnabled(editingAgent!)}
-            />
-          </div>
-          <Button onclick={() => onDelete(editingAgent!.id)} size="sm" variant="destructive">删除</Button>
-        </div>
-      {/if}
-    </div>
-
     <div class="flex-1 overflow-y-auto p-6">
       <form class="max-w-lg space-y-5" onsubmit={onSubmit}>
         <div class="space-y-2">

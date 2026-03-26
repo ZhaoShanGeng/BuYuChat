@@ -100,6 +100,21 @@ const ERROR_MESSAGES: Record<string, string> = {
  * 将结构化错误转换为中文提示文案。
  */
 export function humanizeWorkspaceError(error: AppError): string {
+  if (error.errorCode === "NOT_FOUND") {
+    if (/channel/i.test(error.message)) {
+      return "当前渠道不存在，请刷新渠道列表后重试";
+    }
+    if (/model/i.test(error.message)) {
+      return "当前模型不存在，请重新选择模型";
+    }
+    if (/conversation/i.test(error.message)) {
+      return "当前会话不存在，请刷新会话列表";
+    }
+    if (/agent/i.test(error.message)) {
+      return "当前 Agent 不存在，请重新选择";
+    }
+  }
+
   return ERROR_MESSAGES[error.errorCode] ?? ERROR_MESSAGES.INTERNAL_ERROR;
 }
 

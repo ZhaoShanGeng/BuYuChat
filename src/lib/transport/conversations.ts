@@ -133,15 +133,24 @@ function toRawCreateInput(input: ConversationInput) {
   };
 }
 
+function hasOwnPatchField<T extends object, K extends keyof T>(input: T, key: K): boolean {
+  return Object.prototype.hasOwnProperty.call(input, key);
+}
+
 /**
  * 将会话更新补丁转换为后端载荷。
  */
 function toRawPatch(input: ConversationPatch) {
   return {
     title: toOptionalValue(input.title),
-    agent_id: toOptionalValue(input.agentId),
-    channel_id: toOptionalValue(input.channelId),
-    channel_model_id: toOptionalValue(input.channelModelId),
+    agent_id_set: hasOwnPatchField(input, "agentId"),
+    agent_id: hasOwnPatchField(input, "agentId") ? input.agentId ?? null : undefined,
+    channel_id_set: hasOwnPatchField(input, "channelId"),
+    channel_id: hasOwnPatchField(input, "channelId") ? input.channelId ?? null : undefined,
+    channel_model_id_set: hasOwnPatchField(input, "channelModelId"),
+    channel_model_id: hasOwnPatchField(input, "channelModelId")
+      ? input.channelModelId ?? null
+      : undefined,
     archived: toOptionalValue(input.archived),
     pinned: toOptionalValue(input.pinned)
   };

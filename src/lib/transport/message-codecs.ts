@@ -11,11 +11,14 @@ import { Channel } from "@tauri-apps/api/core";
 import { toOptionalValue } from "./common";
 import type {
   DeleteVersionResult,
+  EditMessageInput,
+  EditMessageResult,
   GenerationEvent,
   MessageNode,
   MessageVersion,
   RawDeleteVersionResult,
   RawDryRunResult,
+  RawEditMessageResult,
   RawGenerationEvent,
   RawMessageNode,
   RawMessageVersion,
@@ -146,6 +149,17 @@ export function toRawRerollInput(input?: RerollInput) {
 }
 
 /**
+ * 把前端编辑消息输入转换为后端载荷。
+ */
+export function toRawEditMessageInput(input: EditMessageInput) {
+  return {
+    content: input.content,
+    resend: toOptionalValue(input.resend),
+    stream: toOptionalValue(input.stream)
+  };
+}
+
+/**
  * 创建一个用于接收后端生成事件的 Tauri Channel。
  */
 export function createGenerationChannel(
@@ -196,6 +210,17 @@ export function fromRawDeleteVersionResult(raw: RawDeleteVersionResult): DeleteV
 export function fromRawRerollResult(raw: RawRerollResult): RerollResult {
   return {
     newUserVersionId: raw.new_user_version_id,
+    assistantNodeId: raw.assistant_node_id,
+    assistantVersionId: raw.assistant_version_id
+  };
+}
+
+/**
+ * 将原始编辑消息结果转换为前端结构。
+ */
+export function fromRawEditMessageResult(raw: RawEditMessageResult): EditMessageResult {
+  return {
+    editedVersionId: raw.edited_version_id,
     assistantNodeId: raw.assistant_node_id,
     assistantVersionId: raw.assistant_version_id
   };

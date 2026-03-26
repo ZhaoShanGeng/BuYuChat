@@ -7,6 +7,7 @@
   import type { Conversation } from "../lib/transport/conversations";
   import type { ChannelModel } from "../lib/transport/models";
   import type { MessageNode } from "../lib/transport/messages";
+  import type { MessageHistoryState } from "./workspace-shell.svelte.js";
   import type { Notice } from "./workspace-state";
   import { isNodeGenerating } from "./workspace-state";
   import ChatHeader from "./ChatHeader.svelte";
@@ -16,6 +17,7 @@
   type Props = {
     conversation: Conversation | null;
     messages: MessageNode[];
+    messageHistory: MessageHistoryState;
     agents: Agent[];
     channels: Channel[];
     models: ChannelModel[];
@@ -25,6 +27,7 @@
     notice: Notice | null;
     dryRunSummary: string | null;
     agentName: string;
+    channelName: string;
     modelName: string;
     onComposerChange: (value: string) => void;
     onSend: () => void | Promise<void>;
@@ -33,11 +36,17 @@
     onReroll: (nodeId: string) => void | Promise<void>;
     onSwitchVersion: (nodeId: string, versionId: string) => void | Promise<void>;
     onDeleteVersion: (nodeId: string, versionId: string) => void | Promise<void>;
-    onEditMessage: (nodeId: string, versionId: string, content: string) => void | Promise<void>;
-    onOpenSettings: () => void;
+    onEditMessage: (
+      nodeId: string,
+      content: string,
+      options?: { resend?: boolean }
+    ) => void | Promise<void>;
+    onLoadVersionContent: (nodeId: string, versionId: string) => Promise<string>;
+    onLoadOlderMessages: () => void | Promise<void>;
     onQuickModelChange: (modelId: string) => void | Promise<void>;
     onQuickAgentChange: (agentId: string) => void | Promise<void>;
     onQuickChannelChange: (channelId: string) => void | Promise<void>;
+    onQuickChannelMenuOpen: () => void | Promise<void>;
     onQuickTitleChange: (title: string) => void | Promise<void>;
   };
 
@@ -55,17 +64,18 @@
   });
 </script>
 
-<section class="flex h-full min-h-0 flex-col">
+<section class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
   <ChatHeader
     agentName={props.agentName}
     agents={props.agents}
+    channelName={props.channelName}
     channels={props.channels}
     conversation={props.conversation}
     modelName={props.modelName}
     models={props.models}
-    onOpenSettings={props.onOpenSettings}
     onQuickAgentChange={props.onQuickAgentChange}
     onQuickChannelChange={props.onQuickChannelChange}
+    onQuickChannelMenuOpen={props.onQuickChannelMenuOpen}
     onQuickModelChange={props.onQuickModelChange}
     onQuickTitleChange={props.onQuickTitleChange}
   />
@@ -73,12 +83,16 @@
   <MessageTimeline
     conversation={props.conversation}
     dryRunSummary={props.dryRunSummary}
+    hasOlderMessages={props.messageHistory.hasOlder}
     loading={props.loading}
+    loadingOlderMessages={props.messageHistory.loadingOlder}
     messages={props.messages}
     notice={props.notice}
     onCancel={props.onCancel}
     onDeleteVersion={props.onDeleteVersion}
     onEditMessage={props.onEditMessage}
+    onLoadVersionContent={props.onLoadVersionContent}
+    onLoadOlderMessages={props.onLoadOlderMessages}
     onReroll={props.onReroll}
     onSwitchVersion={props.onSwitchVersion}
   />
