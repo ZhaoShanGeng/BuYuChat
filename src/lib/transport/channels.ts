@@ -18,6 +18,7 @@ export type Channel = {
   modelsEndpoint: string | null;
   chatEndpoint: string | null;
   streamEndpoint: string | null;
+  thinkingTags: string | null;
   enabled: boolean;
   createdAt: number;
   updatedAt: number;
@@ -35,6 +36,7 @@ export type ChannelInput = {
   modelsEndpoint?: string | null;
   chatEndpoint?: string | null;
   streamEndpoint?: string | null;
+  thinkingTags?: string | null;
   enabled?: boolean | null;
 };
 
@@ -64,6 +66,7 @@ type RawChannel = {
   models_endpoint: string | null;
   chat_endpoint: string | null;
   stream_endpoint: string | null;
+  thinking_tags: string | null;
   enabled: boolean;
   created_at: number;
   updated_at: number;
@@ -83,6 +86,7 @@ function fromRawChannel(raw: RawChannel): Channel {
     modelsEndpoint: raw.models_endpoint,
     chatEndpoint: raw.chat_endpoint,
     streamEndpoint: raw.stream_endpoint,
+    thinkingTags: raw.thinking_tags,
     enabled: raw.enabled,
     createdAt: raw.created_at,
     updatedAt: raw.updated_at
@@ -102,6 +106,7 @@ function toRawInput(input: ChannelInput | ChannelPatch) {
     models_endpoint: toOptionalValue(input.modelsEndpoint),
     chat_endpoint: toOptionalValue(input.chatEndpoint),
     stream_endpoint: toOptionalValue(input.streamEndpoint),
+    thinking_tags: toOptionalValue(input.thinkingTags),
     enabled: toOptionalValue(input.enabled)
   };
 }

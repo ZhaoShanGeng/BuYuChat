@@ -24,6 +24,8 @@ pub struct Channel {
     pub chat_endpoint: Option<String>,
     /// 流式聊天接口。
     pub stream_endpoint: Option<String>,
+    /// 自定义 thinking 标签配置，JSON 数组字符串。
+    pub thinking_tags: Option<String>,
     /// 渠道是否启用。
     pub enabled: bool,
     /// 创建时间（毫秒时间戳）。
@@ -51,6 +53,8 @@ pub struct CreateChannelInput {
     pub chat_endpoint: Option<String>,
     /// 流式接口覆盖值。
     pub stream_endpoint: Option<String>,
+    /// thinking 标签配置，JSON 数组字符串。
+    pub thinking_tags: Option<String>,
     /// 启用状态覆盖值。
     pub enabled: Option<bool>,
 }
@@ -74,6 +78,8 @@ pub struct UpdateChannelInput {
     pub chat_endpoint: Option<String>,
     /// 更新后的流式接口。
     pub stream_endpoint: Option<String>,
+    /// 更新后的 thinking 标签配置。
+    pub thinking_tags: Option<String>,
     /// 更新后的启用状态。
     pub enabled: Option<bool>,
 }
@@ -99,6 +105,8 @@ pub struct NewChannel {
     pub chat_endpoint: Option<String>,
     /// 流式聊天接口。
     pub stream_endpoint: Option<String>,
+    /// thinking 标签配置，JSON 数组字符串。
+    pub thinking_tags: Option<String>,
     /// 渠道是否启用。
     pub enabled: bool,
     /// 创建时间（毫秒时间戳）。
@@ -126,6 +134,8 @@ pub struct ChannelPatch {
     pub chat_endpoint: Option<String>,
     /// 更新后的流式接口。
     pub stream_endpoint: Option<String>,
+    /// 更新后的 thinking 标签配置。
+    pub thinking_tags: Option<String>,
     /// 更新后的启用状态。
     pub enabled: Option<bool>,
     /// 更新后的时间戳。

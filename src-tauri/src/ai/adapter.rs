@@ -1,15 +1,18 @@
 //! 使用 AISDK 构建 OpenAI-compatible 适配器。
 
+use std::collections::VecDeque;
+
 use aisdk::{
     core::{
         DynamicModel, LanguageModelRequest, LanguageModelStreamChunkType, Message,
-        StreamTextResponse, language_model::StopReason,
+        language_model::{ReasoningEffort, StopReason},
+        StreamTextResponse,
     },
     providers::OpenAICompatible,
 };
 use async_trait::async_trait;
 use futures_util::StreamExt;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 
 use crate::{
     channel_types::config_for,
@@ -113,10 +116,42 @@ pub struct AiChatCompletion {
 
 /// 流式聊天句柄。
 pub struct AiStreamHandle {
-    /// AISDK 提供的原始流式响应。
-    pub response: StreamTextResponse,
+    source: AiStreamSource,
     /// 当前模型标识。
     pub model: String,
+    final_completion: Option<AiChatCompletion>,
+}
+
+enum AiStreamSource {
+    Aisdk(StreamTextResponse),
+    Buffered(VecDeque<LanguageModelStreamChunkType>),
+}
+
+impl AiStreamHandle {
+    pub async fn next_chunk(&mut self) -> Option<LanguageModelStreamChunkType> {
+        match &mut self.source {
+            AiStreamSource::Aisdk(response) => response.stream.next().await,
+            AiStreamSource::Buffered(chunks) => chunks.pop_front(),
+        }
+    }
+
+    pub async fn finish(self) -> Result<AiChatCompletion, AppError> {
+        match self.source {
+            AiStreamSource::Aisdk(response) => {
+                let usage = response.usage().await;
+                Ok(AiChatCompletion {
+                    text: response.text().await.unwrap_or_default(),
+                    prompt_tokens: usage.input_tokens.unwrap_or(0) as i64,
+                    completion_tokens: usage.output_tokens.unwrap_or(0) as i64,
+                    finish_reason: map_stop_reason(response.stop_reason().await),
+                    model: self.model,
+                })
+            }
+            AiStreamSource::Buffered(_) => self.final_completion.ok_or_else(|| {
+                AppError::internal("buffered stream missing final completion".to_string())
+            }),
+        }
+    }
 }
 
 /// 基于运行时渠道配置创建 AISDK provider 的适配器。
@@ -154,7 +189,14 @@ impl AiAdapter {
         config: &AiChannelConfig,
         messages: &[PromptMessage],
         max_output_tokens: Option<i64>,
+        reasoning_effort: Option<ReasoningEffort>,
     ) -> Result<AiChatCompletion, AppError> {
+        if has_image_inputs(messages) {
+            return self
+                .generate_multimodal_chat(config, messages, max_output_tokens, reasoning_effort)
+                .await;
+        }
+
         let provider = self.build_openai_compatible_provider(config, false)?;
         let mut request = LanguageModelRequest::builder()
             .model(provider)
@@ -162,6 +204,7 @@ impl AiAdapter {
             .build();
 
         request.max_output_tokens = normalize_max_output_tokens(max_output_tokens);
+        request.reasoning_effort = reasoning_effort;
         let response = request
             .generate_text()
             .await
@@ -183,7 +226,23 @@ impl AiAdapter {
         config: &AiChannelConfig,
         messages: &[PromptMessage],
         max_output_tokens: Option<i64>,
+        reasoning_effort: Option<ReasoningEffort>,
     ) -> Result<AiStreamHandle, AppError> {
+        if has_image_inputs(messages) {
+            let completion = self
+                .generate_multimodal_chat(config, messages, max_output_tokens, reasoning_effort)
+                .await?;
+            let mut chunks = VecDeque::new();
+            if !completion.text.is_empty() {
+                chunks.push_back(LanguageModelStreamChunkType::Text(completion.text.clone()));
+            }
+            return Ok(AiStreamHandle {
+                source: AiStreamSource::Buffered(chunks),
+                model: completion.model.clone(),
+                final_completion: Some(completion),
+            });
+        }
+
         let provider = self.build_openai_compatible_provider(config, true)?;
         let mut request = LanguageModelRequest::builder()
             .model(provider)
@@ -191,39 +250,97 @@ impl AiAdapter {
             .build();
 
         request.max_output_tokens = normalize_max_output_tokens(max_output_tokens);
+        request.reasoning_effort = reasoning_effort;
         let response = request
             .stream_text()
             .await
             .map_err(map_aisdk_error("chat stream failed"))?;
 
         Ok(AiStreamHandle {
-            response,
+            source: AiStreamSource::Aisdk(response),
             model: config.model_name.clone().unwrap_or_default(),
+            final_completion: None,
         })
     }
 
     /// 从流式句柄中收集最终结果。
     pub async fn finish_stream(
         &self,
-        mut handle: AiStreamHandle,
+        handle: AiStreamHandle,
     ) -> Result<AiChatCompletion, AppError> {
-        while let Some(chunk) = handle.response.stream.next().await {
-            match chunk {
-                LanguageModelStreamChunkType::Failed(error)
-                | LanguageModelStreamChunkType::Incomplete(error) => {
-                    return Err(AppError::ai_request_failed(error));
-                }
-                _ => {}
-            }
+        handle.finish().await
+    }
+}
+
+impl AiAdapter {
+    async fn generate_multimodal_chat(
+        &self,
+        config: &AiChannelConfig,
+        messages: &[PromptMessage],
+        max_output_tokens: Option<i64>,
+        reasoning_effort: Option<ReasoningEffort>,
+    ) -> Result<AiChatCompletion, AppError> {
+        let url = build_chat_endpoint_url(config);
+        let mut builder = reqwest::Client::new()
+            .post(url)
+            .json(&build_multimodal_request(
+                config,
+                messages,
+                max_output_tokens,
+                reasoning_effort,
+            ));
+
+        if let Some((name, value)) = build_auth_header(config)? {
+            builder = builder.header(name, value);
         }
 
-        let usage = handle.response.usage().await;
+        let response = builder
+            .send()
+            .await
+            .map_err(|error| AppError::channel_unreachable(format!("failed to reach channel: {error}")))?;
+        let status = response.status();
+        let body = response.text().await.map_err(|error| {
+            AppError::ai_request_failed(format!("failed to read remote response: {error}"))
+        })?;
+
+        if !status.is_success() {
+            return Err(AppError::ai_request_failed(format!(
+                "remote endpoint returned {status}: {body}"
+            )));
+        }
+
+        let parsed: CompatibleChatCompletionResponse =
+            serde_json::from_str(&body).map_err(|error| {
+                AppError::ai_request_failed(format!(
+                    "failed to parse multimodal chat response: {error}"
+                ))
+            })?;
+
         Ok(AiChatCompletion {
-            text: handle.response.text().await.unwrap_or_default(),
-            prompt_tokens: usage.input_tokens.unwrap_or(0) as i64,
-            completion_tokens: usage.output_tokens.unwrap_or(0) as i64,
-            finish_reason: map_stop_reason(handle.response.stop_reason().await),
-            model: handle.model,
+            text: parsed
+                .choices
+                .first()
+                .and_then(|choice| choice.message.content.clone())
+                .unwrap_or_default(),
+            prompt_tokens: parsed
+                .usage
+                .as_ref()
+                .map(|usage| usage.prompt_tokens as i64)
+                .unwrap_or(0),
+            completion_tokens: parsed
+                .usage
+                .as_ref()
+                .map(|usage| usage.completion_tokens as i64)
+                .unwrap_or(0),
+            finish_reason: parsed
+                .choices
+                .first()
+                .and_then(|choice| choice.finish_reason.clone())
+                .unwrap_or_else(|| "stop".to_string()),
+            model: parsed
+                .model
+                .or_else(|| config.model_name.clone())
+                .unwrap_or_default(),
         })
     }
 }
@@ -300,11 +417,23 @@ fn to_aisdk_messages(messages: &[PromptMessage]) -> Result<Vec<Message>, AppErro
         .collect()
 }
 
+fn has_image_inputs(messages: &[PromptMessage]) -> bool {
+    messages.iter().any(|message| !message.images.is_empty())
+}
+
 /// 将可选的输出 token 上限转换为 AISDK 所需类型。
 fn normalize_max_output_tokens(max_output_tokens: Option<i64>) -> Option<u32> {
     max_output_tokens
         .filter(|value| *value > 0)
         .and_then(|value| u32::try_from(value).ok())
+}
+
+fn build_chat_endpoint_url(config: &AiChannelConfig) -> String {
+    format!(
+        "{}{}",
+        config.base_url.trim_end_matches('/'),
+        config.chat_endpoint
+    )
 }
 
 /// 将 AISDK 的 stop_reason 统一映射为 OpenAI 风格 finish_reason。
@@ -361,6 +490,50 @@ fn build_models_endpoint_url(config: &AiChannelConfig) -> String {
     )
 }
 
+fn build_multimodal_request(
+    config: &AiChannelConfig,
+    messages: &[PromptMessage],
+    max_output_tokens: Option<i64>,
+    reasoning_effort: Option<ReasoningEffort>,
+) -> CompatibleChatCompletionRequest {
+    CompatibleChatCompletionRequest {
+        model: config.model_name.clone().unwrap_or_default(),
+        messages: messages
+            .iter()
+            .map(|message| CompatibleChatMessage {
+                role: message.role.clone(),
+                content: if message.images.is_empty() {
+                    CompatibleChatMessageContent::Text(message.content.clone())
+                } else {
+                    let mut parts = Vec::new();
+                    if !message.content.is_empty() {
+                        parts.push(CompatibleChatContentPart::Text {
+                            text: message.content.clone(),
+                        });
+                    }
+                    for image in &message.images {
+                        parts.push(CompatibleChatContentPart::ImageUrl {
+                            image_url: CompatibleImageUrl {
+                                url: format!("data:{};base64,{}", image.mime_type, image.base64),
+                            },
+                        });
+                    }
+                    CompatibleChatMessageContent::Parts(parts)
+                },
+            })
+            .collect(),
+        max_completion_tokens: normalize_max_output_tokens(max_output_tokens),
+        temperature: None,
+        top_p: None,
+        reasoning_effort: reasoning_effort.map(|effort| match effort {
+            ReasoningEffort::Low => "low".to_string(),
+            ReasoningEffort::Medium => "medium".to_string(),
+            ReasoningEffort::High => "high".to_string(),
+        }),
+        stream: Some(false),
+    }
+}
+
 /// 根据统一配置构造远程请求使用的鉴权头。
 fn build_auth_header(config: &AiChannelConfig) -> Result<Option<(&'static str, String)>, AppError> {
     match config.auth_type.as_str() {
@@ -375,6 +548,77 @@ fn build_auth_header(config: &AiChannelConfig) -> Result<Option<(&'static str, S
             format!("unsupported auth_type '{other}'"),
         )),
     }
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompatibleChatCompletionRequest {
+    model: String,
+    messages: Vec<CompatibleChatMessage>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    max_completion_tokens: Option<u32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    temperature: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    top_p: Option<f32>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    reasoning_effort: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    stream: Option<bool>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompatibleChatMessage {
+    role: String,
+    content: CompatibleChatMessageContent,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(untagged)]
+enum CompatibleChatMessageContent {
+    Text(String),
+    Parts(Vec<CompatibleChatContentPart>),
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "type", rename_all = "snake_case")]
+enum CompatibleChatContentPart {
+    Text { text: String },
+    ImageUrl { image_url: CompatibleImageUrl },
+}
+
+#[derive(Debug, Clone, Serialize)]
+struct CompatibleImageUrl {
+    url: String,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CompatibleChatCompletionResponse {
+    #[serde(default)]
+    model: Option<String>,
+    #[serde(default)]
+    choices: Vec<CompatibleChatChoice>,
+    #[serde(default)]
+    usage: Option<CompatibleChatUsage>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CompatibleChatChoice {
+    #[serde(default)]
+    message: CompatibleChatResponseMessage,
+    #[serde(default)]
+    finish_reason: Option<String>,
+}
+
+#[derive(Debug, Clone, Default, Deserialize)]
+struct CompatibleChatResponseMessage {
+    #[serde(default)]
+    content: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+struct CompatibleChatUsage {
+    prompt_tokens: u32,
+    completion_tokens: u32,
 }
 
 #[cfg(test)]
@@ -451,6 +695,7 @@ mod tests {
             models_endpoint: None,
             chat_endpoint: None,
             stream_endpoint: None,
+            thinking_tags: None,
             enabled: true,
             created_at: 100,
             updated_at: 100,

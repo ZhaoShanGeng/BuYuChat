@@ -220,6 +220,7 @@ fn sample_channel() -> Channel {
         models_endpoint: Some("/v1/models".to_string()),
         chat_endpoint: Some("/v1/chat/completions".to_string()),
         stream_endpoint: Some("/v1/chat/completions".to_string()),
+        thinking_tags: None,
         enabled: true,
         created_at: 100,
         updated_at: 100,

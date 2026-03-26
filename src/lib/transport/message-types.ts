@@ -13,6 +13,12 @@
 export type PromptMessage = {
   role: string;
   content: string;
+  images: ImageAttachment[];
+};
+
+export type ImageAttachment = {
+  base64: string;
+  mimeType: string;
 };
 
 /**
@@ -22,6 +28,8 @@ export type MessageVersion = {
   id: string;
   nodeId: string;
   content: string | null;
+  thinkingContent: string | null;
+  images: ImageAttachment[];
   status: "generating" | "committed" | "failed" | "cancelled";
   modelName: string | null;
   promptTokens: number | null;
@@ -58,6 +66,7 @@ export type VersionContent = {
  */
 export type SendMessageInput = {
   content: string;
+  images?: ImageAttachment[];
   stream?: boolean;
   dryRun?: boolean;
 };
@@ -140,6 +149,7 @@ export type GenerationEvent =
       nodeId: string;
       versionId: string;
       delta: string;
+      reasoningDelta?: string;
     }
   | {
       type: "completed";
@@ -179,6 +189,8 @@ export type RawMessageVersion = {
   id: string;
   node_id: string;
   content: string | null;
+  thinking_content?: string | null;
+  images?: RawImageAttachment[];
   status: "generating" | "committed" | "failed" | "cancelled";
   model_name: string | null;
   prompt_tokens: number | null;
@@ -216,6 +228,12 @@ export type RawVersionContent = {
 export type RawPromptMessage = {
   role: string;
   content: string;
+  images?: RawImageAttachment[];
+};
+
+export type RawImageAttachment = {
+  base64: string;
+  mime_type: string;
 };
 
 /**
@@ -273,6 +291,7 @@ export type RawGenerationEvent =
       node_id: string;
       version_id: string;
       delta: string;
+      reasoning_delta?: string | null;
     }
   | {
       type: "completed";

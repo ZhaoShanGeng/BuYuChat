@@ -52,6 +52,7 @@ async fn create_bound_conversation(
             models_endpoint: None,
             chat_endpoint: None,
             stream_endpoint: None,
+            thinking_tags: None,
             enabled: None,
         },
     )
@@ -199,6 +200,7 @@ async fn test_send_message_dry_run_returns_prompt_debug_payload() {
         conversation_id,
         SendMessageInput {
             content: "测试问题".to_string(),
+            images: None,
             stream: Some(false),
             dry_run: Some(true),
         },
@@ -252,6 +254,7 @@ async fn test_send_message_non_stream_persists_final_assistant_content() {
         conversation_id.clone(),
         SendMessageInput {
             content: "请给我一个结果".to_string(),
+            images: None,
             stream: Some(false),
             dry_run: Some(false),
         },
@@ -306,6 +309,7 @@ async fn test_send_message_stream_persists_delta_content_without_empty_rollback(
         conversation_id.clone(),
         SendMessageInput {
             content: "请给我一个流式结果".to_string(),
+            images: None,
             stream: Some(true),
             dry_run: Some(false),
         },
@@ -367,6 +371,7 @@ async fn test_reroll_user_node_reuses_following_assistant_node() {
         conversation_id.clone(),
         SendMessageInput {
             content: "第一条".to_string(),
+            images: None,
             stream: Some(false),
             dry_run: Some(false),
         },

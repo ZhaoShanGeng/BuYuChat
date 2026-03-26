@@ -17,8 +17,8 @@ pub use conversation::{
 };
 pub use message::{
     DeleteVersionResult, DryRunResult, EditMessageInput, EditMessageResult, GenerationEvent,
-    MessageNode, MessageNodeRecord, MessageVersion, MessageVersionPatch, NewMessageContent,
-    NewMessageNode, NewMessageVersion, PromptMessage, RerollInput, RerollResult,
+    ImageAttachment, MessageNode, MessageNodeRecord, MessageVersion, MessageVersionPatch,
+    NewMessageContent, NewMessageNode, NewMessageVersion, PromptMessage, RerollInput, RerollResult,
     SendMessageInput, SendMessageResponse, SendMessageResult, VersionContent, VersionMeta,
 };
 pub use model::{

@@ -14,13 +14,17 @@ import type {
   EditMessageInput,
   EditMessageResult,
   GenerationEvent,
+  ImageAttachment,
   MessageNode,
   MessageVersion,
+  PromptMessage,
   RawDeleteVersionResult,
   RawDryRunResult,
   RawEditMessageResult,
   RawGenerationEvent,
+  RawImageAttachment,
   RawMessageNode,
+  RawPromptMessage,
   RawMessageVersion,
   RawRerollResult,
   RawStartedResult,
@@ -32,6 +36,21 @@ import type {
   VersionContent
 } from "./message-types";
 
+function fromRawImageAttachment(raw: RawImageAttachment): ImageAttachment {
+  return {
+    base64: raw.base64,
+    mimeType: raw.mime_type
+  };
+}
+
+function fromRawPromptMessage(raw: RawPromptMessage): PromptMessage {
+  return {
+    role: raw.role,
+    content: raw.content,
+    images: (raw.images ?? []).map(fromRawImageAttachment)
+  };
+}
+
 /**
  * 将原始消息版本转换为前端结构。
  */
@@ -40,6 +59,8 @@ export function fromRawMessageVersion(raw: RawMessageVersion): MessageVersion {
     id: raw.id,
     nodeId: raw.node_id,
     content: raw.content,
+    thinkingContent: raw.thinking_content ?? null,
+    images: (raw.images ?? []).map(fromRawImageAttachment),
     status: raw.status,
     modelName: raw.model_name,
     promptTokens: raw.prompt_tokens,
@@ -87,7 +108,8 @@ export function fromRawGenerationEvent(raw: RawGenerationEvent): GenerationEvent
         conversationId: raw.conversation_id,
         nodeId: raw.node_id,
         versionId: raw.version_id,
-        delta: raw.delta
+        delta: raw.delta,
+        reasoningDelta: raw.reasoning_delta ?? undefined
       };
     case "completed":
       return {
@@ -132,6 +154,10 @@ export function fromRawGenerationEvent(raw: RawGenerationEvent): GenerationEvent
 export function toRawSendMessageInput(input: SendMessageInput) {
   return {
     content: input.content,
+    images: input.images?.map((image) => ({
+      base64: image.base64,
+      mime_type: image.mimeType
+    })),
     stream: toOptionalValue(input.stream),
     dry_run: toOptionalValue(input.dryRun)
   };
@@ -179,7 +205,7 @@ export function fromRawSendMessageResponse(
   if ("messages" in raw) {
     return {
       kind: "dryRun",
-      messages: raw.messages,
+      messages: raw.messages.map(fromRawPromptMessage),
       totalTokensEstimate: raw.total_tokens_estimate,
       model: raw.model
     };

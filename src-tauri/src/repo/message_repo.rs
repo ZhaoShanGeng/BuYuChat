@@ -16,8 +16,9 @@ use std::collections::HashMap;
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool, Transaction};
 
 use crate::models::{
-    MessageNode, MessageNodeRecord, MessageVersion, MessageVersionPatch, NewMessageContent,
-    NewMessageNode, NewMessageVersion, PromptMessage, VersionContent, VersionMeta,
+    ImageAttachment, MessageNode, MessageNodeRecord, MessageVersion, MessageVersionPatch,
+    NewMessageContent, NewMessageNode, NewMessageVersion, PromptMessage, VersionContent,
+    VersionMeta,
 };
 
 /// 消息聚合查询使用的中间行结构。
@@ -45,6 +46,13 @@ struct ContentRow {
     version_id: String,
     content_type: String,
     body: String,
+}
+
+#[derive(Debug, Clone, Default)]
+struct AggregatedVersionContent {
+    text: String,
+    thinking: String,
+    images: Vec<ImageAttachment>,
 }
 
 /// 判断指定会话是否存在。
@@ -169,9 +177,26 @@ pub async fn list_messages(
                 id: version_id.clone(),
                 node_id: row.node_id.clone(),
                 content: if is_active {
-                    active_contents.get(&version_id).cloned()
+                    active_contents
+                        .get(&version_id)
+                        .and_then(|content| (!content.text.is_empty()).then(|| content.text.clone()))
                 } else {
                     None
+                },
+                thinking_content: if is_active {
+                    active_contents.get(&version_id).and_then(|content| {
+                        (!content.thinking.is_empty()).then(|| content.thinking.clone())
+                    })
+                } else {
+                    None
+                },
+                images: if is_active {
+                    active_contents
+                        .get(&version_id)
+                        .map(|content| content.images.clone())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
                 },
                 status: row.status.unwrap_or_else(|| "committed".to_string()),
                 model_name: row.model_name,
@@ -208,6 +233,7 @@ pub async fn get_version_content(
         SELECT version_id, content_type, body
         FROM message_contents
         WHERE version_id = ?1
+          AND content_type = 'text/plain'
         ORDER BY chunk_index ASC
         "#,
     )
@@ -216,17 +242,37 @@ pub async fn get_version_content(
     .await
     .map_err(|error| error.to_string())?;
 
-    let content_type = rows
-        .first()
-        .map(|row| row.content_type.clone())
-        .unwrap_or_else(|| "text/plain".to_string());
     let content = rows.iter().map(|row| row.body.as_str()).collect::<String>();
 
     Ok(Some(VersionContent {
         version_id: version_id.to_string(),
         content,
-        content_type,
+        content_type: "text/plain".to_string(),
     }))
+}
+
+/// 读取指定版本的全部图片附件。
+pub async fn get_version_images(
+    pool: &SqlitePool,
+    version_id: &str,
+) -> Result<Vec<ImageAttachment>, String> {
+    let rows = sqlx::query_as::<_, ContentRow>(
+        r#"
+        SELECT version_id, content_type, body
+        FROM message_contents
+        WHERE version_id = ?1
+          AND content_type = 'image/base64'
+        ORDER BY chunk_index ASC
+        "#,
+    )
+    .bind(version_id)
+    .fetch_all(pool)
+    .await
+    .map_err(|error| error.to_string())?;
+
+    rows.into_iter()
+        .map(|row| serde_json::from_str::<ImageAttachment>(&row.body).map_err(|error| error.to_string()))
+        .collect()
 }
 
 /// 按会话与楼层 ID 读取单个楼层记录。
@@ -376,6 +422,7 @@ pub async fn build_prompt_messages(
     let mut query = QueryBuilder::<Sqlite>::new(
         r#"
         SELECT n.id AS node_id, n.role, c.body
+        , c.content_type
         FROM message_nodes n
         JOIN message_contents c ON c.version_id = n.active_version_id
         WHERE n.conversation_id = 
@@ -405,6 +452,7 @@ pub async fn build_prompt_messages(
     let mut current_node_id = String::new();
     let mut current_role = String::new();
     let mut current_body = String::new();
+    let mut current_images: Vec<ImageAttachment> = Vec::new();
 
     for row in rows {
         let node_id = row
@@ -416,6 +464,9 @@ pub async fn build_prompt_messages(
         let body = row
             .try_get::<String, _>("body")
             .map_err(|error| error.to_string())?;
+        let content_type = row
+            .try_get::<String, _>("content_type")
+            .map_err(|error| error.to_string())?;
 
         if current_node_id.is_empty() {
             current_node_id = node_id.clone();
@@ -426,19 +477,28 @@ pub async fn build_prompt_messages(
             prompts.push(PromptMessage {
                 role: current_role.clone(),
                 content: current_body.clone(),
+                images: current_images.clone(),
             });
             current_node_id = node_id.clone();
             current_role = role.clone();
             current_body.clear();
+            current_images.clear();
         }
 
-        current_body.push_str(&body);
+        match content_type.as_str() {
+            "text/plain" => current_body.push_str(&body),
+            "image/base64" => current_images
+                .push(serde_json::from_str::<ImageAttachment>(&body).map_err(|error| error.to_string())?),
+            "text/thinking" => {}
+            _ => {}
+        }
     }
 
-    if !current_body.is_empty() {
+    if !current_body.is_empty() || !current_images.is_empty() {
         prompts.push(PromptMessage {
             role: current_role,
             content: current_body,
+            images: current_images,
         });
     }
 
@@ -658,7 +718,7 @@ pub async fn next_chunk_index(pool: &SqlitePool, version_id: &str) -> Result<i64
 async fn load_contents_map(
     pool: &SqlitePool,
     version_ids: &[String],
-) -> Result<HashMap<String, String>, String> {
+) -> Result<HashMap<String, AggregatedVersionContent>, String> {
     if version_ids.is_empty() {
         return Ok(HashMap::new());
     }
@@ -678,9 +738,19 @@ async fn load_contents_map(
         .await
         .map_err(|error| error.to_string())?;
 
-    let mut contents: HashMap<String, String> = HashMap::new();
+    let mut contents: HashMap<String, AggregatedVersionContent> = HashMap::new();
     for row in rows {
-        contents.entry(row.version_id).or_default().push_str(&row.body);
+        let entry = contents.entry(row.version_id).or_default();
+        match row.content_type.as_str() {
+            "text/plain" => entry.text.push_str(&row.body),
+            "text/thinking" => entry.thinking.push_str(&row.body),
+            "image/base64" => {
+                let attachment =
+                    serde_json::from_str::<ImageAttachment>(&row.body).map_err(|error| error.to_string())?;
+                entry.images.push(attachment);
+            }
+            _ => {}
+        }
     }
 
     Ok(contents)

@@ -237,7 +237,7 @@
   {/if}
 
   <div class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-    {#if ws.state.activeSection === "chat"}
+    <div class:hidden={ws.state.activeSection !== "chat"} class="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
       <ChatPanel
         agentName={resolveAgentName()}
         agents={ws.state.agents}
@@ -268,12 +268,16 @@
         onQuickChannelMenuOpen={() => ws.syncLatestChannelBindings(true)}
         onQuickModelChange={ws.handleQuickModelChange}
         onQuickTitleChange={ws.handleQuickTitleChange}
+        onPendingImagesChange={ws.setPendingImages}
         onReroll={ws.handleReroll}
         onSend={ws.handleSendMessage}
         onSwitchVersion={ws.handleSwitchVersion}
+        pendingImages={ws.state.pendingImages}
         sending={ws.state.sending}
       />
-    {:else if ws.state.activeSection === "agents"}
+    </div>
+
+    {#if ws.state.activeSection === "agents"}
       <AgentSettingsPanel
         agents={ws.state.agents}
         editingId={ws.state.agentEditingId}
@@ -288,7 +292,7 @@
         onToggleEnabled={ws.handleToggleAgentEnabled}
         saving={ws.state.agentSaving}
       />
-    {:else}
+    {:else if ws.state.activeSection === "settings"}
       <SettingsPage onChanged={ws.handleSettingsChanged} />
     {/if}
   </div>

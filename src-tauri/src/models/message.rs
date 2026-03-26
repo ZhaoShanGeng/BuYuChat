@@ -45,6 +45,10 @@ pub struct MessageVersion {
     pub id: String,
     pub node_id: String,
     pub content: Option<String>,
+    #[serde(default)]
+    pub thinking_content: Option<String>,
+    #[serde(default)]
+    pub images: Vec<ImageAttachment>,
     pub status: String,
     pub model_name: Option<String>,
     pub prompt_tokens: Option<i64>,
@@ -69,6 +73,7 @@ pub struct VersionContent {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct SendMessageInput {
     pub content: String,
+    pub images: Option<Vec<ImageAttachment>>,
     pub stream: Option<bool>,
     pub dry_run: Option<bool>,
 }
@@ -159,6 +164,8 @@ pub struct DeleteVersionResult {
 pub struct PromptMessage {
     pub role: String,
     pub content: String,
+    #[serde(default)]
+    pub images: Vec<ImageAttachment>,
 }
 
 /// 通过 Tauri Channel 推送到前端的生成事件。
@@ -172,6 +179,7 @@ pub enum GenerationEvent {
         node_id: String,
         version_id: String,
         delta: String,
+        reasoning_delta: Option<String>,
     },
     Completed {
         conversation_id: String,
@@ -199,6 +207,13 @@ pub enum GenerationEvent {
         node_deleted: bool,
         fallback_version_id: Option<String>,
     },
+}
+
+/// 消息中的图片附件。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ImageAttachment {
+    pub base64: String,
+    pub mime_type: String,
 }
 
 /// `message_nodes` 表对应的持久化楼层记录。

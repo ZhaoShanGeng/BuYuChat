@@ -19,4 +19,14 @@ describe("renderRichText", () => {
     expect(html).toContain('target="_blank"');
     expect(html).toContain('rel="noreferrer noopener"');
   });
+
+  it("renders highlighted code blocks with copy metadata", () => {
+    const html = renderRichText("```ts\nconst answer = 42;\n```");
+
+    expect(html).toContain("code-block-wrapper");
+    expect(html).toContain("code-copy-btn");
+    expect(html).toContain("language-ts");
+    expect(html).toContain("hljs");
+    expect(html).toContain("answer");
+  });
 });

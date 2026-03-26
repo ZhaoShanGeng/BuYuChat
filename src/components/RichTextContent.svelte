@@ -1,4 +1,5 @@
 <script lang="ts">
+  import "highlight.js/styles/github-dark.min.css";
   import { onDestroy } from "svelte";
   import { cn } from "$lib/utils.js";
   import { renderRichText } from "$lib/rich-text";
@@ -14,6 +15,32 @@
   let queuedContent = $state("");
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
 
+  async function handleContentClick(event: MouseEvent) {
+    const target = event.target;
+    if (!(target instanceof HTMLButtonElement)) {
+      return;
+    }
+
+    if (!target.classList.contains("code-copy-btn")) {
+      return;
+    }
+
+    const encodedCode = target.dataset.code;
+    if (!encodedCode) {
+      return;
+    }
+
+    const originalLabel = target.textContent ?? "复制";
+    await navigator.clipboard.writeText(decodeURIComponent(encodedCode));
+    target.textContent = "已复制";
+    target.disabled = true;
+
+    window.setTimeout(() => {
+      target.textContent = originalLabel;
+      target.disabled = false;
+    }, 1500);
+  }
+
   onDestroy(() => {
     if (flushTimer) {
       clearTimeout(flushTimer);
@@ -23,6 +50,20 @@
   function flushQueuedContent() {
     renderedContent = queuedContent;
     flushTimer = null;
+  }
+
+  function bindContentClick(node: HTMLDivElement) {
+    const listener = (event: MouseEvent) => {
+      void handleContentClick(event);
+    };
+
+    node.addEventListener("click", listener);
+
+    return {
+      destroy() {
+        node.removeEventListener("click", listener);
+      }
+    };
   }
 
   $effect(() => {
@@ -55,7 +96,7 @@
   let html = $derived(renderRichText(renderedContent));
 </script>
 
-<div class={cn("rich-text-content", className)}>
+<div class={cn("rich-text-content", className)} use:bindContentClick>
   {@html html}
 </div>
 
@@ -146,20 +187,74 @@
   }
 
   .rich-text-content :global(pre) {
-    background: hsl(240 6% 10%);
-    border: 1px solid hsl(240 4% 16%);
     border-radius: 0.75rem;
-    color: hsl(0 0% 90%);
     font-size: 0.8125rem;
     line-height: 1.6;
     max-width: 100%;
     overflow-x: auto;
-    padding: 0.9rem 1rem;
+    padding: 0;
   }
 
   .rich-text-content :global(pre code) {
     background: transparent;
-    padding: 0;
+    display: block;
+    min-width: max-content;
+    padding: 1rem;
+  }
+
+  .rich-text-content :global(.code-block-wrapper) {
+    background: hsl(220 18% 12%);
+    border: 1px solid hsl(220 14% 18%);
+    border-radius: 0.95rem;
+    margin: 1rem 0;
+    overflow: hidden;
+  }
+
+  .rich-text-content :global(.code-block-header) {
+    align-items: center;
+    background: hsl(220 18% 16%);
+    border-bottom: 1px solid hsl(220 14% 22%);
+    display: flex;
+    gap: 0.75rem;
+    justify-content: space-between;
+    padding: 0.65rem 0.85rem;
+  }
+
+  .rich-text-content :global(.code-lang) {
+    color: hsl(215 20% 78%);
+    font-family: var(--font-mono);
+    font-size: 0.72rem;
+    letter-spacing: 0.04em;
+    text-transform: uppercase;
+  }
+
+  .rich-text-content :global(.code-copy-btn) {
+    background: transparent;
+    border: 1px solid hsl(215 20% 30%);
+    border-radius: 9999px;
+    color: hsl(215 20% 84%);
+    cursor: pointer;
+    font-size: 0.72rem;
+    line-height: 1;
+    padding: 0.35rem 0.65rem;
+    transition:
+      background-color 140ms ease,
+      border-color 140ms ease,
+      color 140ms ease;
+  }
+
+  .rich-text-content :global(.code-copy-btn:hover) {
+    background: hsl(215 20% 24%);
+    border-color: hsl(215 20% 42%);
+  }
+
+  .rich-text-content :global(.code-copy-btn:disabled) {
+    cursor: default;
+    opacity: 0.9;
+  }
+
+  .rich-text-content :global(.code-block-wrapper pre) {
+    margin: 0;
   }
 
   .rich-text-content :global(table) {

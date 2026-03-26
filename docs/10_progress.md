@@ -24,7 +24,7 @@
 |------|------|------|
 | 后端 MVP 基线 | ✅ 完成 | 已纳入渠道、模型、Agent、会话、消息、生成、Reroll 全链路 |
 | 本地提交归档 | ✅ 完成 | 分支 `buyu-backend-mvp-baseline`，提交 `ef4610ec53bc9dae441f8f0b7595c1dc1cebdd79` |
-| 后端验证 | ✅ 完成 | 基线提交阶段已通过 `CARGO_BUILD_JOBS=1 cargo test -j 1` 与 `cargo clippy -- -D warnings` |
+| 后端验证 | ✅ 完成 | 基线提交阶段已通过 `cargo test` 与 `cargo clippy -- -D warnings` |
 | 前端 MVP 接入 | 🔨 进行中 | transport、工作台、流式渲染、Reroll、取消按钮已接通，当前继续做联调与体验优化 |
 
 ---
@@ -132,9 +132,9 @@
 
 | 验证项 | 状态 | 备注 |
 |------|------|------|
-| Rust 后端测试 | ✅ | `cd src-tauri && CARGO_BUILD_JOBS=1 cargo test -j 1` |
-| Rust 代码规范检查 | ✅ | `cd src-tauri && CARGO_BUILD_JOBS=1 cargo clippy -- -D warnings` |
-| 桌面壳解耦 | ✅ | 二进制目标挂到 `desktop-shell` feature，避免影响后端验证 |
+| Rust 后端测试 | ✅ | `cd src-tauri && cargo test` |
+| Rust 代码规范检查 | ✅ | `cd src-tauri && cargo clippy -- -D warnings` |
+| 桌面壳环境恢复 | ✅ | 已移除二进制 feature 门槛，直接使用常规 `cargo run` / `pnpm tauri dev` |
 | 流式回归验证 | ✅ | `cargo test --test cmd_messages_test` 与 `cargo test --test repo_messages_test` 已覆盖空消息误回滚场景 |
 | 前端类型与组件测试 | ✅ | `pnpm check` 与 `pnpm test` 已通过 |
 | 流式前端直达更新 | ✅ | 已移除前端按帧缓冲，chunk 到达后优先直接渲染到当前版本 |

@@ -10,6 +10,7 @@
 //! - 真正的 AI 调用在 `generation_engine` 里异步执行，service 只负责创建记录与调度任务。
 //! - 所有跨表写操作都放在同一事务内完成，保证 node/version/content/updated_at 一致。
 
+use aisdk::core::language_model::ReasoningEffort;
 use tauri::ipc::Channel as EventChannel;
 
 use crate::{
@@ -17,9 +18,9 @@ use crate::{
     error::AppError,
     models::{
         Agent, ChannelModel, DeleteVersionResult, DryRunResult, EditMessageInput,
-        EditMessageResult, GenerationEvent, MessageNode, MessageNodeRecord, NewMessageContent,
-        NewMessageNode, NewMessageVersion, PromptMessage, RerollInput, RerollResult,
-        SendMessageInput, SendMessageResponse, SendMessageResult, VersionContent,
+        EditMessageResult, GenerationEvent, ImageAttachment, MessageNode, MessageNodeRecord,
+        NewMessageContent, NewMessageNode, NewMessageVersion, PromptMessage, RerollInput,
+        RerollResult, SendMessageInput, SendMessageResponse, SendMessageResult, VersionContent,
     },
     repo::{
         agent_repo::{AgentRepo, SqlxAgentRepo},
@@ -41,6 +42,13 @@ struct GenerationContext {
     agent: Agent,
     model: ChannelModel,
     config: AiChannelConfig,
+    reasoning_effort: Option<ReasoningEffort>,
+    thinking_tags: Vec<String>,
+}
+
+struct NormalizedUserInput {
+    content: String,
+    images: Vec<ImageAttachment>,
 }
 
 /// 使用连接池查询消息列表。
@@ -205,7 +213,9 @@ pub async fn send_message(
     input: SendMessageInput,
     event_channel: Option<EventChannel<GenerationEvent>>,
 ) -> Result<SendMessageResponse, AppError> {
-    let content = normalize_message_content(&input.content)?;
+    let dry_run = input.dry_run.unwrap_or(false);
+    let stream = input.stream.unwrap_or(true);
+    let normalized = normalize_send_message_input(&input)?;
     let context = resolve_generation_context(state, conversation_id).await?;
     let prompt_messages = build_prompt_with_system(
         &context.agent,
@@ -217,10 +227,11 @@ pub async fn send_message(
     let mut final_prompt_messages = prompt_messages;
     final_prompt_messages.push(PromptMessage {
         role: "user".to_string(),
-        content: content.clone(),
+        content: normalized.content.clone(),
+        images: normalized.images.clone(),
     });
 
-    if input.dry_run.unwrap_or(false) {
+    if dry_run {
         return Ok(SendMessageResponse::DryRun(DryRunResult {
             total_tokens_estimate: estimate_tokens(&final_prompt_messages),
             messages: final_prompt_messages,
@@ -228,8 +239,14 @@ pub async fn send_message(
         }));
     }
 
-    let stream = input.stream.unwrap_or(true);
-    let created = create_send_message_records(state, conversation_id, &context, &content).await?;
+    let created = create_send_message_records(
+        state,
+        conversation_id,
+        &context,
+        &normalized.content,
+        &normalized.images,
+    )
+    .await?;
 
     generation_engine::spawn_generation(
         state,
@@ -240,6 +257,8 @@ pub async fn send_message(
             prompt_messages: final_prompt_messages,
             config: context.config,
             max_output_tokens: context.model.max_output_tokens,
+            reasoning_effort: context.reasoning_effort,
+            thinking_tags: context.thinking_tags,
             stream,
             event_channel,
         },
@@ -290,6 +309,8 @@ pub async fn reroll(
                     prompt_messages,
                     config: context.config,
                     max_output_tokens: context.model.max_output_tokens,
+                    reasoning_effort: context.reasoning_effort,
+                    thinking_tags: context.thinking_tags,
                     stream,
                     event_channel,
                 },
@@ -306,6 +327,13 @@ pub async fn reroll(
                 .ok_or_else(|| {
                     AppError::internal("active user version content missing".to_string())
                 })?;
+            let active_images = if let Some(version_id) = node.active_version_id.as_deref() {
+                message_repo::get_version_images(&state.db, version_id).await.map_err(|error| {
+                    AppError::internal(format!("failed to load user version images: {error}"))
+                })?
+            } else {
+                Vec::new()
+            };
 
             let mut prompt_messages = build_prompt_with_system(
                 &context.agent,
@@ -323,6 +351,7 @@ pub async fn reroll(
             prompt_messages.push(PromptMessage {
                 role: "user".to_string(),
                 content: active_content.content.clone(),
+                images: active_images,
             });
 
             let result =
@@ -337,6 +366,8 @@ pub async fn reroll(
                     prompt_messages,
                     config: context.config,
                     max_output_tokens: context.model.max_output_tokens,
+                    reasoning_effort: context.reasoning_effort,
+                    thinking_tags: context.thinking_tags,
                     stream,
                     event_channel,
                 },
@@ -384,6 +415,9 @@ pub async fn edit_message(
             AppError::internal(format!("failed to load active version content: {error}"))
         })?
         .ok_or_else(|| AppError::internal("active version content missing".to_string()))?;
+    let active_images = message_repo::get_version_images(&state.db, active_version_id)
+        .await
+        .map_err(|error| AppError::internal(format!("failed to load version images: {error}")))?;
     let content = normalize_message_content(&input.content)?;
     let edited_version_id = create_committed_version_for_node(
         state,
@@ -391,6 +425,7 @@ pub async fn edit_message(
         &node,
         &content,
         &active_content.content_type,
+        &active_images,
     )
     .await?;
 
@@ -432,6 +467,8 @@ pub async fn edit_message(
                     prompt_messages,
                     config: context.config,
                     max_output_tokens: context.model.max_output_tokens,
+                    reasoning_effort: context.reasoning_effort,
+                    thinking_tags: context.thinking_tags,
                     stream,
                     event_channel,
                 },
@@ -460,6 +497,7 @@ pub async fn edit_message(
             prompt_messages.push(PromptMessage {
                 role: "user".to_string(),
                 content: content.clone(),
+                images: active_images.clone(),
             });
 
             let reroll_result =
@@ -474,6 +512,8 @@ pub async fn edit_message(
                     prompt_messages,
                     config: context.config,
                     max_output_tokens: context.model.max_output_tokens,
+                    reasoning_effort: context.reasoning_effort,
+                    thinking_tags: context.thinking_tags,
                     stream,
                     event_channel,
                 },
@@ -548,6 +588,8 @@ async fn resolve_generation_context(
         agent,
         model,
         config,
+        reasoning_effort: None,
+        thinking_tags: parse_thinking_tags(channel.thinking_tags.as_deref()),
     })
 }
 
@@ -564,6 +606,7 @@ fn build_prompt_with_system(agent: &Agent, mut messages: Vec<PromptMessage>) -> 
             PromptMessage {
                 role: "system".to_string(),
                 content: system_prompt.to_string(),
+                images: Vec::new(),
             },
         );
     }
@@ -577,6 +620,7 @@ async fn create_send_message_records(
     conversation_id: &str,
     context: &GenerationContext,
     content: &str,
+    images: &[ImageAttachment],
 ) -> Result<SendMessageResult, AppError> {
     for _ in 0..3 {
         let timestamp = current_timestamp_ms();
@@ -617,18 +661,37 @@ async fn create_send_message_records(
                 },
             )
             .await?;
-            message_repo::insert_content_tx(
-                &mut tx,
-                &NewMessageContent {
-                    id: new_uuid_v7(),
-                    version_id: user_version_id.clone(),
-                    chunk_index: 0,
-                    content_type: "text/plain".to_string(),
-                    body: content.to_string(),
-                    created_at: timestamp,
-                },
-            )
-            .await?;
+            let mut chunk_index = 0;
+            if !content.is_empty() {
+                message_repo::insert_content_tx(
+                    &mut tx,
+                    &NewMessageContent {
+                        id: new_uuid_v7(),
+                        version_id: user_version_id.clone(),
+                        chunk_index,
+                        content_type: "text/plain".to_string(),
+                        body: content.to_string(),
+                        created_at: timestamp,
+                    },
+                )
+                .await?;
+                chunk_index += 1;
+            }
+            for image in images {
+                message_repo::insert_content_tx(
+                    &mut tx,
+                    &NewMessageContent {
+                        id: new_uuid_v7(),
+                        version_id: user_version_id.clone(),
+                        chunk_index,
+                        content_type: "image/base64".to_string(),
+                        body: serde_json::to_string(image).map_err(|error| error.to_string())?,
+                        created_at: timestamp,
+                    },
+                )
+                .await?;
+                chunk_index += 1;
+            }
             message_repo::set_node_active_version_tx(&mut tx, &user_node_id, Some(&user_version_id))
                 .await?;
 
@@ -757,6 +820,7 @@ async fn create_committed_version_for_node(
     node: &MessageNodeRecord,
     content: &str,
     content_type: &str,
+    images: &[ImageAttachment],
 ) -> Result<String, AppError> {
     let timestamp = current_timestamp_ms();
     let edited_version_id = new_uuid_v7();
@@ -791,6 +855,25 @@ async fn create_committed_version_for_node(
     )
     .await
     .map_err(|error| AppError::internal(format!("failed to persist edited content: {error}")))?;
+    let mut chunk_index = 1;
+    for image in images {
+        message_repo::insert_content_tx(
+            &mut tx,
+            &NewMessageContent {
+                id: new_uuid_v7(),
+                version_id: edited_version_id.clone(),
+                chunk_index,
+                content_type: "image/base64".to_string(),
+                body: serde_json::to_string(image).map_err(|error| {
+                    AppError::internal(format!("failed to serialize image attachment: {error}"))
+                })?,
+                created_at: timestamp,
+            },
+        )
+        .await
+        .map_err(|error| AppError::internal(format!("failed to persist edited image: {error}")))?;
+        chunk_index += 1;
+    }
     message_repo::set_node_active_version_tx(&mut tx, &node.id, Some(&edited_version_id))
         .await
         .map_err(|error| AppError::internal(format!("failed to activate edited version: {error}")))?;
@@ -966,6 +1049,27 @@ fn normalize_message_content(value: &str) -> Result<String, AppError> {
     Ok(trimmed.to_string())
 }
 
+/// 规范化发送消息输入，允许“纯图片消息”。
+fn normalize_send_message_input(input: &SendMessageInput) -> Result<NormalizedUserInput, AppError> {
+    let content = input.content.trim().to_string();
+    let images = input
+        .images
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|image| !image.base64.trim().is_empty() && image.mime_type.starts_with("image/"))
+        .collect::<Vec<_>>();
+
+    if content.is_empty() && images.is_empty() {
+        return Err(AppError::validation(
+            "VALIDATION_ERROR",
+            "content or images must not be empty",
+        ));
+    }
+
+    Ok(NormalizedUserInput { content, images })
+}
+
 /// 用简单估算值返回 dry_run 所需的 token 统计。
 fn estimate_tokens(messages: &[PromptMessage]) -> i64 {
     let total_bytes = messages
@@ -973,6 +1077,20 @@ fn estimate_tokens(messages: &[PromptMessage]) -> i64 {
         .map(|message| message.role.len() + message.content.len())
         .sum::<usize>();
     ((total_bytes as i64) + 3) / 4
+}
+
+fn parse_thinking_tags(raw: Option<&str>) -> Vec<String> {
+    raw.and_then(|value| serde_json::from_str::<Vec<String>>(value).ok())
+        .unwrap_or_default()
+        .into_iter()
+        .map(|value| value.trim().to_lowercase())
+        .filter(|value| !value.is_empty())
+        .fold(Vec::new(), |mut acc, value| {
+            if !acc.contains(&value) {
+                acc.push(value);
+            }
+            acc
+        })
 }
 
 /// 判断数据库错误是否为 order_key 唯一约束冲突。

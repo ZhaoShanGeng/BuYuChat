@@ -6,10 +6,6 @@ authors = ["Admin"]
 edition = "2021"
 default-run = "buyu"
 
-[features]
-default = []
-desktop-shell = []
-
 [lib]
 name = "buyu_lib"
 crate-type = ["staticlib", "cdylib", "rlib"]
@@ -19,7 +15,6 @@ name = "buyu"
 path = "src/main.rs"
 test = false
 bench = false
-required-features = ["desktop-shell"]
 
 [build-dependencies]
 tauri-build = { version = "2.5.1", features = [] }

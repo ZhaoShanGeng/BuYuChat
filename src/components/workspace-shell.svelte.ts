@@ -50,6 +50,7 @@ import {
   type GenerationEvent,
   type EditMessageInput,
   type EditMessageResult,
+  type ImageAttachment,
   type MessageNode,
   type RerollInput,
   type RerollResult,
@@ -103,6 +104,10 @@ export type MessageHistoryState = {
   loadingOlder: boolean;
   loadedCount: number;
   oldestOrderKey: string | null;
+};
+
+export type PendingComposerImage = ImageAttachment & {
+  name: string;
 };
 
 /**
@@ -241,6 +246,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     remoteModelsByChannel: {} as Record<string, RemoteModelInfo[]>,
     notice: null as Notice | null,
     composer: "",
+    pendingImages: [] as PendingComposerImage[],
     sending: false,
     dryRunSummary: null as string | null,
     renamingConversationId: null as string | null,
@@ -462,7 +468,8 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   function insertStartedMessageNodes(
     conversationId: string,
     response: Extract<SendMessageResponse, { kind: "started" }>,
-    content: string
+    content: string,
+    images: PendingComposerImage[]
   ) {
     const currentNodes = state.messagesByConversation[conversationId] ?? [];
     if (
@@ -488,6 +495,8 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
             id: response.userVersionId,
             nodeId: response.userNodeId,
             content,
+            thinkingContent: null,
+            images: images.map(({ name: _, ...image }) => image),
             status: "committed",
             modelName: null,
             promptTokens: null,
@@ -510,6 +519,8 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
             id: response.assistantVersionId,
             nodeId: response.assistantNodeId,
             content: "",
+            thinkingContent: null,
+            images: [],
             status: "generating",
             modelName: null,
             promptTokens: null,
@@ -537,6 +548,9 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     const existing = conversationBuffer.get(event.versionId);
     if (existing) {
       existing.delta += event.delta;
+      if (event.reasoningDelta) {
+        existing.reasoningDelta = `${existing.reasoningDelta ?? ""}${event.reasoningDelta}`;
+      }
     } else {
       conversationBuffer.set(event.versionId, { ...event });
     }
@@ -553,6 +567,9 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     }
 
     version.content = `${version.content ?? ""}${event.delta}`;
+    if (event.reasoningDelta) {
+      version.thinkingContent = `${version.thinkingContent ?? ""}${event.reasoningDelta}`;
+    }
     version.status = "generating";
     return true;
   }
@@ -969,6 +986,10 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     state.composer = value;
   }
 
+  function setPendingImages(images: PendingComposerImage[]) {
+    state.pendingImages = images;
+  }
+
   /**
    * 创建一个新的空会话并自动切换过去。
    */
@@ -1070,21 +1091,27 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
    * 发送消息并启动后台生成。
    */
   async function handleSendMessage() {
-    if (!state.activeConversationId || state.composer.trim().length === 0) {
+    if (
+      !state.activeConversationId ||
+      (state.composer.trim().length === 0 && state.pendingImages.length === 0)
+    ) {
       return;
     }
 
     state.sending = true;
     state.dryRunSummary = null;
     const content = state.composer;
+    const images = state.pendingImages.slice();
 
     try {
       state.composer = "";
+      state.pendingImages = [];
       const response = await runWithChannelBindingRecovery(() =>
         deps.sendMessage(
           state.activeConversationId!,
           {
             content,
+            images: images.map(({ name: _, ...image }) => image),
             stream: true,
             dryRun: false
           },
@@ -1095,12 +1122,15 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
       if (response.kind === "dryRun") {
         state.dryRunSummary = `模型 ${response.model}，估算 tokens ${response.totalTokensEstimate}`;
       } else {
-        insertStartedMessageNodes(state.activeConversationId, response, content);
+        insertStartedMessageNodes(state.activeConversationId, response, content, images);
         setNotice({ kind: "info", text: "消息已发送，正在生成回复" });
       }
     } catch (error) {
       if (!state.composer.trim()) {
         state.composer = content;
+      }
+      if (state.pendingImages.length === 0) {
+        state.pendingImages = images;
       }
       setErrorNotice(error);
     } finally {
@@ -1112,7 +1142,10 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
    * 预览本次 send_message 的最终 prompt。
    */
   async function handleDryRun() {
-    if (!state.activeConversationId || state.composer.trim().length === 0) {
+    if (
+      !state.activeConversationId ||
+      (state.composer.trim().length === 0 && state.pendingImages.length === 0)
+    ) {
       return;
     }
 
@@ -1120,6 +1153,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
       const response = await runWithChannelBindingRecovery(() =>
         deps.sendMessage(state.activeConversationId!, {
           content: state.composer,
+          images: state.pendingImages.map(({ name: _, ...image }) => image),
           stream: false,
           dryRun: true
         })
@@ -1181,6 +1215,8 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
             id: result.assistantVersionId,
             nodeId,
             content: "",
+            thinkingContent: null,
+            images: [],
             status: "generating",
             modelName: null,
             promptTokens: null,
@@ -1850,6 +1886,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     handleToggleArchive,
     handleDeleteConversation,
     setComposer,
+    setPendingImages,
     handleSendMessage,
     handleDryRun,
     handleCancelGeneration,

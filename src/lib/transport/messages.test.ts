@@ -51,7 +51,7 @@ describe("messages transport", () => {
     );
     expect(response).toEqual({
       kind: "dryRun",
-      messages: [{ role: "system", content: "你是助手" }],
+      messages: [{ role: "system", content: "你是助手", images: [] }],
       totalTokensEstimate: 12,
       model: "gpt-4o"
     });

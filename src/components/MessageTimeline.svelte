@@ -17,6 +17,7 @@
     loadingOlderMessages: boolean;
     hasOlderMessages: boolean;
     messages: MessageNode[];
+    thinkingTags: string[];
     notice: Notice | null;
     dryRunSummary: string | null;
     onCancel: (versionId: string) => void | Promise<void>;
@@ -38,6 +39,7 @@
     loadingOlderMessages,
     hasOlderMessages,
     messages,
+    thinkingTags,
     notice,
     dryRunSummary,
     onCancel,
@@ -199,6 +201,7 @@
             <div data-node-id={node.id}>
               <MessageCard
                 {node}
+                {thinkingTags}
                 onCancel={onCancel}
                 onDeleteVersion={(nodeId, versionId) =>
                   runAnchored(nodeId, () => Promise.resolve(onDeleteVersion(nodeId, versionId)))

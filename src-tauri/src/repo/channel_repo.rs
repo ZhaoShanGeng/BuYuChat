@@ -40,8 +40,8 @@ impl ChannelRepo for SqlxChannelRepo {
             r#"
             INSERT INTO api_channels (
                 id, name, channel_type, base_url, api_key, auth_type,
-                models_endpoint, chat_endpoint, stream_endpoint, enabled, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                models_endpoint, chat_endpoint, stream_endpoint, thinking_tags, enabled, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&new_channel.id)
@@ -53,6 +53,7 @@ impl ChannelRepo for SqlxChannelRepo {
         .bind(&new_channel.models_endpoint)
         .bind(&new_channel.chat_endpoint)
         .bind(&new_channel.stream_endpoint)
+        .bind(&new_channel.thinking_tags)
         .bind(new_channel.enabled)
         .bind(new_channel.created_at)
         .bind(new_channel.updated_at)
@@ -99,9 +100,10 @@ impl ChannelRepo for SqlxChannelRepo {
                 models_endpoint = COALESCE(?6, models_endpoint),
                 chat_endpoint = COALESCE(?7, chat_endpoint),
                 stream_endpoint = COALESCE(?8, stream_endpoint),
-                enabled = COALESCE(?9, enabled),
-                updated_at = ?10
-            WHERE id = ?11
+                thinking_tags = COALESCE(?9, thinking_tags),
+                enabled = COALESCE(?10, enabled),
+                updated_at = ?11
+            WHERE id = ?12
             "#,
         )
         .bind(&patch.name)
@@ -112,6 +114,7 @@ impl ChannelRepo for SqlxChannelRepo {
         .bind(&patch.models_endpoint)
         .bind(&patch.chat_endpoint)
         .bind(&patch.stream_endpoint)
+        .bind(&patch.thinking_tags)
         .bind(patch.enabled)
         .bind(patch.updated_at)
         .bind(id)

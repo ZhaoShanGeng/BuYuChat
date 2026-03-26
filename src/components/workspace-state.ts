@@ -213,7 +213,10 @@ export function applyGenerationEvent(
         (version) => ({
           ...version,
           status: "generating",
-          content: `${version.content ?? ""}${event.delta}`
+          content: `${version.content ?? ""}${event.delta}`,
+          thinkingContent: event.reasoningDelta
+            ? `${version.thinkingContent ?? ""}${event.reasoningDelta}`
+            : version.thinkingContent
         }),
         event.nodeId
       );

@@ -54,6 +54,7 @@ impl ChannelRepo for FakeRepo {
             models_endpoint: new_channel.models_endpoint.clone(),
             chat_endpoint: new_channel.chat_endpoint.clone(),
             stream_endpoint: new_channel.stream_endpoint.clone(),
+            thinking_tags: new_channel.thinking_tags.clone(),
             enabled: new_channel.enabled,
             created_at: new_channel.created_at,
             updated_at: new_channel.updated_at,
@@ -115,6 +116,9 @@ impl ChannelRepo for FakeRepo {
         }
         if let Some(stream_endpoint) = &patch.stream_endpoint {
             channel.stream_endpoint = Some(stream_endpoint.clone());
+        }
+        if let Some(thinking_tags) = &patch.thinking_tags {
+            channel.thinking_tags = Some(thinking_tags.clone());
         }
         if let Some(enabled) = patch.enabled {
             channel.enabled = enabled;
@@ -187,6 +191,7 @@ fn sample_channel() -> Channel {
         models_endpoint: None,
         chat_endpoint: None,
         stream_endpoint: None,
+        thinking_tags: None,
         enabled: true,
         created_at: 10,
         updated_at: 10,
@@ -209,6 +214,7 @@ async fn create_channel_sets_defaults_and_uuid_v7() {
             models_endpoint: None,
             chat_endpoint: None,
             stream_endpoint: None,
+            thinking_tags: None,
             enabled: None,
         },
     )
@@ -238,6 +244,7 @@ async fn create_channel_with_invalid_url_returns_invalid_url_error() {
             models_endpoint: None,
             chat_endpoint: None,
             stream_endpoint: None,
+            thinking_tags: None,
             enabled: None,
         },
     )

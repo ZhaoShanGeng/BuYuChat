@@ -1,9 +1,12 @@
 <script lang="ts">
   import { onDestroy } from "svelte";
   import { Button } from "$lib/components/ui/button/index.js";
+  import * as Card from "$lib/components/ui/card/index.js";
+  import * as Collapsible from "$lib/components/ui/collapsible/index.js";
   import * as Avatar from "$lib/components/ui/avatar/index.js";
   import * as Textarea from "$lib/components/ui/textarea/index.js";
   import BotIcon from "@lucide/svelte/icons/bot";
+  import BrainIcon from "@lucide/svelte/icons/brain";
   import CheckIcon from "@lucide/svelte/icons/check";
   import ChevronLeftIcon from "@lucide/svelte/icons/chevron-left";
   import ChevronRightIcon from "@lucide/svelte/icons/chevron-right";
@@ -14,12 +17,14 @@
   import RotateCcwIcon from "@lucide/svelte/icons/rotate-ccw";
   import SquareIcon from "@lucide/svelte/icons/square";
   import Trash2Icon from "@lucide/svelte/icons/trash-2";
+  import { extractThinkingTags } from "../lib/thinking-tags";
   import RichTextContent from "./RichTextContent.svelte";
   import type { MessageNode } from "../lib/transport/messages";
   import { getActiveVersion, isNodeGenerating } from "./workspace-state";
 
   type Props = {
     node: MessageNode;
+    thinkingTags: string[];
     onCancel: (versionId: string) => void | Promise<void>;
     onReroll: (nodeId: string) => void | Promise<void>;
     onSwitchVersion: (nodeId: string, versionId: string) => void | Promise<void>;
@@ -32,11 +37,34 @@
     onLoadVersionContent: (nodeId: string, versionId: string) => Promise<string>;
   };
 
-  const { node, onCancel, onReroll, onSwitchVersion, onDeleteVersion, onEditMessage, onLoadVersionContent }: Props =
+  const {
+    node,
+    thinkingTags,
+    onCancel,
+    onReroll,
+    onSwitchVersion,
+    onDeleteVersion,
+    onEditMessage,
+    onLoadVersionContent
+  }: Props =
     $props();
 
   let activeVersion = $derived.by(() => getActiveVersion(node));
   let activeIndex = $derived(node.versions.findIndex((version) => version.id === node.activeVersionId) + 1);
+  let extractedThinking = $derived.by(() =>
+    node.role === "assistant"
+      ? extractThinkingTags(activeVersion?.content ?? "", thinkingTags)
+      : { thinking: null, body: activeVersion?.content ?? "" }
+  );
+  let displayBodyContent = $derived(
+    node.role === "assistant" ? extractedThinking.body : (activeVersion?.content ?? "")
+  );
+  let displayThinking = $derived.by(() => {
+    const parts = [activeVersion?.thinkingContent, extractedThinking.thinking]
+      .map((part) => part?.trim() ?? "")
+      .filter((part) => part.length > 0);
+    return parts.length > 0 ? parts.join("\n\n") : null;
+  });
   let copied = $state(false);
   let generating = $derived(isNodeGenerating(node));
   let editing = $state(false);
@@ -64,7 +92,7 @@
   }
 
   async function handleCopy() {
-    const text = activeVersion?.content;
+    const text = displayBodyContent;
     if (!text) return;
     await navigator.clipboard.writeText(text);
     copied = true;
@@ -138,9 +166,22 @@
     onmouseleave={handlePointerLeave}
   >
     <div class="relative max-w-[80%]">
-      <div class="rounded-2xl rounded-br-sm bg-primary px-4 py-3 text-sm leading-relaxed text-primary-foreground shadow-sm">
+      <Card.Root class="overflow-hidden rounded-2xl rounded-br-sm border-0 bg-primary text-primary-foreground shadow-sm">
+        <Card.Content class="space-y-3 px-4 py-3 text-sm leading-relaxed">
+          {#if activeVersion?.images.length}
+            <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
+              {#each activeVersion.images as image (image.base64)}
+                <img
+                  alt="用户上传图片"
+                  class="max-h-48 rounded-2xl object-cover"
+                  src={`data:${image.mimeType};base64,${image.base64}`}
+                />
+              {/each}
+            </div>
+          {/if}
+
         {#if editing}
-          <div class="space-y-3">
+            <div class="space-y-3">
             <Textarea.Root
               bind:value={draft}
               class="min-h-[120px] resize-y border-primary-foreground/20 bg-primary/20 text-primary-foreground placeholder:text-primary-foreground/45"
@@ -155,11 +196,12 @@
                 保存并重新发送
               </Button>
             </div>
-          </div>
+            </div>
         {:else}
-          <RichTextContent content={activeVersion?.content ?? ""} />
+            <RichTextContent content={displayBodyContent} />
         {/if}
-      </div>
+        </Card.Content>
+      </Card.Root>
 
       <div class="relative mt-1 h-6">
         {#if showToolbar}
@@ -227,8 +269,8 @@
 
       <div class="rounded-2xl rounded-tl-sm px-1 py-0.5 text-sm leading-relaxed">
         {#if editing}
-          <div class="rounded-2xl border bg-card px-4 py-3 shadow-sm">
-            <div class="space-y-3">
+          <Card.Root class="rounded-2xl shadow-sm">
+            <Card.Content class="space-y-3 px-4 py-3">
               <Textarea.Root
                 bind:value={draft}
                 class="min-h-[120px] resize-y"
@@ -243,10 +285,29 @@
                   保存并重新发送
                 </Button>
               </div>
-            </div>
-          </div>
+            </Card.Content>
+          </Card.Root>
         {:else}
-          <RichTextContent content={activeVersion?.content ?? ""} throttleMs={generating ? 160 : 0} />
+          <Card.Root class="rounded-[1.4rem] border-0 bg-transparent shadow-none">
+            <Card.Content class="space-y-3 px-0 py-0">
+              <RichTextContent content={displayBodyContent} throttleMs={generating ? 160 : 0} />
+              {#if displayThinking}
+                <Collapsible.Root class="rounded-2xl border bg-muted/35 px-3 py-2.5">
+                  <Collapsible.Trigger class="flex w-full items-center gap-1.5 text-left text-xs text-muted-foreground">
+                    <BrainIcon class="size-3.5" />
+                    <span>思考过程</span>
+                    <ChevronRightIcon class="size-3 transition-transform data-[state=open]:rotate-90" />
+                  </Collapsible.Trigger>
+                  <Collapsible.Content class="pt-2">
+                    <RichTextContent
+                      class="text-sm text-muted-foreground"
+                      content={displayThinking}
+                    />
+                  </Collapsible.Content>
+                </Collapsible.Root>
+              {/if}
+            </Card.Content>
+          </Card.Root>
           {#if generating}
             <span class="ml-0.5 inline-block size-1.5 animate-pulse rounded-full bg-foreground/40"></span>
           {/if}

@@ -94,6 +94,7 @@ pub async fn create_with<R: ChannelRepo, C: Clock>(
         stream_endpoint: input
             .stream_endpoint
             .or_else(|| Some(config.stream_endpoint.to_string())),
+        thinking_tags: input.thinking_tags,
         enabled: input.enabled.unwrap_or(true),
         created_at: timestamp,
         updated_at: timestamp,
@@ -148,6 +149,7 @@ pub async fn update_with<R: ChannelRepo, C: Clock>(
             models_endpoint: input.models_endpoint,
             chat_endpoint: input.chat_endpoint,
             stream_endpoint: input.stream_endpoint,
+            thinking_tags: input.thinking_tags,
             enabled: input.enabled,
             updated_at: clock.now_ms().await,
         },

@@ -7,7 +7,11 @@
   import type { Conversation } from "../lib/transport/conversations";
   import type { ChannelModel } from "../lib/transport/models";
   import type { MessageNode } from "../lib/transport/messages";
-  import type { MessageHistoryState } from "./workspace-shell.svelte.js";
+  import { parseThinkingTagsConfig } from "../lib/thinking-tags";
+  import type {
+    MessageHistoryState,
+    PendingComposerImage
+  } from "./workspace-shell.svelte.js";
   import type { Notice } from "./workspace-state";
   import { isNodeGenerating } from "./workspace-state";
   import ChatHeader from "./ChatHeader.svelte";
@@ -24,12 +28,14 @@
     loading: boolean;
     sending: boolean;
     composer: string;
+    pendingImages: PendingComposerImage[];
     notice: Notice | null;
     dryRunSummary: string | null;
     agentName: string;
     channelName: string;
     modelName: string;
     onComposerChange: (value: string) => void;
+    onPendingImagesChange: (images: PendingComposerImage[]) => void;
     onSend: () => void | Promise<void>;
     onDryRun: () => void | Promise<void>;
     onCancel: (versionId: string) => void | Promise<void>;
@@ -62,6 +68,11 @@
     }
     return null;
   });
+
+  let thinkingTags = $derived.by(() => {
+    const channel = props.channels.find((item) => item.id === props.conversation?.channelId);
+    return parseThinkingTagsConfig(channel?.thinkingTags);
+  });
 </script>
 
 <section class="flex h-full min-h-0 min-w-0 flex-col overflow-hidden">
@@ -88,6 +99,7 @@
     loadingOlderMessages={props.messageHistory.loadingOlder}
     messages={props.messages}
     notice={props.notice}
+    {thinkingTags}
     onCancel={props.onCancel}
     onDeleteVersion={props.onDeleteVersion}
     onEditMessage={props.onEditMessage}
@@ -103,8 +115,10 @@
     {generatingVersionId}
     onCancel={props.onCancel}
     onComposerChange={props.onComposerChange}
+    onPendingImagesChange={props.onPendingImagesChange}
     onDryRun={props.onDryRun}
     onSend={props.onSend}
+    pendingImages={props.pendingImages}
     sending={props.sending}
   />
 </section>

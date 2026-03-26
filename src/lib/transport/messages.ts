@@ -168,6 +168,7 @@ export type {
   EditMessageInput,
   EditMessageResult,
   GenerationEvent,
+  ImageAttachment,
   MessageNode,
   MessageVersion,
   PromptMessage,
