@@ -31,4 +31,6 @@ vite.config.js
 vite.config.d.ts
 
 Claude.md
-*.png
+cherryStudioChat.png
+cherryStudioSetting.png
+lobechat.png
