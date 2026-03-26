@@ -1,10 +1,15 @@
 @import "tailwindcss";
 @import "tw-animate-css";
+@plugin "@tailwindcss/typography";
 
 @custom-variant dark (&:is(.dark *));
 
 :root {
   color-scheme: light;
+  --workspace-rail-width: 52px;
+  --workspace-sidebar-width: clamp(14rem, 22vw, 18rem);
+  --settings-sidebar-width: 22rem;
+  --settings-content-max-width: 80rem;
   --background: hsl(0 0% 100%);
   --foreground: hsl(240 10% 3.9%);
   --muted: hsl(240 4.8% 95.9%);
@@ -144,6 +149,30 @@ button {
 
 ::selection {
   background: hsl(240 5.9% 10% / 0.14);
+}
+
+/* 语义布局钩子：后续统一主题和用户自定义样式时，优先覆写这些 class / 变量。 */
+.workspace-shell__rail {
+  width: var(--workspace-rail-width);
+}
+
+.workspace-shell__context {
+  width: var(--workspace-sidebar-width);
+}
+
+.settings-page__sidebar {
+  width: var(--settings-sidebar-width);
+}
+
+.settings-page__content-inner {
+  max-width: min(100%, var(--settings-content-max-width));
+}
+
+.settings-page__channel-card[data-active="true"],
+.conversation-sidebar__item[data-active="true"],
+.agent-sidebar__item[data-active="true"],
+.workspace-shell__rail-button[data-active="true"] {
+  position: relative;
 }
 
 /* 窗口 resize 期间抑制所有过渡与动画以避免卡顿。 */

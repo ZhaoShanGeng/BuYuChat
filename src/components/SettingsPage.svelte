@@ -1,17 +1,4 @@
 <script lang="ts">
-  import { Button } from "$lib/components/ui/button/index.js";
-  import { Input } from "$lib/components/ui/input/index.js";
-  import { Label } from "$lib/components/ui/label/index.js";
-  import { Badge } from "$lib/components/ui/badge/index.js";
-  import * as Switch from "$lib/components/ui/switch/index.js";
-  import SearchIcon from "@lucide/svelte/icons/search";
-  import PlusIcon from "@lucide/svelte/icons/plus";
-  import GlobeIcon from "@lucide/svelte/icons/globe";
-  import KeyRoundIcon from "@lucide/svelte/icons/key-round";
-  import SparklesIcon from "@lucide/svelte/icons/sparkles";
-  import ServerCogIcon from "@lucide/svelte/icons/server-cog";
-  import TestTubeDiagonalIcon from "@lucide/svelte/icons/test-tube-diagonal";
-  import Trash2Icon from "@lucide/svelte/icons/trash-2";
   import { getCurrentWindow } from "@tauri-apps/api/window";
   import {
     parseThinkingTagsConfig,
@@ -34,28 +21,18 @@
     fetchRemoteModels,
     listModels
   } from "../lib/transport/models";
-  import WindowControls from "./WindowControls.svelte";
+  import SettingsChannelEditor from "./SettingsChannelEditor.svelte";
+  import SettingsChannelSidebar from "./SettingsChannelSidebar.svelte";
+  import SettingsModelManager from "./SettingsModelManager.svelte";
+  import SettingsPageHeader from "./SettingsPageHeader.svelte";
+  import type {
+    ChannelFormState,
+    Notice,
+    SelectOption
+  } from "./settings-page.types";
 
   type Props = {
     onChanged?: () => void | Promise<void>;
-  };
-
-  type Notice = {
-    kind: "success" | "error" | "info";
-    text: string;
-  };
-
-  type ChannelFormState = {
-    name: string;
-    baseUrl: string;
-    apiKey: string;
-    authType: string;
-    modelsEndpoint: string;
-    chatEndpoint: string;
-    streamEndpoint: string;
-    thinkingTagsInput: string;
-    channelType: string;
-    enabled: boolean;
   };
 
   const { onChanged = async () => undefined }: Props = $props();
@@ -74,11 +51,11 @@
     enabled: true
   };
 
-  const CHANNEL_TYPE_OPTIONS = [
+  const CHANNEL_TYPE_OPTIONS: SelectOption[] = [
     { value: "openai_compatible", label: "OpenAI Compatible" }
   ];
 
-  const AUTH_TYPE_OPTIONS = [
+  const AUTH_TYPE_OPTIONS: SelectOption[] = [
     { value: "bearer", label: "Bearer Token" },
     { value: "x_api_key", label: "X-API-Key" },
     { value: "none", label: "无鉴权" }
@@ -174,14 +151,6 @@
       return "bearer";
     }
     return normalized;
-  }
-
-  function getChannelEnabled(channel: Channel) {
-    if (channel.id === selectedChannelId) {
-      return form.enabled;
-    }
-
-    return channel.enabled;
   }
 
   const filteredChannels = $derived.by(() => {
@@ -455,380 +424,60 @@
   });
 </script>
 
-<div class="flex h-full min-h-0 flex-col bg-background text-foreground">
-  <!-- svelte-ignore a11y_no_static_element_interactions -->
-  <div class="flex h-14 items-center justify-between border-b px-6" onmousedown={handleHeaderMouseDown}>
-    <div>
-      <h2 class="text-sm font-semibold">模型服务</h2>
-      <p class="text-xs text-muted-foreground">统一管理渠道、模型和远程模型候选。</p>
-    </div>
-    <WindowControls compact />
-  </div>
+<div class="settings-page flex h-full min-h-0 flex-col bg-background text-foreground" data-ui="settings-page">
+  <SettingsPageHeader onHeaderMouseDown={handleHeaderMouseDown} />
 
-  <div class="flex min-h-0 flex-1">
-    <aside class="flex w-[22rem] shrink-0 flex-col border-r bg-muted/20">
-      <div class="border-b p-4">
-        <div class="relative">
-          <SearchIcon class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            bind:value={search}
-            class="h-10 rounded-xl bg-background pl-10"
-            placeholder="搜索渠道名称或地址"
-          />
-        </div>
+  <div class="settings-page__layout flex min-h-0 flex-1">
+    <SettingsChannelSidebar
+      channels={filteredChannels}
+      loading={loading}
+      notice={notice}
+      onCreate={startCreateChannel}
+      onSelect={selectChannel}
+      search={search}
+      selectedChannelEnabled={selectedChannelId ? form.enabled : false}
+      {selectedChannelId}
+    />
 
-        <Button class="mt-3 w-full rounded-xl" onclick={startCreateChannel} variant="outline">
-          <PlusIcon class="mr-1 size-4" />
-          添加渠道
-        </Button>
-      </div>
-
-      {#if notice}
-        <div class="px-4 pt-4">
-          <div
-            class={`rounded-xl px-3 py-2 text-sm ${
-              notice.kind === "success"
-                ? "bg-emerald-500/10 text-emerald-700"
-                : notice.kind === "info"
-                  ? "bg-blue-500/10 text-blue-700"
-                  : "bg-destructive/10 text-destructive"
-            }`}
-          >
-            {notice.text}
-          </div>
-        </div>
-      {/if}
-
-      <div class="min-h-0 flex-1 overflow-y-auto p-3">
-        {#if loading}
-          <div class="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-            渠道加载中...
-          </div>
-        {:else if filteredChannels.length === 0}
-          <div class="rounded-2xl border border-dashed p-6 text-center text-sm text-muted-foreground">
-            {search.trim() ? "没有匹配的渠道" : "还没有渠道，先创建一个。"}
-          </div>
-        {:else}
-          <div class="space-y-1.5">
-            {#each filteredChannels as channel (channel.id)}
-              <button
-                class={`flex w-full items-center gap-3 rounded-2xl border px-3 py-3 text-left transition-colors ${
-                  selectedChannelId === channel.id
-                    ? "border-border bg-background shadow-sm"
-                    : "border-transparent hover:bg-background"
-                }`}
-                onclick={() => void selectChannel(channel)}
-                type="button"
-              >
-                <div class="flex size-10 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-sm font-semibold text-primary">
-                  {channel.name.slice(0, 1).toUpperCase()}
-                </div>
-                <div class="min-w-0 flex-1">
-                  <div class="truncate text-sm font-medium">{channel.name}</div>
-                  <div class="truncate text-xs text-muted-foreground">{channel.baseUrl}</div>
-                </div>
-                <Badge variant="outline">
-                  {getChannelEnabled(channel) ? "启用" : "禁用"}
-                </Badge>
-              </button>
-            {/each}
-          </div>
-        {/if}
-      </div>
-    </aside>
-
-    <section class="min-h-0 flex-1 overflow-y-auto">
-      <div class="mx-auto flex max-w-5xl flex-col gap-6 p-6">
-        <div class="flex flex-wrap items-start justify-between gap-4">
-          <div>
-            <div class="flex items-center gap-2">
-              <h1 class="text-2xl font-semibold tracking-tight">
-                {selectedChannel ? selectedChannel.name : "新建渠道"}
-              </h1>
-              {#if selectedChannel}
-                <Badge variant="outline">{selectedChannel.channelType}</Badge>
-              {/if}
-            </div>
-            <p class="mt-1 text-sm text-muted-foreground">
-              渠道配置保存成功后，下面的模型列表会自动同步刷新。
-            </p>
-          </div>
-          <div class="flex items-center gap-3 rounded-full border bg-background px-4 py-2">
-            <span class="text-sm text-muted-foreground">启用渠道</span>
-            <Switch.Root bind:checked={form.enabled} />
-          </div>
-        </div>
-
-        <form
-          class="rounded-3xl border bg-card p-6 shadow-sm"
-          onsubmit={(event) => {
+    <section class="settings-page__content min-h-0 flex-1 overflow-y-auto" data-ui="settings-page-content">
+      <div class="settings-page__content-inner mx-auto flex flex-col gap-6 p-6">
+        <SettingsChannelEditor
+          authTypeOptions={AUTH_TYPE_OPTIONS}
+          channelTypeOptions={CHANNEL_TYPE_OPTIONS}
+          form={form}
+          onDelete={handleDeleteChannel}
+          onReset={resetCurrentDraft}
+          onSave={(event) => {
             event.preventDefault();
-            void handleSaveChannel();
+            return handleSaveChannel();
           }}
-        >
-          <div class="grid gap-5 lg:grid-cols-2">
-            <div class="space-y-2">
-              <Label>名称</Label>
-              <Input bind:value={form.name} class="h-11 rounded-xl" placeholder="例如：OpenAI" />
-            </div>
-            <div class="space-y-2">
-              <Label>API 地址</Label>
-              <Input
-                bind:value={form.baseUrl}
-                class="h-11 rounded-xl"
-                placeholder="https://api.openai.com"
-              />
-            </div>
+          onTest={handleTestChannel}
+          saving={saving}
+          selectedChannel={selectedChannel}
+          {selectedChannelId}
+          {testingId}
+        />
 
-            <div class="space-y-2">
-              <Label>渠道类型</Label>
-              <select
-                bind:value={form.channelType}
-                class="flex h-11 w-full rounded-xl border border-input bg-background px-3 text-sm shadow-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {#each CHANNEL_TYPE_OPTIONS as option}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </select>
-            </div>
-            <div class="space-y-2">
-              <Label>鉴权方式</Label>
-              <select
-                bind:value={form.authType}
-                class="flex h-11 w-full rounded-xl border border-input bg-background px-3 text-sm shadow-sm outline-none transition-colors focus-visible:border-ring focus-visible:ring-1 focus-visible:ring-ring"
-              >
-                {#each AUTH_TYPE_OPTIONS as option}
-                  <option value={option.value}>{option.label}</option>
-                {/each}
-              </select>
-            </div>
-          </div>
-
-          <div class="mt-5 space-y-2">
-            <Label>API 密钥</Label>
-            <div class="flex flex-col gap-3 sm:flex-row">
-              <div class="relative flex-1">
-                <KeyRoundIcon class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
-                <Input
-                  bind:value={form.apiKey}
-                  class="h-11 rounded-xl pl-10"
-                  placeholder="sk-..."
-                  type="password"
-                />
-              </div>
-              <Button
-                class="h-11 rounded-xl px-5"
-                disabled={!selectedChannelId || testingId === selectedChannelId}
-                onclick={handleTestChannel}
-                type="button"
-                variant="outline"
-              >
-                <TestTubeDiagonalIcon class="mr-1 size-4" />
-                {testingId === selectedChannelId ? "检测中..." : "检测"}
-              </Button>
-            </div>
-          </div>
-
-          <div class="mt-5 rounded-2xl border bg-muted/30 p-4">
-            <div class="text-sm font-medium">高级设置</div>
-            <p class="mt-1 text-xs text-muted-foreground">
-              默认值已经适配 OpenAI-compatible 渠道；只有在服务端接口不一致时才需要调整。
-            </p>
-
-            <div class="mt-4 grid gap-4 lg:grid-cols-2">
-              <div class="space-y-2">
-                <Label>模型端点</Label>
-                <Input bind:value={form.modelsEndpoint} class="h-10 rounded-xl" />
-              </div>
-              <div class="space-y-2">
-                <Label>聊天端点</Label>
-                <Input bind:value={form.chatEndpoint} class="h-10 rounded-xl" />
-              </div>
-              <div class="space-y-2">
-                <Label>流式端点</Label>
-                <Input bind:value={form.streamEndpoint} class="h-10 rounded-xl" />
-              </div>
-              <div class="space-y-2">
-                <Label>思维链标签</Label>
-                <Input
-                  bind:value={form.thinkingTagsInput}
-                  class="h-10 rounded-xl"
-                  placeholder="think, reasoning, thought"
-                />
-              </div>
-            </div>
-          </div>
-
-          <div class="mt-5 flex flex-wrap items-center gap-3">
-            <Button class="rounded-xl px-5" disabled={saving} type="submit">
-              {saving ? "保存中..." : selectedChannelId ? "保存修改" : "创建渠道"}
-            </Button>
-            <Button class="rounded-xl px-5" onclick={() => void resetCurrentDraft()} type="button" variant="outline">
-              重置
-            </Button>
-            {#if selectedChannelId}
-              <Button class="rounded-xl px-5" onclick={handleDeleteChannel} type="button" variant="destructive">
-                删除
-              </Button>
-            {/if}
-          </div>
-        </form>
-
-        <div class="rounded-3xl border bg-card p-6 shadow-sm">
-          <div class="flex flex-wrap items-center justify-between gap-3">
-            <div class="flex items-center gap-2">
-              <div class="flex size-10 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                <ServerCogIcon class="size-4" />
-              </div>
-              <div>
-                <div class="text-sm font-medium">模型列表</div>
-                <div class="text-xs text-muted-foreground">
-                  {selectedChannelId ? "管理当前渠道下可用的模型" : "请先创建并保存渠道"}
-                </div>
-              </div>
-              <Badge variant="outline">{models.length}</Badge>
-            </div>
-
-            <div class="flex flex-wrap items-center gap-2">
-              <Button
-                class="rounded-xl px-4"
-                disabled={!selectedChannelId || loadingRemoteModels}
-                onclick={handleFetchRemoteModels}
-                type="button"
-                variant="outline"
-              >
-                <GlobeIcon class="mr-1 size-4" />
-                {loadingRemoteModels ? "拉取中..." : "拉取远程模型"}
-              </Button>
-              <Button
-                class="rounded-xl px-4"
-                disabled={!selectedChannelId}
-                onclick={() => (managingModels = !managingModels)}
-                type="button"
-                variant={managingModels ? "default" : "outline"}
-              >
-                管理
-              </Button>
-              <Button
-                class="rounded-xl px-4"
-                disabled={!selectedChannelId}
-                onclick={() => (addingModel = !addingModel)}
-                type="button"
-                variant="outline"
-              >
-                <PlusIcon class="mr-1 size-4" />
-                添加模型
-              </Button>
-            </div>
-          </div>
-
-          {#if addingModel}
-            <div class="mt-5 grid gap-3 rounded-2xl border border-dashed p-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)_auto]">
-              <Input
-                bind:value={newModelId}
-                class="h-10 rounded-xl"
-                placeholder="模型 ID，例如 gpt-4o-mini"
-              />
-              <Input
-                bind:value={newModelDisplayName}
-                class="h-10 rounded-xl"
-                placeholder="显示名称（可选）"
-              />
-              <Button class="h-10 rounded-xl px-4" onclick={handleCreateModel} type="button">
-                保存模型
-              </Button>
-            </div>
-          {/if}
-
-          <div class="mt-5">
-            {#if !selectedChannelId}
-              <div class="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                先保存一个渠道，再继续配置模型。
-              </div>
-            {:else if loadingModels}
-              <div class="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                模型加载中...
-              </div>
-            {:else if groupedModels.length === 0}
-              <div class="rounded-2xl border border-dashed p-8 text-center text-sm text-muted-foreground">
-                当前渠道还没有模型，可以手动添加或从远程拉取。
-              </div>
-            {:else}
-              <div class="space-y-3">
-                {#each groupedModels as [group, items]}
-                  <div class="overflow-hidden rounded-2xl border bg-muted/20">
-                    <div class="flex items-center gap-2 border-b px-4 py-3 text-sm font-medium">
-                      <SparklesIcon class="size-4 text-muted-foreground" />
-                      <span>{group}</span>
-                      <Badge variant="outline">{items.length}</Badge>
-                    </div>
-                    <div class="space-y-2 p-3">
-                      {#each items as model (model.id)}
-                        <div class="flex items-center gap-3 rounded-xl border bg-background px-3 py-3">
-                          <div class="flex size-9 shrink-0 items-center justify-center rounded-xl bg-primary/10 text-primary">
-                            <SparklesIcon class="size-4" />
-                          </div>
-                          <div class="min-w-0 flex-1">
-                            <div class="truncate text-sm font-medium">
-                              {model.displayName ?? model.modelId}
-                            </div>
-                            <div class="truncate text-xs text-muted-foreground">{model.modelId}</div>
-                          </div>
-                          {#if model.contextWindow}
-                            <Badge variant="outline">{model.contextWindow}</Badge>
-                          {/if}
-                          {#if managingModels}
-                            <Button
-                              class="size-8 rounded-xl"
-                              onclick={() => void handleDeleteModel(model.id)}
-                              size="icon"
-                              type="button"
-                              variant="ghost"
-                            >
-                              <Trash2Icon class="size-4 text-muted-foreground" />
-                            </Button>
-                          {/if}
-                        </div>
-                      {/each}
-                    </div>
-                  </div>
-                {/each}
-              </div>
-            {/if}
-          </div>
-
-          {#if remoteModels.length > 0}
-            <div class="mt-5 rounded-2xl border border-dashed p-4">
-              <div class="flex items-center gap-2 text-sm font-medium">
-                <GlobeIcon class="size-4 text-muted-foreground" />
-                <span>远程模型候选</span>
-                <Badge variant="outline">{remoteModels.length}</Badge>
-              </div>
-
-              <div class="mt-3 space-y-2">
-                {#each remoteModels as model (model.modelId)}
-                  <div class="flex flex-wrap items-center gap-3 rounded-xl border bg-background px-3 py-3">
-                    <div class="min-w-0 flex-1">
-                      <div class="truncate text-sm font-medium">
-                        {model.displayName ?? model.modelId}
-                      </div>
-                      <div class="truncate text-xs text-muted-foreground">{model.modelId}</div>
-                    </div>
-                    <Button
-                      class="rounded-xl px-4"
-                      onclick={() => void handleImportRemoteModel(model)}
-                      size="sm"
-                      type="button"
-                      variant="outline"
-                    >
-                      导入
-                    </Button>
-                  </div>
-                {/each}
-              </div>
-            </div>
-          {/if}
-        </div>
+        <SettingsModelManager
+          addingModel={addingModel}
+          groupedModels={groupedModels}
+          loadingModels={loadingModels}
+          loadingRemoteModels={loadingRemoteModels}
+          managingModels={managingModels}
+          models={models}
+          newModelDisplayName={newModelDisplayName}
+          newModelId={newModelId}
+          onCreateModel={handleCreateModel}
+          onDeleteModel={handleDeleteModel}
+          onFetchRemoteModels={handleFetchRemoteModels}
+          onImportRemoteModel={handleImportRemoteModel}
+          onNewModelDisplayNameChange={(value) => (newModelDisplayName = value)}
+          onNewModelIdChange={(value) => (newModelId = value)}
+          onToggleAdding={() => (addingModel = !addingModel)}
+          onToggleManaging={() => (managingModels = !managingModels)}
+          remoteModels={remoteModels}
+          {selectedChannelId}
+        />
       </div>
     </section>
   </div>
