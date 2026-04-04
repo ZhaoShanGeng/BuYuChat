@@ -69,12 +69,15 @@ jobs:
       - name: Run release gates
         run: pnpm verify
 
-  desktop-artifacts:
-    name: Desktop Artifact (${{ matrix.label }})
-    if: github.event_name == 'workflow_dispatch'
-    needs: [detect-mobile, gates]
+  desktop:
+    name: Desktop Bundle (${{ matrix.label }})
+    needs: gates
+    runs-on: ${{ matrix.os }}
+    permissions:
+      contents: write
     strategy:
       fail-fast: false
+      max-parallel: 3
       matrix:
         include:
           - label: windows
@@ -86,7 +89,6 @@ jobs:
           - label: macos
             os: macos-latest
             args: --bundles app,dmg
-    runs-on: ${{ matrix.os }}
 
     steps:
       - name: Checkout
@@ -130,74 +132,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build desktop bundles
+        if: github.event_name == 'workflow_dispatch'
         uses: tauri-apps/tauri-action@v1
         with:
           args: ${{ matrix.args }}
           uploadWorkflowArtifacts: true
 
-  desktop-release:
-    name: Desktop Release (${{ matrix.label }})
-    if: github.event_name == 'push'
-    needs: [detect-mobile, gates]
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: windows
-            os: windows-latest
-            args: --bundles nsis
-          - label: linux
-            os: ubuntu-22.04
-            args: --bundles appimage,deb
-          - label: macos
-            os: macos-latest
-            args: --bundles app,dmg
-    runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-22.04'
-        run: |
-          sudo apt-get update
-          sudo apt-get install -y \
-            build-essential \
-            curl \
-            file \
-            libayatana-appindicator3-dev \
-            librsvg2-dev \
-            libssl-dev \
-            libwebkit2gtk-4.1-dev \
-            libxdo-dev \
-            patchelf \
-            wget
-
-      - name: Cache Rust artifacts
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Publish desktop release asset
+      - name: Publish desktop release assets
+        if: github.event_name == 'push'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -209,11 +151,12 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generateReleaseNotes: true
 
-  android-artifacts:
-    name: Android Artifact
-    if: github.event_name == 'workflow_dispatch'
-    needs: [detect-mobile, gates]
+  android:
+    name: Android Bundle
+    needs: gates
     runs-on: ubuntu-22.04
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -255,60 +198,15 @@ jobs:
         run: pnpm tauri android init --ci
 
       - name: Build Android artifact
+        if: github.event_name == 'workflow_dispatch'
         uses: tauri-apps/tauri-action@v1
         with:
           mobile: android
           args: --apk
           uploadWorkflowArtifacts: true
 
-  android-release:
-    name: Android Release
-    if: github.event_name == 'push'
-    needs: [detect-mobile, gates]
-    runs-on: ubuntu-22.04
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
-
-      - name: Cache Rust artifacts
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Initialize Android target
-        run: pnpm tauri android init --ci
-
       - name: Publish Android release asset
+        if: github.event_name == 'push'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -321,11 +219,13 @@ jobs:
           prerelease: ${{ contains(github.ref_name, '-') }}
           generateReleaseNotes: true
 
-  ios-artifacts:
-    name: iOS Artifact
-    if: github.event_name == 'workflow_dispatch' && needs.detect-mobile.outputs.has_apple == 'true'
+  ios:
+    name: iOS Bundle
+    if: needs.detect-mobile.outputs.has_apple == 'true'
     needs: [detect-mobile, gates]
     runs-on: macos-latest
+    permissions:
+      contents: write
 
     steps:
       - name: Checkout
@@ -353,45 +253,14 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build iOS artifact
+        if: github.event_name == 'workflow_dispatch'
         uses: tauri-apps/tauri-action@v1
         with:
           mobile: ios
           uploadWorkflowArtifacts: true
 
-  ios-release:
-    name: iOS Release
-    if: github.event_name == 'push' && needs.detect-mobile.outputs.has_apple == 'true'
-    needs: [detect-mobile, gates]
-    runs-on: macos-latest
-    permissions:
-      contents: write
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust artifacts
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Publish iOS release asset
+        if: github.event_name == 'push'
         uses: tauri-apps/tauri-action@v1
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

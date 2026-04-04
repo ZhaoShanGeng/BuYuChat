@@ -64,13 +64,14 @@ node scripts/version.mjs check
 
 职责：
 
+- 先执行一个统一 `Release Gates` job，确保版本与完整门禁先过
 - 手动触发时：
-  运行完整门禁后打包桌面端矩阵 artifact：
+  在门禁通过后，并行打包桌面端矩阵 artifact：
   `Windows (NSIS)`、`Linux (AppImage + DEB)`、`macOS (app + DMG)`
 - tag 触发时：
-  先校验 `v<version>` 与 manifest 版本一致，再运行完整门禁，然后发布桌面端多平台安装包到 GitHub Release
+  门禁通过后，并行构建各平台产物，再把桌面端多平台安装包发布到 GitHub Release
 - 移动端：
-  `Android` job 会在 CI 内自动执行 `pnpm tauri android init --ci` 后构建 APK；`iOS` 通过单独的检测 job 判断仓库中是否已提交 Apple mobile 工程，满足条件时才在 macOS runner 上启用
+  `Android` job 独立并行，会在 CI 内自动执行 `pnpm tauri android init --ci` 后构建 APK；`iOS` 通过单独的检测 job 判断仓库中是否已提交 Apple mobile 工程，满足条件时才在 macOS runner 上启用
 
 ## 4. 版本控制规则
 

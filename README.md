@@ -44,7 +44,7 @@ pnpm version:set -- 0.2.0
 GitHub Actions 已落地两条主流程：
 
 - `CI`：在 PR 和 `main` push 上执行版本一致性检查、前端测试/构建、Rust 测试与 `clippy`
-- `Release`：手动触发时打包桌面端 `Windows + Linux + macOS` artifact；推送 `v*` tag 时自动发布桌面端 Release 资产
+- `Release`：先跑统一门禁，再并行打包桌面端 `Windows + Linux + macOS`；`Android` 独立并行，`iOS` 在 Apple mobile 工程存在时启用
 
 移动端说明：
 
