@@ -277,7 +277,8 @@ jobs:
             libwebkit2gtk-4.1-dev \
             libxdo-dev \
             patchelf \
-            wget
+            wget \
+            xdg-utils
 
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@v2
@@ -400,6 +401,12 @@ jobs:
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
 
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
@@ -435,7 +442,7 @@ jobs:
           mkdir -p src-tauri/gen
           tar -xzf android-project.tgz -C src-tauri/gen
 
-      - name: Setup Java
+      - name: Restore Gradle cache
         uses: actions/setup-java@v4
         with:
           distribution: temurin
