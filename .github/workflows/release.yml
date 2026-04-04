@@ -334,7 +334,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -401,13 +400,6 @@ jobs:
       - name: Setup sccache
         uses: mozilla-actions/sccache-action@v0.0.9
 
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-          cache: gradle
-
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
 
@@ -442,6 +434,13 @@ jobs:
         run: |
           mkdir -p src-tauri/gen
           tar -xzf android-project.tgz -C src-tauri/gen
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
 
       - name: Build Android APK
         run: pnpm tauri android build --ci --apk -c src-tauri/tauri.github-release.conf.json --target ${{ matrix.tauri_target }}
