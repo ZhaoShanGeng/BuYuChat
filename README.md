@@ -50,6 +50,7 @@ GitHub Actions 已落地两条主流程：
 
 - `Android` job 现在会在 GitHub Actions 里自动执行 `pnpm tauri android init --ci` 后再打包 APK
 - `iOS` 通过工作流里的检测 job 判断仓库是否已提交 `src-tauri/gen/apple`；只有存在 Apple mobile 工程时才启用，因为该链路必须在 macOS 上运行，并且正式分发还依赖 Apple 签名材料
+- `Android` 发布签名依赖 4 个 GitHub Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`
 
 发布约定：
 

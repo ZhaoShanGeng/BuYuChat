@@ -74,6 +74,8 @@ node scripts/version.mjs check
   `Android` 会先执行一次 `Prepare Android project`，把初始化后的工程作为 artifact 分发给各 ABI job，避免每个 ABI 重复 `pnpm tauri android init --ci`；`iOS` 通过前置检测决定是否进入发布链路
 - 构建缓存：
   桌面端、Android 与 iOS job 都启用 `sccache` 和 `rust-cache`；Android 额外复用 `Gradle` 缓存
+- Android 签名：
+  `build-android` 会在构建后使用仓库 Secrets 中的 keystore 对 APK 进行 `zipalign + apksigner` 签名；必需的 secrets 为 `ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`
 
 ## 4. 版本控制规则
 
