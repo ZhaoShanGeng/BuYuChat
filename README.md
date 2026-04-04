@@ -37,7 +37,8 @@ pnpm verify
 # 本地打包 Windows 安装包
 pnpm tauri build
 
-# 初始化 Android 工程后同步移动端网络配置（支持 http / https 渠道）
+# Android / iOS 本地构建会在前置构建阶段自动同步移动端网络配置
+# 如需单独重写已初始化的 Android 原生工程，也可以手动执行：
 pnpm mobile:sync-network
 
 # 统一修改三个版本号文件

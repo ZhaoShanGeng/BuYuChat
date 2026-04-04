@@ -5,7 +5,7 @@
   "identifier": "com.buyu.app",
   "build": {
     "beforeDevCommand": "node scripts/ensure-dev-server.mjs",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "node scripts/prepare-tauri-build.mjs",
     "frontendDist": "../dist",
     "devUrl": "http://localhost:1420"
   },
