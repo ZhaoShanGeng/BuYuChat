@@ -1,5 +1,7 @@
 //! 步语桌面应用的后端库入口。
 
+use tauri::Manager;
+
 pub mod ai;
 pub mod channel_types;
 pub mod commands;
@@ -13,24 +15,28 @@ pub mod utils;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    let state =
-        tauri::async_runtime::block_on(state::AppState::initialize()).expect("初始化应用状态失败");
-
     let builder = tauri::Builder::default();
 
     #[cfg(desktop)]
     let builder = builder
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
+            let state = tauri::async_runtime::block_on(state::AppState::initialize_for_app(app))
+                .expect("初始化应用状态失败");
+            app.manage(state);
             setup_initial_window(app)?;
             Ok(())
         });
 
     #[cfg(not(desktop))]
-    let builder = builder;
+    let builder = builder.setup(|app| {
+        let state = tauri::async_runtime::block_on(state::AppState::initialize_for_app(app))
+            .expect("初始化应用状态失败");
+        app.manage(state);
+        Ok(())
+    });
 
     builder
-        .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::agents::list_agents,
             commands::agents::get_agent,
