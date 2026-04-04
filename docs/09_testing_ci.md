@@ -65,9 +65,12 @@ node scripts/version.mjs check
 职责：
 
 - 手动触发时：
-  运行完整门禁后打包 Windows NSIS 安装包，并上传为 Actions artifact
+  运行完整门禁后打包桌面端矩阵 artifact：
+  `Windows (NSIS)`、`Linux (AppImage + DEB)`、`macOS (app + DMG)`
 - tag 触发时：
-  先校验 `v<version>` 与 manifest 版本一致，再运行完整门禁，然后发布 Tauri 安装包到 GitHub Release
+  先校验 `v<version>` 与 manifest 版本一致，再运行完整门禁，然后发布桌面端多平台安装包到 GitHub Release
+- 移动端：
+  已预留 `Android` / `iOS` job；只有仓库已经提交 `src-tauri/gen/android` 或 `src-tauri/gen/apple` 后才会自动启用，避免在未初始化 mobile 工程时阻断发布
 
 ## 4. 版本控制规则
 
@@ -90,6 +93,6 @@ pnpm tauri build
 
 - Tauri 窗口级 E2E
 - 覆盖率门槛阻断
-- 多平台安装包矩阵
+- 已签名的 iOS 安装包发布
 
-这些可以在当前 Windows 发布链路稳定后再引入。
+说明：桌面端多平台矩阵已经接入；`Android` / `iOS` 还取决于 mobile 工程初始化与签名材料。

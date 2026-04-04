@@ -44,13 +44,19 @@ pnpm version:set -- 0.2.0
 GitHub Actions 已落地两条主流程：
 
 - `CI`：在 PR 和 `main` push 上执行版本一致性检查、前端测试/构建、Rust 测试与 `clippy`
-- `Release`：在 `v*` tag 上校验版本并发布 Tauri 安装包；也支持手动触发仅打包产物
+- `Release`：手动触发时打包桌面端 `Windows + Linux + macOS` artifact；推送 `v*` tag 时自动发布桌面端 Release 资产
+
+移动端说明：
+
+- 工作流已预留 `Android` / `iOS` 打包 job
+- 只有仓库中已经提交 `src-tauri/gen/android` 或 `src-tauri/gen/apple` 时，对应 job 才会自动启用
+- 当前仓库还没有提交 mobile 初始化工程，所以 `Android` / `iOS` job 会自动跳过，不会把 Release 跑炸
 
 发布约定：
 
 1. 先执行 `pnpm version:set -- <version>`。
 2. 提交版本变更并打 tag：`git tag v<version>`。
-3. 推送 tag 后由 `Release` 工作流生成 GitHub Release 和 NSIS 安装包。
+3. 推送 tag 后由 `Release` 工作流生成 GitHub Release，并自动附带 `Windows / Linux / macOS` 安装包。
 
 ## 许可证
 
