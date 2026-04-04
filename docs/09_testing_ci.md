@@ -64,7 +64,7 @@ node scripts/version.mjs check
 
 职责：
 
-- 手动触发时可以通过输入项勾选 `Windows / Linux / macOS / Android / iOS`，并提供自定义 `release_tag`
+- 手动触发时可以通过输入项勾选 `Windows / Linux / macOS / Android / iOS`，并提供自定义 `release_tag`；若留空则默认取 `package.json` 当前版本生成 `v<version>`
 - 当 `publish_release=true` 时，工作流会自动创建或更新对应的 GitHub Release
 - 先执行 `Build Frontend`，同时完成 tag 版本校验、前端检查、测试和 `dist` 产物上传
 - 手动触发时：

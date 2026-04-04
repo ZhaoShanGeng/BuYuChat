@@ -78,6 +78,14 @@ jobs:
           INPUT_BUILD_ANDROID: ${{ inputs.build_android }}
           INPUT_BUILD_IOS: ${{ inputs.build_ios }}
         run: |
+          default_tag="$(python3 - <<'PY'
+import json
+from pathlib import Path
+pkg = json.loads(Path("package.json").read_text(encoding="utf-8"))
+print(f"v{pkg['version']}")
+PY
+)"
+
           if [ -d "src-tauri/gen/apple" ]; then
             has_apple=true
           else
@@ -93,7 +101,7 @@ jobs:
             build_android=true
             build_ios="$has_apple"
           else
-            release_tag="${INPUT_RELEASE_TAG:-}"
+            release_tag="${INPUT_RELEASE_TAG:-$default_tag}"
             publish_release="${INPUT_PUBLISH_RELEASE:-false}"
             build_windows="${INPUT_BUILD_WINDOWS:-false}"
             build_linux="${INPUT_BUILD_LINUX:-false}"

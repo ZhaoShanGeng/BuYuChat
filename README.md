@@ -49,7 +49,7 @@ GitHub Actions 已落地两条主流程：
 `Release` 工作流支持两种入口：
 
 - 推送 `v*` tag：自动全平台全架构构建并发布到 GitHub Releases
-- 手动 `workflow_dispatch`：可以勾选 `Windows / Linux / macOS / Android / iOS`，自定义 `release_tag`，并选择是否直接发布到 GitHub Releases
+- 手动 `workflow_dispatch`：可以勾选 `Windows / Linux / macOS / Android / iOS`，自定义 `release_tag`，并选择是否直接发布到 GitHub Releases；如果不填写 `release_tag`，默认使用当前 `package.json` 版本生成的 `v<version>`
 
 移动端说明：
 
