@@ -6,6 +6,7 @@ Thumbs.db
 .codex/
 .agent/
 .claude/
+.limcode/
 
 node_modules/
 dist/
@@ -40,6 +41,7 @@ vite.config.js
 vite.config.d.ts
 
 CLAUDE.md
+.github/copilot-instructions.md
 cherryStudioChat.png
 cherryStudioSetting.png
 lobechat.png

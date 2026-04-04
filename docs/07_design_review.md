@@ -1,183 +1,122 @@
 # 步语 BuYu — 设计评审
 
-**版本：** 0.3
-**评审范围：** SRS v0.2 + 数据库设计 v0.3 + API 设计 v0.3 + 架构设计 v0.2
+**版本：** 0.4
+**评审范围：** 当前仓库实现（截至 2026-04-04）
 
----
+本文记录已经落地后的设计结论与仍需关注的风险，不再保留已经废弃的 `aisdk` 选型结论。
 
-## 1. 设计缺陷与改进建议
+## 1. 已落地的关键决策
 
-### D1: content 存储策略 ✅ 已解决
+### D1: 内容与元数据分离
 
-**问题：** `message_versions.content` 无大小限制，大量版本累积后 SQLite 文件膨胀。
+已采纳并落地。
 
-**解决方案：** 内容与版本元数据分离。
+- `message_versions` 只保留状态和统计信息
+- `message_contents` 负责正文、thinking、工具调用结果等分块内容
+- 避免单行大文本频繁更新
 
-1. **`message_versions` 表不再存 content**，只存元数据（status、model_name、tokens 等）
-2. **新增 `message_contents` 表**，按 `version_id` 分块存储内容：
-   - 每个 chunk ≤ 64KB，顺序编号
-   - 流式生成时逐 chunk 追加（INSERT），不 UPDATE 已有行
-   - 为未来多模态内容（图片/文件引用）预留 `content_type` 字段
-3. 应用层限制单条消息总内容 ≤ 512KB
-4. P1 可引入大文件外部存储，DB 只存引用路径
+### D2: 流式刷盘策略
 
----
+已采纳并落地。
 
-### D2: 版本数量无上限
+- 刷盘阈值：`2048 bytes` 或 `2 秒`
+- 流式事件先发前端，再异步持久化
+- `text/plain` 与 `text/thinking` 分类型写入
 
-**问题：** 单个 node 下 reroll 可无限产生新版本。
+### D3: 生成任务并发控制
 
-**风险等级：** 中
+已采纳并落地。
 
-**解决方案：**
-- 应用层设置单 node 版本上限 50，超过后最旧的非 active 版本自动删除
-- MVP 可不实现硬限制，但代码中预留版本清理接口
-- **配合 P1 优化**：`list_messages` 非 active 版本只返回元数据（不含 content），版本膨胀对传输量影响降至最低
+- 使用 `Semaphore(5)` 限制并发生成
+- 使用 `CancellationToken` 做取消控制
+- 应用启动时把残留 `generating` 修正为 `failed`
 
----
+### D4: AI 请求层实现方式
 
-### D3: order_key 冲突重试 ✅ 采纳
+当前决策是自建 OpenAI-compatible 适配层，不使用第三方 AI SDK。
 
-重试上限 3 次，超出返回 `INTERNAL_ERROR`。实际冲突概率极低（UUID 随机后缀）。
+原因：
 
----
+- 当前代码已经需要同时处理文本、thinking、图片、文件、tool call delta
+- 需要直接控制 SSE 解析和错误详情回传
+- 需要把工具循环与本地持久化紧耦合到生成引擎
 
-### D4: 外键引用校验 ✅ 采纳
+对应实现：
 
-Service 层显式校验 `agent_id` / `channel_id` / `channel_model_id` 存在且 enabled，不依赖 DEFERRABLE 外键做业务校验。
+- `src-tauri/src/ai/adapter.rs`
+- `src-tauri/src/services/generation_engine.rs`
 
----
+### D5: 工具调用集成
 
-### D5: dry_run 暴露 system_prompt ✅ 预期行为
+已采纳并落地。
 
-`dry_run` 是调试接口，暴露完整 prompt（含 system_prompt）是设计目标。无需额外处理。
+- 后端维护 `ToolRegistry`
+- 当前内置工具为 `fetch`
+- 生成引擎已支持 tool call -> 执行 -> tool result 回填 -> 继续生成
+- MCP 模块已存在，为后续扩展外部工具预留了结构
 
----
+## 2. 当前仍存在的主要风险
 
-## 2. 遗漏与模糊点
+### R1: API Key 仍存本地数据库
 
-### M1: chunk 写库策略 ✅ 采纳
+风险：中
 
-明确规范：
-- 计数单位：UTF-8 字节数，阈值 2048 bytes
-- 实现方式：`tokio::select!` 同时监听 chunk 到达 + 2 秒 interval
-- 写库失败：log error，不中断生成，下次 flush 包含全部累积内容
-- **配合 D1**：chunk 直接 INSERT 到 `message_contents`，不 UPDATE
+- 当前实现尚未接入系统钥匙串
+- 如果设备本地环境不受控，凭证暴露面仍然偏大
 
----
+建议：
 
-### M2: 前端重启后的状态恢复 ✅ 采纳
+- P1 迁移到系统凭证存储
+- 数据库只保留引用或脱敏字段
 
-- 前端启动时调用 `list_messages` 获取最新状态
-- `status=failed` 的版本直接展示终态
-- `generatingVersions` Set 启动时为空，仅从新的 send/reroll 响应中填充
+### R2: 工具执行安全边界仍偏薄
 
----
+风险：中
 
-### M3: channel_type 扩展机制 ✅ 采纳
+- 当前已支持内置工具和 MCP 传输
+- 如果后续开放更多网络或进程型工具，参数校验和沙箱边界必须提前收紧
 
-- 定义 `ChannelTypeConfig` trait/struct
-- MVP 用简单 match，代码结构便于扩展
-- **补充**：AI 请求层使用 `aisdk` + `aisdk-macros` 库，该库已内置多 provider 支持（OpenAI-compatible），无需从头实现 HTTP 客户端
+建议：
 
----
+- 给每个工具定义显式 schema 和长度限制
+- 为远程抓取类工具补超时、域名白名单或更细粒度策略
 
-### M4: 并发生成限制 ✅ 采纳
+### R3: 文档与代码容易再度漂移
 
-`tokio::Semaphore` 限制最大并发生成数 ≤ 5，超出排队不拒绝。
+风险：中
 
----
+- 仓库还在快速迭代
+- 如果继续把“设计猜测”写进正式文档，很快就会再次失真
 
-### M5: 归档会话搜索范围 ✅ 采纳
+建议：
 
-P1 搜索设计时需考虑 `archived` 过滤选项。
+- 正式文档只写已落地实现
+- 未落地方案放到 issue 或 PR 描述，不放主文档
 
----
+### R4: 生成链路的回归面较大
 
-### M6: api_key 更新生效时机 ✅ 采纳
+风险：中
 
-已明确：生成开始时一次性读取，正在进行中的请求不受影响。属于预期行为。
+- 生成、取消、空回滚、tool loop、active version 切换彼此耦合
+- 后续如果继续改消息模型或前端状态层，容易引入行为回归
 
----
+建议：
 
-### M7: AI 请求库选型（新增）
+- 持续补 `cmd_messages_test`、`repo_messages_test`、前端 transport 和工作台状态测试
+- 重要改动前先补回归样例
 
-**决定：** 使用 `aisdk` + `aisdk-macros` crate，不自建 HTTP 客户端。
+## 3. 当前结论
 
-**理由：**
-- 已内置 OpenAI-compatible API 的请求/响应类型
-- 支持 SSE 流式解析
-- 宏简化 provider 配置
-- 减少重复造轮子
+当前架构已经从“基础 CRUD”进入“可持续迭代”的状态，核心原因是下面几块已经成形：
 
-**影响：**
-- 架构文档中的 `ai/client.rs` 改为 aisdk 的 adapter 层
-- `Cargo.toml` 新增 `aisdk`、`aisdk-macros` 依赖
+- 后端命令、服务、Repo 分层稳定
+- 自建 OpenAI-compatible 适配层已经能承接现有生成需求
+- 工具调用与 MCP 结构已经进入主干代码
+- CI / Release / 版本脚本已经具备工程化基础
 
----
+但以下内容还不应在对外说明里写成“成熟能力”：
 
-## 3. 性能瓶颈
-
-### P1: 消息列表传输优化 ✅ 已解决
-
-**方案：分层加载**
-
-1. `list_messages` 返回所有 node + 所有 version **元数据**，但 **只返回 active version 的 content**
-2. 非 active version 的 content 通过单独接口按需加载：`GET /versions/{versionId}/content`
-3. P1 实现游标分页（`before_order_key` + `limit`）
-4. 前端虚拟滚动（只渲染可见区域）
-
-**效果：** 即使一个 node 有 50 个版本，传输量仅为 1 个 content + 50 条元数据（每条 ~200 bytes）
-
----
-
-### P2: conversations.updated_at 写入频率
-
-**状态：** ✅ 已解决（仅终态时更新）
-
----
-
-### P3: 版本切换器写库频率
-
-**结论：** 保持"立即写库"，SQLite 单条 UPDATE ~0.1ms，无需优化。
-
----
-
-## 4. 安全隐患
-
-> S1-S4 已评估，MVP 阶段风险可接受，暂不处理。详见 v0.2 评审存档。
-
-| 编号 | 问题 | 风险 | 处理 |
-|------|------|------|------|
-| S1 | API Key 明文存储 | 中 | P1 迁移 Keychain |
-| S2 | base_url SSRF | 低 | P2 上云时处理 |
-| S3 | 无请求频率限制 | 低 | Semaphore + UI 防抖 |
-| S4 | Channel 无鉴权 | 无 | 非问题（进程内通信） |
-
----
-
-## 5. 改进建议汇总
-
-| 编号 | 优先级 | 建议 | 阶段 | 状态 |
-|------|--------|------|------|------|
-| D1 | 高 | content 与 version 分离，分块存储 | MVP | ✅ 采纳 |
-| D2 | 低 | 版本数上限 50 | P1 | ✅ 采纳 |
-| D3 | 低 | order_key 冲突重试上限 3 次 | MVP | ✅ 采纳 |
-| D4 | 高 | service 层显式校验外键引用 | MVP | ✅ 采纳 |
-| D5 | — | dry_run 暴露 system_prompt | — | ✅ 预期行为 |
-| M1 | 中 | chunk 刷盘策略：2048B / 2s / INSERT | MVP | ✅ 采纳 |
-| M4 | 中 | Semaphore 限制并发生成 ≤ 5 | MVP | ✅ 采纳 |
-| M7 | 高 | 使用 aisdk + aisdk-macros | MVP | ✅ 采纳 |
-| P1 | 高 | list_messages 仅返回 active content | MVP | ✅ 采纳 |
-
----
-
-## 6. 与上一版评审对比（v0.2 → v0.3 变更记录）
-
-| 变更项 | 处理结果 |
-|--------|---------|
-| D1 content 限制 100KB | **升级为**分块存储方案（`message_contents` 表） |
-| D5 system_prompt 暴露 | **确认为**预期行为，不再标记为缺陷 |
-| P1 消息列表全量加载 | **解决**：非 active version 只返回元数据 |
-| AI 客户端自建 | **改为**使用 `aisdk` + `aisdk-macros` 库 |
-| S1-S4 安全项 | **统一延后**，MVP 不处理 |
+- 凭证安全
+- 完整工具安全治理
+- 更高强度的桌面端端到端测试
+- 长周期日志与诊断体系

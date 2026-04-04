@@ -1,6 +1,7 @@
 # 步语 BuYu
 
 基于 `Tauri v2 + Svelte 5 + Rust + SQLite` 的 AI 对话桌面客户端。
+当前后端使用自建 `OpenAI-compatible` 适配层，通过 `reqwest` 对接聊天补全、模型拉取和流式 SSE；同时内置基础工具调用与 MCP 接入能力。
 
 ## 本地开发
 
@@ -64,7 +65,8 @@ GitHub Actions 已落地两条主流程：
 | 前端 | Svelte 5 + TypeScript + Tailwind CSS 4 + bits-ui |
 | 桌面壳 | Tauri v2 |
 | 后端 | Rust + SQLite (`sqlx`) |
-| AI 接入 | `aisdk` |
+| AI 接入 | 自建 `OpenAI-compatible` 适配层（`reqwest` + SSE 解析） |
+| 工具能力 | 内置 `fetch` 工具 + MCP 模块 |
 | 包管理 | pnpm 10 |
 
 ## 文档

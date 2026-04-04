@@ -20,8 +20,7 @@
 | 08 | `08_collaboration.md` | 分支、提交、PR、发布协作流程 | 当前 |
 | 09 | `09_testing_ci.md` | 自动化测试、CI、打包与发布流程 | 当前 |
 | 10 | `10_progress.md` | 项目进度与基础设施状态 | 当前 |
-| 11 | `11_aisdk_capabilities.md` | `aisdk` 能力调研记录 | 当前 |
-| 12 | `11_backend_mvp_baseline.md` | 后端基线快照 | 当前 |
+| 11 | `11_backend_mvp_baseline.md` | 后端基线快照 | 当前 |
 | SRS | `BuYu_SRS_v0.2.md` | 需求规格历史文档 | 归档参考 |
 | DB | `BuYu_DB_API.md` | 早期数据库/API 草稿 | 归档参考 |
 
@@ -29,6 +28,7 @@
 
 - `可能的技术栈.md`：仅保留了早期选型便签，内容已被正式文档覆盖，已移除。
 - 仓库不再保留生成型 `vite.config.js` / `vite.config.d.ts`，统一以 `vite.config.ts` 为准。
+- 早期 `aisdk` 调研文档已移除，当前 AI 接入以 `src-tauri/src/ai/adapter.rs` 的自建 OpenAI-compatible 适配层为准。
 - 本地调试残留目录如 `target-codex-*`、`src-tauri/tmp/`、`src-tauri/buyu.db*` 视为工作区垃圾，不进入版本库。
 
 ## 文档维护规则
