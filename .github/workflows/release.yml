@@ -67,11 +67,10 @@ jobs:
   build:
     name: Build bundle (${{ matrix.label }})
     needs: build-frontend
-    if: ${{ matrix.requires_apple != 'true' || needs.build-frontend.outputs.has_apple == 'true' }}
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      max-parallel: 5
+      max-parallel: 4
       matrix:
         include:
           - label: windows
@@ -102,13 +101,6 @@ jobs:
             artifact_name: buyu-android-apk
             artifact_paths: |
               src-tauri/gen/android/app/build/outputs/apk/**/*.apk
-          - label: ios
-            runner: macos-latest
-            kind: ios
-            requires_apple: "true"
-            artifact_name: buyu-ios-ipa
-            artifact_paths: |
-              src-tauri/gen/apple/build/**/*.ipa
 
     steps:
       - name: Checkout
@@ -187,10 +179,6 @@ jobs:
         if: matrix.kind == 'android'
         run: pnpm tauri android build --ci --apk -c src-tauri/tauri.github-release.conf.json
 
-      - name: Build iOS bundle
-        if: matrix.kind == 'ios'
-        run: pnpm tauri ios build --ci -c src-tauri/tauri.github-release.conf.json
-
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -199,10 +187,58 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
+  ios:
+    name: Build bundle (ios)
+    if: ${{ needs.build-frontend.outputs.has_apple == 'true' }}
+    needs: build-frontend
+    runs-on: macos-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: buyu-web-dist
+          path: dist
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: |
+            src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build iOS bundle
+        run: pnpm tauri ios build --ci -c src-tauri/tauri.github-release.conf.json
+
+      - name: Upload iOS artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: buyu-ios-ipa
+          path: src-tauri/gen/apple/build/**/*.ipa
+          if-no-files-found: error
+          retention-days: 7
+
   release:
     name: Create Release
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
-    needs: build
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
+    needs: [build, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write
