@@ -107,8 +107,8 @@
     closeDrawer();
   }
 
-  function handleDrawerSelectChannel(channel: import("../lib/transport/channels").Channel) {
-    void settings.selectChannel(channel);
+  async function handleDrawerSelectChannel(channel: import("../lib/transport/channels").Channel) {
+    await settings.selectChannel(channel);
     closeDrawer();
   }
 

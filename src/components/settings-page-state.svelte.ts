@@ -72,6 +72,8 @@ export type SettingsPageDeps = {
 
 export function createSettingsPageState(deps: SettingsPageDeps) {
   let initialized = false;
+  let modelsRequestId = 0;
+  let remoteModelsRequestId = 0;
 
   const state = $state({
     search: "",
@@ -193,14 +195,25 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
   }
 
   async function loadModels(channelId: string) {
+    const requestId = ++modelsRequestId;
     state.loadingModels = true;
+    state.models = [];
     try {
-      state.models = await listModels(channelId);
+      const models = await listModels(channelId);
+      if (requestId !== modelsRequestId || state.selectedChannelId !== channelId) {
+        return;
+      }
+      state.models = models;
     } catch (error) {
+      if (requestId !== modelsRequestId || state.selectedChannelId !== channelId) {
+        return;
+      }
       state.models = [];
       setNotice("error", humanizeError(toAppError(error)));
     } finally {
-      state.loadingModels = false;
+      if (requestId === modelsRequestId && state.selectedChannelId === channelId) {
+        state.loadingModels = false;
+      }
     }
   }
 
@@ -246,6 +259,7 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
     state.selectedChannelId = channel.id;
     state.form = buildFormFromChannel(channel);
     clearModelDraft();
+    state.models = [];
     state.notice = null;
     await loadModels(channel.id);
   }
@@ -359,15 +373,26 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
 
   async function handleFetchRemoteModels() {
     if (!state.selectedChannelId) return;
+    const channelId = state.selectedChannelId;
+    const requestId = ++remoteModelsRequestId;
     state.loadingRemoteModels = true;
     state.notice = null;
     try {
-      state.remoteModels = await fetchRemoteModels(state.selectedChannelId);
+      const remoteModels = await fetchRemoteModels(channelId);
+      if (requestId !== remoteModelsRequestId || state.selectedChannelId !== channelId) {
+        return;
+      }
+      state.remoteModels = remoteModels;
       setNotice("info", `已刷新 ${state.remoteModels.length} 个远程模型候选`);
     } catch (error) {
+      if (requestId !== remoteModelsRequestId || state.selectedChannelId !== channelId) {
+        return;
+      }
       setNotice("error", humanizeError(toAppError(error)));
     } finally {
-      state.loadingRemoteModels = false;
+      if (requestId === remoteModelsRequestId && state.selectedChannelId === channelId) {
+        state.loadingRemoteModels = false;
+      }
     }
   }
 
