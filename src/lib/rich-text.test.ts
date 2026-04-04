@@ -39,6 +39,24 @@ describe("renderRichText", () => {
     expect(html).toContain("answer");
   });
 
+  it("adds preview controls for previewable code blocks", () => {
+    const html = renderRichText("```html\n<div class=\"demo\">hello</div>\n```");
+
+    expect(html).toContain("code-block-wrapper--previewable");
+    expect(html).toContain('data-view="preview"');
+    expect(html).toContain('data-preview-kind="html"');
+    expect(html).toContain("效果");
+  });
+
+  it("auto-wraps raw html into a previewable code block", () => {
+    const html = renderRichText("<div class=\"demo\"><h1>Hello</h1></div>");
+
+    expect(html).toContain("code-block-wrapper--previewable");
+    expect(html).toContain("language-html");
+    expect(html).toContain("demo");
+    expect(html).not.toContain("<div class=\"demo\"><h1>Hello</h1></div>");
+  });
+
   it("renders katex math blocks", () => {
     const html = renderRichText("当 $a^2+b^2=c^2$，则：\n\n$$E = mc^2$$");
 

@@ -52,6 +52,10 @@ function escapeHtml(value: string): string {
     .replaceAll("'", "&#39;");
 }
 
+function encodeDataAttribute(value: string): string {
+  return escapeHtml(encodeURIComponent(value));
+}
+
 function normalizeLanguage(lang: string | undefined): string {
   const normalized = (lang ?? "").trim().toLowerCase();
   if (!normalized) {
@@ -66,17 +70,80 @@ function getFenceLanguage(info: string): string {
   return language;
 }
 
+function resolvePreviewKind(language: string): "html" | "svg" | "markdown" | null {
+  if (language === "html") {
+    return "html";
+  }
+
+  if (language === "svg") {
+    return "svg";
+  }
+
+  if (language === "markdown" || language === "md") {
+    return "markdown";
+  }
+
+  return null;
+}
+
+function wrapRawHtmlAsFence(content: string): string {
+  if (content.includes("```")) {
+    return content;
+  }
+
+  const trimmed = content.trim();
+  if (!trimmed.startsWith("<")) {
+    return content;
+  }
+
+  if (/^<svg\b[\s\S]*<\/svg>\s*$/i.test(trimmed)) {
+    return `\`\`\`svg\n${trimmed}\n\`\`\``;
+  }
+
+  if (
+    /^<!doctype html\b[\s\S]*$/i.test(trimmed) ||
+    /^<html\b[\s\S]*<\/html>\s*$/i.test(trimmed) ||
+    /^<([a-z][\w:-]*)\b[^>]*>[\s\S]*<\/\1>\s*$/i.test(trimmed)
+  ) {
+    return `\`\`\`html\n${trimmed}\n\`\`\``;
+  }
+
+  return content;
+}
+
 function wrapCodeBlock(renderedCode: string, language: string, rawCode: string): string {
   const languageLabel = escapeHtml(language === "text" ? "code" : language);
   const encodedCode = encodeURIComponent(rawCode);
+  const previewKind = resolvePreviewKind(language);
+
+  if (!previewKind) {
+    return [
+      '<div class="code-block-wrapper not-prose">',
+      '  <div class="code-block-header">',
+      `    <span class="code-lang">${languageLabel}</span>`,
+      `    <button class="code-copy-btn" data-code="${encodedCode}" type="button">复制</button>`,
+      "  </div>",
+      `  ${renderedCode}`,
+      "</div>"
+    ].join("\n");
+  }
 
   return [
-    '<div class="code-block-wrapper not-prose">',
+    `<div class="code-block-wrapper code-block-wrapper--previewable not-prose" data-active-view="code">`,
     '  <div class="code-block-header">',
     `    <span class="code-lang">${languageLabel}</span>`,
-    `    <button class="code-copy-btn" data-code="${encodedCode}" type="button">复制</button>`,
+    '    <div class="code-block-actions">',
+    '      <div class="code-view-switch" role="tablist" aria-label="代码预览切换">',
+    '        <button class="code-view-btn is-active" data-view="code" type="button">源码</button>',
+    '        <button class="code-view-btn" data-view="preview" type="button">效果</button>',
+    "      </div>",
+    `      <button class="code-copy-btn" data-code="${encodedCode}" type="button">复制</button>`,
+    "    </div>",
     "  </div>",
-    `  ${renderedCode}`,
+    '  <div class="code-block-panels">',
+    `    <div class="code-block-panel is-active" data-panel="code">${renderedCode}</div>`,
+    `    <div class="code-preview-panel" data-panel="preview" data-preview-kind="${previewKind}" data-preview-source="${encodeDataAttribute(rawCode)}" hidden></div>`,
+    "  </div>",
     "</div>"
   ].join("\n");
 }
@@ -124,7 +191,17 @@ if (defaultCodeBlockRenderer) {
 const SANITIZE_OPTIONS: Config = {
   USE_PROFILES: { html: true, mathMl: true },
   FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form"],
-  ADD_ATTR: ["data-code", "loading", "referrerpolicy", "srcset"],
+  ADD_ATTR: [
+    "data-code",
+    "data-view",
+    "data-panel",
+    "data-preview-kind",
+    "data-preview-source",
+    "data-active-view",
+    "loading",
+    "referrerpolicy",
+    "srcset"
+  ],
   ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|data:image\/)/i
 };
 
@@ -133,7 +210,8 @@ export function renderRichText(content: string | null | undefined): string {
     return "";
   }
 
-  const dirtyHtml = markdownRenderer.render(content);
+  const normalizedContent = wrapRawHtmlAsFence(content);
+  const dirtyHtml = markdownRenderer.render(normalizedContent);
   const cleanHtml = DOMPurify.sanitize(dirtyHtml, SANITIZE_OPTIONS);
 
   if (typeof window === "undefined") {
