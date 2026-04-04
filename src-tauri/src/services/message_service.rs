@@ -10,17 +10,17 @@
 //! - 真正的 AI 调用在 `generation_engine` 里异步执行，service 只负责创建记录与调度任务。
 //! - 所有跨表写操作都放在同一事务内完成，保证 node/version/content/updated_at 一致。
 
-use aisdk::core::language_model::ReasoningEffort;
 use tauri::ipc::Channel as EventChannel;
 
 use crate::{
-    ai::adapter::AiChannelConfig,
+    ai::adapter::{AiChannelConfig, ReasoningEffort},
     error::AppError,
     models::{
         Agent, ChannelModel, DeleteVersionResult, DryRunResult, EditMessageInput,
-        EditMessageResult, GenerationEvent, ImageAttachment, MessageNode, MessageNodeRecord,
-        NewMessageContent, NewMessageNode, NewMessageVersion, PromptMessage, RerollInput,
-        RerollResult, SendMessageInput, SendMessageResponse, SendMessageResult, VersionContent,
+        EditMessageResult, FileAttachment, GenerationEvent, ImageAttachment, MessageNode,
+        MessageNodeRecord, NewMessageContent, NewMessageNode, NewMessageVersion, PromptMessage,
+        RerollInput, RerollResult, SendMessageInput, SendMessageResponse, SendMessageResult,
+        ToolResultRecord, VersionContent,
     },
     repo::{
         agent_repo::{AgentRepo, SqlxAgentRepo},
@@ -33,7 +33,7 @@ use crate::{
     state::AppState,
     utils::{
         ids::new_uuid_v7,
-        order_key::{ASSISTANT_POSITION_TAG, USER_POSITION_TAG, build_order_key},
+        order_key::{build_order_key, ASSISTANT_POSITION_TAG, USER_POSITION_TAG},
     },
 };
 
@@ -44,11 +44,14 @@ struct GenerationContext {
     config: AiChannelConfig,
     reasoning_effort: Option<ReasoningEffort>,
     thinking_tags: Vec<String>,
+    tool_schemas: Vec<serde_json::Value>,
 }
 
 struct NormalizedUserInput {
     content: String,
     images: Vec<ImageAttachment>,
+    files: Vec<FileAttachment>,
+    tool_results: Vec<ToolResultRecord>,
 }
 
 /// 使用连接池查询消息列表。
@@ -110,9 +113,9 @@ pub async fn set_active_version(
     message_repo::set_node_active_version_tx(&mut tx, node_id, Some(version_id))
         .await
         .map_err(|error| AppError::internal(format!("failed to switch active version: {error}")))?;
-    tx.commit()
-        .await
-        .map_err(|error| AppError::internal(format!("failed to commit active version change: {error}")))?;
+    tx.commit().await.map_err(|error| {
+        AppError::internal(format!("failed to commit active version change: {error}"))
+    })?;
 
     Ok(())
 }
@@ -160,9 +163,9 @@ pub async fn delete_version(
             .map_err(|error| {
                 AppError::internal(format!("failed to touch conversation timestamp: {error}"))
             })?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::internal(format!("failed to commit node deletion: {error}")))?;
+        tx.commit().await.map_err(|error| {
+            AppError::internal(format!("failed to commit node deletion: {error}"))
+        })?;
         state.cancellation_tokens.remove(version_id);
 
         return Ok(DeleteVersionResult {
@@ -195,9 +198,9 @@ pub async fn delete_version(
         .map_err(|error| {
             AppError::internal(format!("failed to touch conversation timestamp: {error}"))
         })?;
-    tx.commit()
-        .await
-        .map_err(|error| AppError::internal(format!("failed to commit version deletion: {error}")))?;
+    tx.commit().await.map_err(|error| {
+        AppError::internal(format!("failed to commit version deletion: {error}"))
+    })?;
     state.cancellation_tokens.remove(version_id);
 
     Ok(DeleteVersionResult {
@@ -221,7 +224,9 @@ pub async fn send_message(
         &context.agent,
         message_repo::build_prompt_messages(&state.db, conversation_id, None, None)
             .await
-            .map_err(|error| AppError::internal(format!("failed to build prompt history: {error}")))?,
+            .map_err(|error| {
+                AppError::internal(format!("failed to build prompt history: {error}"))
+            })?,
     );
 
     let mut final_prompt_messages = prompt_messages;
@@ -229,6 +234,9 @@ pub async fn send_message(
         role: "user".to_string(),
         content: normalized.content.clone(),
         images: normalized.images.clone(),
+        files: normalized.files.clone(),
+        tool_calls: Vec::new(),
+        tool_results: normalized.tool_results.clone(),
     });
 
     if dry_run {
@@ -245,6 +253,8 @@ pub async fn send_message(
         &context,
         &normalized.content,
         &normalized.images,
+        &normalized.files,
+        &normalized.tool_results,
     )
     .await?;
 
@@ -261,6 +271,7 @@ pub async fn send_message(
             thinking_tags: context.thinking_tags,
             stream,
             event_channel,
+            tools: context.tool_schemas,
         },
     );
 
@@ -313,24 +324,30 @@ pub async fn reroll(
                     thinking_tags: context.thinking_tags,
                     stream,
                     event_channel,
+                    tools: context.tool_schemas,
                 },
             );
 
             Ok(result)
         }
         "user" => {
-            let active_content = message_repo::get_active_version_content_for_node(&state.db, &node)
-                .await
-                .map_err(|error| {
-                    AppError::internal(format!("failed to load active user version content: {error}"))
-                })?
-                .ok_or_else(|| {
-                    AppError::internal("active user version content missing".to_string())
-                })?;
+            let active_content =
+                message_repo::get_active_version_content_for_node(&state.db, &node)
+                    .await
+                    .map_err(|error| {
+                        AppError::internal(format!(
+                            "failed to load active user version content: {error}"
+                        ))
+                    })?
+                    .ok_or_else(|| {
+                        AppError::internal("active user version content missing".to_string())
+                    })?;
             let active_images = if let Some(version_id) = node.active_version_id.as_deref() {
-                message_repo::get_version_images(&state.db, version_id).await.map_err(|error| {
-                    AppError::internal(format!("failed to load user version images: {error}"))
-                })?
+                message_repo::get_version_images(&state.db, version_id)
+                    .await
+                    .map_err(|error| {
+                        AppError::internal(format!("failed to load user version images: {error}"))
+                    })?
             } else {
                 Vec::new()
             };
@@ -352,6 +369,9 @@ pub async fn reroll(
                 role: "user".to_string(),
                 content: active_content.content.clone(),
                 images: active_images,
+                files: Vec::new(),
+                tool_calls: Vec::new(),
+                tool_results: Vec::new(),
             });
 
             let result =
@@ -370,6 +390,7 @@ pub async fn reroll(
                     thinking_tags: context.thinking_tags,
                     stream,
                     event_channel,
+                    tools: context.tool_schemas,
                 },
             );
 
@@ -471,6 +492,7 @@ pub async fn edit_message(
                     thinking_tags: context.thinking_tags,
                     stream,
                     event_channel,
+                    tools: context.tool_schemas,
                 },
             );
 
@@ -498,6 +520,9 @@ pub async fn edit_message(
                 role: "user".to_string(),
                 content: content.clone(),
                 images: active_images.clone(),
+                files: Vec::new(),
+                tool_calls: Vec::new(),
+                tool_results: Vec::new(),
             });
 
             let reroll_result =
@@ -516,6 +541,7 @@ pub async fn edit_message(
                     thinking_tags: context.thinking_tags,
                     stream,
                     event_channel,
+                    tools: context.tool_schemas,
                 },
             );
 
@@ -551,9 +577,17 @@ async fn resolve_generation_context(
         .get(conversation_id)
         .await
         .map_err(|error| AppError::internal(format!("failed to load conversation: {error}")))?
-        .ok_or_else(|| AppError::not_found(format!("conversation '{conversation_id}' not found")))?;
-    let agent_id = conversation.agent_id.as_deref().ok_or_else(AppError::no_agent)?;
-    let channel_id = conversation.channel_id.as_deref().ok_or_else(AppError::no_channel)?;
+        .ok_or_else(|| {
+            AppError::not_found(format!("conversation '{conversation_id}' not found"))
+        })?;
+    let agent_id = conversation
+        .agent_id
+        .as_deref()
+        .ok_or_else(AppError::no_agent)?;
+    let channel_id = conversation
+        .channel_id
+        .as_deref()
+        .ok_or_else(AppError::no_channel)?;
     let model_id = conversation
         .channel_model_id
         .as_deref()
@@ -582,7 +616,9 @@ async fn resolve_generation_context(
         .await
         .map_err(|error| AppError::internal(format!("failed to load model: {error}")))?
         .ok_or_else(AppError::no_model)?;
-    let config = AiChannelConfig::try_from(&channel)?.with_model_name(model.model_id.clone());
+    let config = AiChannelConfig::try_from(&channel)?
+        .with_model_name(model.model_id.clone())
+        .with_sampling(model.temperature.clone(), model.top_p.clone());
 
     Ok(GenerationContext {
         agent,
@@ -590,6 +626,7 @@ async fn resolve_generation_context(
         config,
         reasoning_effort: None,
         thinking_tags: parse_thinking_tags(channel.thinking_tags.as_deref()),
+        tool_schemas: resolve_tool_schemas(state, conversation.enabled_tools.as_deref()),
     })
 }
 
@@ -607,6 +644,9 @@ fn build_prompt_with_system(agent: &Agent, mut messages: Vec<PromptMessage>) -> 
                 role: "system".to_string(),
                 content: system_prompt.to_string(),
                 images: Vec::new(),
+                files: Vec::new(),
+                tool_calls: Vec::new(),
+                tool_results: Vec::new(),
             },
         );
     }
@@ -621,6 +661,8 @@ async fn create_send_message_records(
     context: &GenerationContext,
     content: &str,
     images: &[ImageAttachment],
+    files: &[FileAttachment],
+    tool_results: &[ToolResultRecord],
 ) -> Result<SendMessageResult, AppError> {
     for _ in 0..3 {
         let timestamp = current_timestamp_ms();
@@ -631,11 +673,10 @@ async fn create_send_message_records(
         let user_order_key = build_order_key(timestamp, USER_POSITION_TAG)?;
         let assistant_order_key = build_order_key(timestamp, ASSISTANT_POSITION_TAG)?;
 
-        let mut tx = state
-            .db
-            .begin()
-            .await
-            .map_err(|error| AppError::internal(format!("failed to open transaction: {error}")))?;
+        let mut tx =
+            state.db.begin().await.map_err(|error| {
+                AppError::internal(format!("failed to open transaction: {error}"))
+            })?;
 
         let result = async {
             message_repo::insert_node_tx(
@@ -692,8 +733,43 @@ async fn create_send_message_records(
                 .await?;
                 chunk_index += 1;
             }
-            message_repo::set_node_active_version_tx(&mut tx, &user_node_id, Some(&user_version_id))
+            for file in files {
+                message_repo::insert_content_tx(
+                    &mut tx,
+                    &NewMessageContent {
+                        id: new_uuid_v7(),
+                        version_id: user_version_id.clone(),
+                        chunk_index,
+                        content_type: "file/base64".to_string(),
+                        body: serde_json::to_string(file).map_err(|error| error.to_string())?,
+                        created_at: timestamp,
+                    },
+                )
                 .await?;
+                chunk_index += 1;
+            }
+            for tool_result in tool_results {
+                message_repo::insert_content_tx(
+                    &mut tx,
+                    &NewMessageContent {
+                        id: new_uuid_v7(),
+                        version_id: user_version_id.clone(),
+                        chunk_index,
+                        content_type: "application/vnd.buyu.tool-result+json".to_string(),
+                        body: serde_json::to_string(tool_result)
+                            .map_err(|error| error.to_string())?,
+                        created_at: timestamp,
+                    },
+                )
+                .await?;
+                chunk_index += 1;
+            }
+            message_repo::set_node_active_version_tx(
+                &mut tx,
+                &user_node_id,
+                Some(&user_version_id),
+            )
+            .await?;
 
             message_repo::insert_node_tx(
                 &mut tx,
@@ -733,7 +809,9 @@ async fn create_send_message_records(
         match result {
             Ok(()) => {
                 tx.commit().await.map_err(|error| {
-                    AppError::internal(format!("failed to commit send message transaction: {error}"))
+                    AppError::internal(format!(
+                        "failed to commit send message transaction: {error}"
+                    ))
                 })?;
                 return Ok(SendMessageResult {
                     user_node_id,
@@ -802,9 +880,9 @@ async fn create_assistant_reroll_records(
         .map_err(|error| {
             AppError::internal(format!("failed to touch conversation timestamp: {error}"))
         })?;
-    tx.commit()
-        .await
-        .map_err(|error| AppError::internal(format!("failed to commit assistant reroll: {error}")))?;
+    tx.commit().await.map_err(|error| {
+        AppError::internal(format!("failed to commit assistant reroll: {error}"))
+    })?;
 
     Ok(RerollResult {
         new_user_version_id: None,
@@ -876,7 +954,9 @@ async fn create_committed_version_for_node(
     }
     message_repo::set_node_active_version_tx(&mut tx, &node.id, Some(&edited_version_id))
         .await
-        .map_err(|error| AppError::internal(format!("failed to activate edited version: {error}")))?;
+        .map_err(|error| {
+            AppError::internal(format!("failed to activate edited version: {error}"))
+        })?;
     message_repo::touch_conversation_updated_at_tx(&mut tx, conversation_id, timestamp)
         .await
         .map_err(|error| {
@@ -919,7 +999,9 @@ async fn create_inserted_assistant_records(
 ) -> Result<RerollResult, AppError> {
     let existing_nodes = message_repo::list_node_records(&state.db, conversation_id)
         .await
-        .map_err(|error| AppError::internal(format!("failed to list conversation nodes: {error}")))?;
+        .map_err(|error| {
+            AppError::internal(format!("failed to list conversation nodes: {error}"))
+        })?;
     let insert_index = existing_nodes
         .iter()
         .position(|node| node.id == user_node.id)
@@ -960,11 +1042,15 @@ async fn create_inserted_assistant_records(
     )
     .await
     .map_err(|error| AppError::internal(format!("failed to create assistant version: {error}")))?;
-    message_repo::set_node_active_version_tx(&mut tx, &assistant_node_id, Some(&assistant_version_id))
-        .await
-        .map_err(|error| {
-            AppError::internal(format!("failed to activate assistant version: {error}"))
-        })?;
+    message_repo::set_node_active_version_tx(
+        &mut tx,
+        &assistant_node_id,
+        Some(&assistant_version_id),
+    )
+    .await
+    .map_err(|error| {
+        AppError::internal(format!("failed to activate assistant version: {error}"))
+    })?;
 
     reindex_conversation_nodes_tx(
         &mut tx,
@@ -1059,22 +1145,59 @@ fn normalize_send_message_input(input: &SendMessageInput) -> Result<NormalizedUs
         .into_iter()
         .filter(|image| !image.base64.trim().is_empty() && image.mime_type.starts_with("image/"))
         .collect::<Vec<_>>();
+    let files = input
+        .files
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|file| !file.base64.trim().is_empty() && !file.name.trim().is_empty())
+        .collect::<Vec<_>>();
+    let tool_results = input
+        .tool_results
+        .clone()
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|result| !result.tool_call_id.trim().is_empty() && !result.name.trim().is_empty())
+        .collect::<Vec<_>>();
 
-    if content.is_empty() && images.is_empty() {
+    if content.is_empty() && images.is_empty() && files.is_empty() && tool_results.is_empty() {
         return Err(AppError::validation(
             "VALIDATION_ERROR",
-            "content or images must not be empty",
+            "content, images, files or tool_results must not be empty",
         ));
     }
 
-    Ok(NormalizedUserInput { content, images })
+    Ok(NormalizedUserInput {
+        content,
+        images,
+        files,
+        tool_results,
+    })
 }
 
 /// 用简单估算值返回 dry_run 所需的 token 统计。
 fn estimate_tokens(messages: &[PromptMessage]) -> i64 {
     let total_bytes = messages
         .iter()
-        .map(|message| message.role.len() + message.content.len())
+        .map(|message| {
+            message.role.len()
+                + message.content.len()
+                + message
+                    .files
+                    .iter()
+                    .map(|file| file.name.len() + file.base64.len())
+                    .sum::<usize>()
+                + message
+                    .tool_calls
+                    .iter()
+                    .map(|call| call.name.len() + call.arguments_json.len())
+                    .sum::<usize>()
+                + message
+                    .tool_results
+                    .iter()
+                    .map(|result| result.name.len() + result.content.len())
+                    .sum::<usize>()
+        })
         .sum::<usize>();
     ((total_bytes as i64) + 3) / 4
 }
@@ -1103,4 +1226,20 @@ fn is_order_key_conflict(error: &str) -> bool {
 /// 返回当前毫秒时间戳。
 fn current_timestamp_ms() -> i64 {
     chrono::Utc::now().timestamp_millis()
+}
+
+/// 从 conversation 的 `enabled_tools` JSON 字段解析出对应的 tool schemas。
+fn resolve_tool_schemas(
+    state: &AppState,
+    enabled_tools_json: Option<&str>,
+) -> Vec<serde_json::Value> {
+    let names: Vec<String> = enabled_tools_json
+        .and_then(|v| serde_json::from_str(v).ok())
+        .unwrap_or_default();
+
+    if names.is_empty() {
+        return Vec::new();
+    }
+
+    state.tool_registry.schemas_for(&names)
 }

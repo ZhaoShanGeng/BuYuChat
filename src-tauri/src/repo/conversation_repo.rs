@@ -3,9 +3,7 @@
 use async_trait::async_trait;
 use sqlx::SqlitePool;
 
-use crate::models::{
-    Conversation, ConversationPatch, ConversationSummary, NewConversation,
-};
+use crate::models::{Conversation, ConversationPatch, ConversationSummary, NewConversation};
 
 /// 会话服务使用的异步仓储契约。
 #[async_trait]
@@ -48,8 +46,8 @@ impl ConversationRepo for SqlxConversationRepo {
             r#"
             INSERT INTO conversations (
                 id, title, agent_id, channel_id, channel_model_id,
-                archived, pinned, created_at, updated_at
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)
+                archived, pinned, enabled_tools, created_at, updated_at
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
             "#,
         )
         .bind(&new_conversation.id)
@@ -59,6 +57,7 @@ impl ConversationRepo for SqlxConversationRepo {
         .bind(&new_conversation.channel_model_id)
         .bind(new_conversation.archived)
         .bind(new_conversation.pinned)
+        .bind(&new_conversation.enabled_tools)
         .bind(new_conversation.created_at)
         .bind(new_conversation.updated_at)
         .execute(&self.pool)
@@ -75,7 +74,7 @@ impl ConversationRepo for SqlxConversationRepo {
             r#"
             SELECT
                 id, title, agent_id, channel_id, channel_model_id,
-                archived, pinned, updated_at
+                archived, pinned, enabled_tools, updated_at
             FROM conversations
             WHERE archived = ?1
             ORDER BY pinned DESC, updated_at DESC, id DESC
@@ -103,6 +102,7 @@ impl ConversationRepo for SqlxConversationRepo {
         let agent_id_provided = patch.agent_id.is_some();
         let channel_id_provided = patch.channel_id.is_some();
         let channel_model_id_provided = patch.channel_model_id.is_some();
+        let enabled_tools_provided = patch.enabled_tools.is_some();
 
         let result = sqlx::query(
             r#"
@@ -114,8 +114,9 @@ impl ConversationRepo for SqlxConversationRepo {
                 channel_model_id = CASE WHEN ?6 THEN ?7 ELSE channel_model_id END,
                 archived = COALESCE(?8, archived),
                 pinned = COALESCE(?9, pinned),
-                updated_at = ?10
-            WHERE id = ?11
+                enabled_tools = CASE WHEN ?10 THEN ?11 ELSE enabled_tools END,
+                updated_at = ?12
+            WHERE id = ?13
             "#,
         )
         .bind(&patch.title)
@@ -127,6 +128,8 @@ impl ConversationRepo for SqlxConversationRepo {
         .bind(patch.channel_model_id.clone().flatten())
         .bind(patch.archived)
         .bind(patch.pinned)
+        .bind(enabled_tools_provided)
+        .bind(patch.enabled_tools.clone().flatten())
         .bind(patch.updated_at)
         .bind(id)
         .execute(&self.pool)

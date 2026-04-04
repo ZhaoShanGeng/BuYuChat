@@ -54,6 +54,10 @@
     onQuickChannelChange: (channelId: string) => void | Promise<void>;
     onQuickChannelMenuOpen: () => void | Promise<void>;
     onQuickTitleChange: (title: string) => void | Promise<void>;
+    enabledTools: string[];
+    onEnabledToolsChange: (tools: string[]) => void | Promise<void>;
+    isMobile?: boolean;
+    onMenuToggle?: () => void;
   };
 
   const props: Props = $props();
@@ -82,8 +86,10 @@
     channelName={props.channelName}
     channels={props.channels}
     conversation={props.conversation}
+    isMobile={props.isMobile}
     modelName={props.modelName}
     models={props.models}
+    onMenuToggle={props.onMenuToggle}
     onQuickAgentChange={props.onQuickAgentChange}
     onQuickChannelChange={props.onQuickChannelChange}
     onQuickChannelMenuOpen={props.onQuickChannelMenuOpen}
@@ -112,9 +118,11 @@
   <ChatComposer
     composer={props.composer}
     conversation={props.conversation}
+    enabledTools={props.enabledTools}
     {generatingVersionId}
     onCancel={props.onCancel}
     onComposerChange={props.onComposerChange}
+    onEnabledToolsChange={props.onEnabledToolsChange}
     onPendingImagesChange={props.onPendingImagesChange}
     onDryRun={props.onDryRun}
     onSend={props.onSend}

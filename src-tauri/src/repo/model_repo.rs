@@ -73,8 +73,8 @@ impl ModelRepo for SqlxModelRepo {
         sqlx::query(
             r#"
             INSERT INTO api_channel_models (
-                id, channel_id, model_id, display_name, context_window, max_output_tokens
-            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6)
+                id, channel_id, model_id, display_name, context_window, max_output_tokens, temperature, top_p
+            ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8)
             "#,
         )
         .bind(&new_model.id)
@@ -83,6 +83,8 @@ impl ModelRepo for SqlxModelRepo {
         .bind(&new_model.display_name)
         .bind(new_model.context_window)
         .bind(new_model.max_output_tokens)
+        .bind(&new_model.temperature)
+        .bind(&new_model.top_p)
         .execute(&self.pool)
         .await
         .map_err(|error| error.to_string())?;
@@ -130,6 +132,8 @@ impl ModelRepo for SqlxModelRepo {
         let display_name_provided = patch.display_name.is_some();
         let context_window_provided = patch.context_window.is_some();
         let max_output_tokens_provided = patch.max_output_tokens.is_some();
+        let temperature_provided = patch.temperature.is_some();
+        let top_p_provided = patch.top_p.is_some();
 
         let result = sqlx::query(
             r#"
@@ -137,8 +141,10 @@ impl ModelRepo for SqlxModelRepo {
             SET
                 display_name = CASE WHEN ?1 THEN ?2 ELSE display_name END,
                 context_window = CASE WHEN ?3 THEN ?4 ELSE context_window END,
-                max_output_tokens = CASE WHEN ?5 THEN ?6 ELSE max_output_tokens END
-            WHERE channel_id = ?7 AND id = ?8
+                max_output_tokens = CASE WHEN ?5 THEN ?6 ELSE max_output_tokens END,
+                temperature = CASE WHEN ?7 THEN ?8 ELSE temperature END,
+                top_p = CASE WHEN ?9 THEN ?10 ELSE top_p END
+            WHERE channel_id = ?11 AND id = ?12
             "#,
         )
         .bind(display_name_provided)
@@ -147,6 +153,10 @@ impl ModelRepo for SqlxModelRepo {
         .bind(patch.context_window.flatten())
         .bind(max_output_tokens_provided)
         .bind(patch.max_output_tokens.flatten())
+        .bind(temperature_provided)
+        .bind(patch.temperature.as_ref().cloned().flatten())
+        .bind(top_p_provided)
+        .bind(patch.top_p.as_ref().cloned().flatten())
         .bind(channel_id)
         .bind(id)
         .execute(&self.pool)

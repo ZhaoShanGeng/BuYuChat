@@ -1,5 +1,7 @@
 <script lang="ts">
+  import "highlight.js/styles/github.min.css";
   import "highlight.js/styles/github-dark.min.css";
+  import "katex/dist/katex.min.css";
   import { onDestroy } from "svelte";
   import { cn } from "$lib/utils.js";
   import { renderRichText } from "$lib/rich-text";
@@ -14,6 +16,8 @@
   let renderedContent = $state("");
   let queuedContent = $state("");
   let flushTimer: ReturnType<typeof setTimeout> | null = null;
+  const proseClass =
+    "rich-text-content prose prose-zinc dark:prose-invert max-w-none min-w-0 break-words select-text text-[14px] leading-6 prose-headings:mb-2 prose-headings:mt-4 prose-headings:font-semibold prose-headings:tracking-tight prose-p:my-2 prose-ul:my-2 prose-ol:my-2 prose-li:my-1 prose-blockquote:text-muted-foreground prose-a:text-inherit prose-a:underline prose-a:underline-offset-4 prose-strong:text-inherit prose-code:rounded-md prose-code:bg-foreground/6 prose-code:px-1.5 prose-code:py-0.5 prose-code:font-mono prose-code:text-[0.875em] prose-code:font-normal prose-code:before:content-none prose-code:after:content-none prose-pre:my-3 prose-pre:bg-transparent prose-pre:p-0 prose-img:rounded-xl";
 
   async function handleContentClick(event: MouseEvent) {
     const target = event.target;
@@ -93,15 +97,17 @@
     flushTimer = setTimeout(flushQueuedContent, throttleMs);
   });
 
-  let html = $derived(renderRichText(renderedContent));
+  let html = $derived.by(() => renderRichText(renderedContent));
+  let classes = $derived(cn(proseClass, className));
 </script>
 
-<div class={cn("rich-text-content", className)} use:bindContentClick>
+<div class={classes} use:bindContentClick>
   {@html html}
 </div>
 
 <style>
   .rich-text-content {
+    color: inherit;
     max-width: 100%;
     min-width: 0;
     overflow-wrap: anywhere;
@@ -116,38 +122,6 @@
     margin-bottom: 0;
   }
 
-  .rich-text-content :global(h1),
-  .rich-text-content :global(h2),
-  .rich-text-content :global(h3),
-  .rich-text-content :global(h4) {
-    margin: 1.25rem 0 0.75rem;
-    font-weight: 700;
-    letter-spacing: -0.02em;
-    line-height: 1.35;
-  }
-
-  .rich-text-content :global(h1) {
-    font-size: 1.5rem;
-  }
-
-  .rich-text-content :global(h2) {
-    font-size: 1.25rem;
-  }
-
-  .rich-text-content :global(h3) {
-    font-size: 1.125rem;
-  }
-
-  .rich-text-content :global(p),
-  .rich-text-content :global(ul),
-  .rich-text-content :global(ol),
-  .rich-text-content :global(blockquote),
-  .rich-text-content :global(pre),
-  .rich-text-content :global(table),
-  .rich-text-content :global(hr) {
-    margin: 0.9rem 0;
-  }
-
   .rich-text-content :global(p),
   .rich-text-content :global(li),
   .rich-text-content :global(blockquote),
@@ -157,33 +131,13 @@
     word-break: break-word;
   }
 
-  .rich-text-content :global(ul),
-  .rich-text-content :global(ol) {
-    padding-left: 1.4rem;
-  }
-
-  .rich-text-content :global(li) {
-    margin: 0.35rem 0;
-  }
-
-  .rich-text-content :global(blockquote) {
-    border-left: 3px solid color-mix(in srgb, currentColor 18%, transparent);
-    color: color-mix(in srgb, currentColor 72%, transparent);
-    padding-left: 1rem;
-  }
-
   .rich-text-content :global(a) {
-    color: inherit;
-    text-decoration: underline;
-    text-underline-offset: 0.18em;
+    text-decoration-thickness: 1px;
   }
 
-  .rich-text-content :global(code) {
-    background: color-mix(in srgb, currentColor 8%, transparent);
-    border-radius: 0.375rem;
-    font-family: var(--font-mono);
-    font-size: 0.875em;
-    padding: 0.125rem 0.375rem;
+  .rich-text-content :global(::selection) {
+    background: color-mix(in srgb, currentColor 18%, transparent);
+    color: inherit;
   }
 
   .rich-text-content :global(pre) {
@@ -199,21 +153,18 @@
     background: transparent;
     display: block;
     min-width: max-content;
+    overflow-wrap: normal;
     padding: 1rem;
   }
 
   .rich-text-content :global(.code-block-wrapper) {
-    background: hsl(220 18% 12%);
-    border: 1px solid hsl(220 14% 18%);
     border-radius: 0.95rem;
-    margin: 1rem 0;
+    margin: 0.75rem 0;
     overflow: hidden;
   }
 
   .rich-text-content :global(.code-block-header) {
     align-items: center;
-    background: hsl(220 18% 16%);
-    border-bottom: 1px solid hsl(220 14% 22%);
     display: flex;
     gap: 0.75rem;
     justify-content: space-between;
@@ -221,7 +172,6 @@
   }
 
   .rich-text-content :global(.code-lang) {
-    color: hsl(215 20% 78%);
     font-family: var(--font-mono);
     font-size: 0.72rem;
     letter-spacing: 0.04em;
@@ -230,9 +180,9 @@
 
   .rich-text-content :global(.code-copy-btn) {
     background: transparent;
-    border: 1px solid hsl(215 20% 30%);
     border-radius: 9999px;
-    color: hsl(215 20% 84%);
+    border-width: 1px;
+    border-style: solid;
     cursor: pointer;
     font-size: 0.72rem;
     line-height: 1;
@@ -243,11 +193,6 @@
       color 140ms ease;
   }
 
-  .rich-text-content :global(.code-copy-btn:hover) {
-    background: hsl(215 20% 24%);
-    border-color: hsl(215 20% 42%);
-  }
-
   .rich-text-content :global(.code-copy-btn:disabled) {
     cursor: default;
     opacity: 0.9;
@@ -255,6 +200,17 @@
 
   .rich-text-content :global(.code-block-wrapper pre) {
     margin: 0;
+  }
+
+  .rich-text-content :global(.katex-display) {
+    margin: 0.75rem 0;
+    overflow-x: auto;
+    overflow-y: hidden;
+    padding: 0.25rem 0;
+  }
+
+  .rich-text-content :global(.katex-display > .katex) {
+    min-width: max-content;
   }
 
   .rich-text-content :global(table) {
@@ -277,13 +233,6 @@
   .rich-text-content :global(th) {
     background: color-mix(in srgb, currentColor 5%, transparent);
     font-weight: 600;
-  }
-
-  .rich-text-content :global(img) {
-    border-radius: 0.75rem;
-    display: block;
-    margin: 1rem 0;
-    max-width: 100%;
   }
 
   .rich-text-content :global(hr) {

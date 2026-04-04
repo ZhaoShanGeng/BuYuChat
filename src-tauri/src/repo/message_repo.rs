@@ -15,10 +15,11 @@ use std::collections::HashMap;
 
 use sqlx::{QueryBuilder, Row, Sqlite, SqlitePool, Transaction};
 
+use crate::error::AppErrorDetails;
 use crate::models::{
-    ImageAttachment, MessageNode, MessageNodeRecord, MessageVersion, MessageVersionPatch,
-    NewMessageContent, NewMessageNode, NewMessageVersion, PromptMessage, VersionContent,
-    VersionMeta,
+    FileAttachment, ImageAttachment, MessageNode, MessageNodeRecord, MessageVersion,
+    MessageVersionPatch, NewMessageContent, NewMessageNode, NewMessageVersion, PromptMessage,
+    ToolCallRecord, ToolResultRecord, VersionContent, VersionMeta,
 };
 
 /// 消息聚合查询使用的中间行结构。
@@ -33,10 +34,15 @@ struct MessageNodeVersionRow {
     node_created_at: i64,
     version_id: Option<String>,
     status: Option<String>,
+    error_code: Option<String>,
+    error_message: Option<String>,
+    error_details: Option<String>,
     model_name: Option<String>,
     prompt_tokens: Option<i64>,
     completion_tokens: Option<i64>,
     finish_reason: Option<String>,
+    received_at: Option<i64>,
+    completed_at: Option<i64>,
     version_created_at: Option<i64>,
 }
 
@@ -53,6 +59,9 @@ struct AggregatedVersionContent {
     text: String,
     thinking: String,
     images: Vec<ImageAttachment>,
+    files: Vec<FileAttachment>,
+    tool_calls: Vec<ToolCallRecord>,
+    tool_results: Vec<ToolResultRecord>,
 }
 
 /// 判断指定会话是否存在。
@@ -126,10 +135,15 @@ pub async fn list_messages(
             n.created_at AS node_created_at,
             v.id AS version_id,
             v.status,
+            v.error_code,
+            v.error_message,
+            v.error_details,
             v.model_name,
             v.prompt_tokens,
             v.completion_tokens,
             v.finish_reason,
+            v.received_at,
+            v.completed_at,
             v.created_at AS version_created_at
         FROM selected_nodes n
         LEFT JOIN message_versions v ON v.node_id = n.id
@@ -177,9 +191,9 @@ pub async fn list_messages(
                 id: version_id.clone(),
                 node_id: row.node_id.clone(),
                 content: if is_active {
-                    active_contents
-                        .get(&version_id)
-                        .and_then(|content| (!content.text.is_empty()).then(|| content.text.clone()))
+                    active_contents.get(&version_id).and_then(|content| {
+                        (!content.text.is_empty()).then(|| content.text.clone())
+                    })
                 } else {
                     None
                 },
@@ -198,11 +212,40 @@ pub async fn list_messages(
                 } else {
                     Vec::new()
                 },
+                files: if is_active {
+                    active_contents
+                        .get(&version_id)
+                        .map(|content| content.files.clone())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                },
+                tool_calls: if is_active {
+                    active_contents
+                        .get(&version_id)
+                        .map(|content| content.tool_calls.clone())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                },
+                tool_results: if is_active {
+                    active_contents
+                        .get(&version_id)
+                        .map(|content| content.tool_results.clone())
+                        .unwrap_or_default()
+                } else {
+                    Vec::new()
+                },
                 status: row.status.unwrap_or_else(|| "committed".to_string()),
+                error_code: row.error_code,
+                error_message: row.error_message,
+                error_details: parse_error_details(row.error_details)?,
                 model_name: row.model_name,
                 prompt_tokens: row.prompt_tokens,
                 completion_tokens: row.completion_tokens,
                 finish_reason: row.finish_reason,
+                received_at: row.received_at,
+                completed_at: row.completed_at,
                 created_at: row.version_created_at.unwrap_or(row.node_created_at),
             });
         }
@@ -271,7 +314,9 @@ pub async fn get_version_images(
     .map_err(|error| error.to_string())?;
 
     rows.into_iter()
-        .map(|row| serde_json::from_str::<ImageAttachment>(&row.body).map_err(|error| error.to_string()))
+        .map(|row| {
+            serde_json::from_str::<ImageAttachment>(&row.body).map_err(|error| error.to_string())
+        })
         .collect()
 }
 
@@ -453,6 +498,9 @@ pub async fn build_prompt_messages(
     let mut current_role = String::new();
     let mut current_body = String::new();
     let mut current_images: Vec<ImageAttachment> = Vec::new();
+    let mut current_files: Vec<FileAttachment> = Vec::new();
+    let mut current_tool_calls: Vec<ToolCallRecord> = Vec::new();
+    let mut current_tool_results: Vec<ToolResultRecord> = Vec::new();
 
     for row in rows {
         let node_id = row
@@ -478,27 +526,53 @@ pub async fn build_prompt_messages(
                 role: current_role.clone(),
                 content: current_body.clone(),
                 images: current_images.clone(),
+                files: current_files.clone(),
+                tool_calls: current_tool_calls.clone(),
+                tool_results: current_tool_results.clone(),
             });
             current_node_id = node_id.clone();
             current_role = role.clone();
             current_body.clear();
             current_images.clear();
+            current_files.clear();
+            current_tool_calls.clear();
+            current_tool_results.clear();
         }
 
         match content_type.as_str() {
             "text/plain" => current_body.push_str(&body),
-            "image/base64" => current_images
-                .push(serde_json::from_str::<ImageAttachment>(&body).map_err(|error| error.to_string())?),
+            "image/base64" => current_images.push(
+                serde_json::from_str::<ImageAttachment>(&body)
+                    .map_err(|error| error.to_string())?,
+            ),
+            "file/base64" => current_files.push(
+                serde_json::from_str::<FileAttachment>(&body).map_err(|error| error.to_string())?,
+            ),
+            "application/vnd.buyu.tool-call+json" => current_tool_calls.push(
+                serde_json::from_str::<ToolCallRecord>(&body).map_err(|error| error.to_string())?,
+            ),
+            "application/vnd.buyu.tool-result+json" => current_tool_results.push(
+                serde_json::from_str::<ToolResultRecord>(&body)
+                    .map_err(|error| error.to_string())?,
+            ),
             "text/thinking" => {}
             _ => {}
         }
     }
 
-    if !current_body.is_empty() || !current_images.is_empty() {
+    if !current_body.is_empty()
+        || !current_images.is_empty()
+        || !current_files.is_empty()
+        || !current_tool_calls.is_empty()
+        || !current_tool_results.is_empty()
+    {
         prompts.push(PromptMessage {
             role: current_role,
             content: current_body,
             images: current_images,
+            files: current_files,
+            tool_calls: current_tool_calls,
+            tool_results: current_tool_results,
         });
     }
 
@@ -538,14 +612,16 @@ pub async fn insert_version_tx(
     sqlx::query(
         r#"
         INSERT INTO message_versions (
-            id, node_id, status, model_name, created_at
-        ) VALUES (?1, ?2, ?3, ?4, ?5)
+            id, node_id, status, model_name, received_at, completed_at, created_at
+        ) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)
         "#,
     )
     .bind(&new_version.id)
     .bind(&new_version.node_id)
     .bind(&new_version.status)
     .bind(&new_version.model_name)
+    .bind::<Option<i64>>(None)
+    .bind::<Option<i64>>(None)
     .bind(new_version.created_at)
     .execute(&mut **tx)
     .await
@@ -620,21 +696,37 @@ pub async fn update_version_tx(
     let prompt_tokens_provided = patch.prompt_tokens.is_some();
     let completion_tokens_provided = patch.completion_tokens.is_some();
     let finish_reason_provided = patch.finish_reason.is_some();
+    let error_code_provided = patch.error_code.is_some();
+    let error_message_provided = patch.error_message.is_some();
+    let error_details_provided = patch.error_details.is_some();
     let model_name_provided = patch.model_name.is_some();
+    let received_at_provided = patch.received_at.is_some();
+    let completed_at_provided = patch.completed_at.is_some();
 
     sqlx::query(
         r#"
         UPDATE message_versions
         SET
             status = COALESCE(?1, status),
-            prompt_tokens = CASE WHEN ?2 THEN ?3 ELSE prompt_tokens END,
-            completion_tokens = CASE WHEN ?4 THEN ?5 ELSE completion_tokens END,
-            finish_reason = CASE WHEN ?6 THEN ?7 ELSE finish_reason END,
-            model_name = CASE WHEN ?8 THEN ?9 ELSE model_name END
-        WHERE id = ?10
+            error_code = CASE WHEN ?2 THEN ?3 ELSE error_code END,
+            error_message = CASE WHEN ?4 THEN ?5 ELSE error_message END,
+            error_details = CASE WHEN ?6 THEN ?7 ELSE error_details END,
+            prompt_tokens = CASE WHEN ?8 THEN ?9 ELSE prompt_tokens END,
+            completion_tokens = CASE WHEN ?10 THEN ?11 ELSE completion_tokens END,
+            finish_reason = CASE WHEN ?12 THEN ?13 ELSE finish_reason END,
+            model_name = CASE WHEN ?14 THEN ?15 ELSE model_name END,
+            received_at = CASE WHEN ?16 THEN ?17 ELSE received_at END,
+            completed_at = CASE WHEN ?18 THEN ?19 ELSE completed_at END
+        WHERE id = ?20
         "#,
     )
     .bind(&patch.status)
+    .bind(error_code_provided)
+    .bind(patch.error_code.clone().flatten())
+    .bind(error_message_provided)
+    .bind(patch.error_message.clone().flatten())
+    .bind(error_details_provided)
+    .bind(patch.error_details.clone().flatten())
     .bind(prompt_tokens_provided)
     .bind(patch.prompt_tokens.flatten())
     .bind(completion_tokens_provided)
@@ -643,11 +735,22 @@ pub async fn update_version_tx(
     .bind(patch.finish_reason.clone().flatten())
     .bind(model_name_provided)
     .bind(patch.model_name.clone().flatten())
+    .bind(received_at_provided)
+    .bind(patch.received_at.flatten())
+    .bind(completed_at_provided)
+    .bind(patch.completed_at.flatten())
     .bind(version_id)
     .execute(&mut **tx)
     .await
     .map(|result| result.rows_affected() > 0)
     .map_err(|error| error.to_string())
+}
+
+fn parse_error_details(raw: Option<String>) -> Result<Option<AppErrorDetails>, String> {
+    raw.map(|value| {
+        serde_json::from_str::<AppErrorDetails>(&value).map_err(|error| error.to_string())
+    })
+    .transpose()
 }
 
 /// 在事务中删除版本。
@@ -745,9 +848,24 @@ async fn load_contents_map(
             "text/plain" => entry.text.push_str(&row.body),
             "text/thinking" => entry.thinking.push_str(&row.body),
             "image/base64" => {
-                let attachment =
-                    serde_json::from_str::<ImageAttachment>(&row.body).map_err(|error| error.to_string())?;
+                let attachment = serde_json::from_str::<ImageAttachment>(&row.body)
+                    .map_err(|error| error.to_string())?;
                 entry.images.push(attachment);
+            }
+            "file/base64" => {
+                let attachment = serde_json::from_str::<FileAttachment>(&row.body)
+                    .map_err(|error| error.to_string())?;
+                entry.files.push(attachment);
+            }
+            "application/vnd.buyu.tool-call+json" => {
+                let tool_call = serde_json::from_str::<ToolCallRecord>(&row.body)
+                    .map_err(|error| error.to_string())?;
+                entry.tool_calls.push(tool_call);
+            }
+            "application/vnd.buyu.tool-result+json" => {
+                let tool_result = serde_json::from_str::<ToolResultRecord>(&row.body)
+                    .map_err(|error| error.to_string())?;
+                entry.tool_results.push(tool_result);
             }
             _ => {}
         }

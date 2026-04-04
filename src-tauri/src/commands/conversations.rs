@@ -7,9 +7,7 @@ use tauri::State;
 
 use crate::{
     error::AppError,
-    models::{
-        Conversation, ConversationSummary, CreateConversationInput, UpdateConversationInput,
-    },
+    models::{Conversation, ConversationSummary, CreateConversationInput, UpdateConversationInput},
     services::conversation_service,
     state::AppState,
 };
@@ -32,10 +30,7 @@ pub async fn list_conversations(
 }
 
 /// 获取单个会话详情。
-pub async fn get_conversation_impl(
-    state: &AppState,
-    id: String,
-) -> Result<Conversation, AppError> {
+pub async fn get_conversation_impl(state: &AppState, id: String) -> Result<Conversation, AppError> {
     conversation_service::get(&state.db, &id).await
 }
 
@@ -91,9 +86,6 @@ pub async fn delete_conversation_impl(state: &AppState, id: String) -> Result<()
 
 /// Tauri 命令：删除会话。
 #[tauri::command]
-pub async fn delete_conversation(
-    state: State<'_, AppState>,
-    id: String,
-) -> Result<(), AppError> {
+pub async fn delete_conversation(state: State<'_, AppState>, id: String) -> Result<(), AppError> {
     delete_conversation_impl(state.inner(), id).await
 }

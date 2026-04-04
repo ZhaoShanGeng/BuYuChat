@@ -82,6 +82,7 @@ pub async fn create_with<R: ChannelRepo, C: Clock>(
         channel_type: config.channel_type.to_string(),
         base_url: input.base_url.trim().to_string(),
         api_key: input.api_key,
+        api_keys: input.api_keys,
         auth_type: input
             .auth_type
             .or_else(|| Some(config.auth_type.to_string())),
@@ -145,6 +146,7 @@ pub async fn update_with<R: ChannelRepo, C: Clock>(
             base_url: input.base_url.map(|value| value.trim().to_string()),
             channel_type: input.channel_type,
             api_key: input.api_key,
+            api_keys: input.api_keys,
             auth_type: input.auth_type,
             models_endpoint: input.models_endpoint,
             chat_endpoint: input.chat_endpoint,

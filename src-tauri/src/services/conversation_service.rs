@@ -117,6 +117,10 @@ where
     .await?;
 
     let timestamp = clock.now_ms().await;
+    let enabled_tools_json = input
+        .enabled_tools
+        .as_ref()
+        .map(|tools| serde_json::to_string(tools).unwrap_or_else(|_| "[]".to_string()));
     conversation_repo
         .insert(&NewConversation {
             id: new_uuid_v7(),
@@ -126,6 +130,7 @@ where
             channel_model_id: input.channel_model_id,
             archived: false,
             pinned: false,
+            enabled_tools: enabled_tools_json,
             created_at: timestamp,
             updated_at: timestamp,
         })
@@ -144,10 +149,7 @@ pub async fn list_with<CR: ConversationRepo>(
 }
 
 /// 使用显式依赖获取单个会话。
-pub async fn get_with<CR: ConversationRepo>(
-    repo: &CR,
-    id: &str,
-) -> Result<Conversation, AppError> {
+pub async fn get_with<CR: ConversationRepo>(repo: &CR, id: &str) -> Result<Conversation, AppError> {
     repo.get(id)
         .await
         .map_err(|error| AppError::internal(format!("failed to get conversation: {error}")))?
@@ -219,6 +221,11 @@ where
                 channel_model_id: input.channel_model_id_set.then_some(input.channel_model_id),
                 archived: input.archived,
                 pinned: input.pinned,
+                enabled_tools: input.enabled_tools_set.then(|| {
+                    input.enabled_tools.as_ref().map(|tools| {
+                        serde_json::to_string(tools).unwrap_or_else(|_| "[]".to_string())
+                    })
+                }),
                 updated_at: clock.now_ms().await,
             },
         )
@@ -232,9 +239,12 @@ pub async fn delete_with<CR: ConversationRepo>(repo: &CR, id: &str) -> Result<()
     match repo
         .delete(id)
         .await
-        .map_err(|error| AppError::internal(format!("failed to delete conversation: {error}")))? {
+        .map_err(|error| AppError::internal(format!("failed to delete conversation: {error}")))?
+    {
         true => Ok(()),
-        false => Err(AppError::not_found(format!("conversation '{id}' not found"))),
+        false => Err(AppError::not_found(format!(
+            "conversation '{id}' not found"
+        ))),
     }
 }
 
@@ -276,10 +286,7 @@ where
 
     if let Some(channel_model_id) = channel_model_id {
         let channel_id = channel_id.ok_or_else(|| {
-            AppError::validation(
-                "VALIDATION_ERROR",
-                "channel_model_id requires channel_id",
-            )
+            AppError::validation("VALIDATION_ERROR", "channel_model_id requires channel_id")
         })?;
 
         model_repo

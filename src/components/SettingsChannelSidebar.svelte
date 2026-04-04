@@ -31,7 +31,7 @@
   }: Props = $props();
 </script>
 
-<aside class="settings-page__sidebar flex shrink-0 flex-col border-r bg-muted/20" data-ui="settings-channel-sidebar">
+<aside class="flex h-full shrink-0 flex-col bg-muted/20" data-ui="settings-channel-sidebar">
   <div class="settings-page__sidebar-header border-b p-4">
     <div class="relative">
       <SearchIcon class="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />

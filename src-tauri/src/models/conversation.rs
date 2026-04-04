@@ -26,6 +26,7 @@ pub struct Conversation {
     pub channel_model_id: Option<String>,
     pub archived: bool,
     pub pinned: bool,
+    pub enabled_tools: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -42,6 +43,7 @@ pub struct ConversationSummary {
     pub channel_model_id: Option<String>,
     pub archived: bool,
     pub pinned: bool,
+    pub enabled_tools: Option<String>,
     pub updated_at: i64,
 }
 
@@ -54,6 +56,7 @@ pub struct CreateConversationInput {
     pub agent_id: Option<String>,
     pub channel_id: Option<String>,
     pub channel_model_id: Option<String>,
+    pub enabled_tools: Option<Vec<String>>,
 }
 
 /// 更新会话的输入载荷。
@@ -73,6 +76,9 @@ pub struct UpdateConversationInput {
     pub channel_model_id: Option<String>,
     pub archived: Option<bool>,
     pub pinned: Option<bool>,
+    #[serde(default)]
+    pub enabled_tools_set: bool,
+    pub enabled_tools: Option<Vec<String>>,
 }
 
 /// 仓储层插入会话时使用的内部模型。
@@ -87,6 +93,7 @@ pub struct NewConversation {
     pub channel_model_id: Option<String>,
     pub archived: bool,
     pub pinned: bool,
+    pub enabled_tools: Option<String>,
     pub created_at: i64,
     pub updated_at: i64,
 }
@@ -102,5 +109,6 @@ pub struct ConversationPatch {
     pub channel_model_id: Option<Option<String>>,
     pub archived: Option<bool>,
     pub pinned: Option<bool>,
+    pub enabled_tools: Option<Option<String>>,
     pub updated_at: i64,
 }

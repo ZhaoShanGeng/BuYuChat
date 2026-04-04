@@ -17,6 +17,7 @@ export type Conversation = {
   channelModelId: string | null;
   archived: boolean;
   pinned: boolean;
+  enabledTools: string[];
   createdAt: number;
   updatedAt: number;
 };
@@ -32,6 +33,7 @@ export type ConversationSummary = {
   channelModelId: string | null;
   archived: boolean;
   pinned: boolean;
+  enabledTools: string[];
   updatedAt: number;
 };
 
@@ -43,6 +45,7 @@ export type ConversationInput = {
   agentId?: string | null;
   channelId?: string | null;
   channelModelId?: string | null;
+  enabledTools?: string[];
 };
 
 /**
@@ -55,6 +58,7 @@ export type ConversationPatch = {
   channelModelId?: string | null;
   archived?: boolean;
   pinned?: boolean;
+  enabledTools?: string[] | null;
 };
 
 /**
@@ -68,6 +72,7 @@ type RawConversation = {
   channel_model_id: string | null;
   archived: boolean;
   pinned: boolean;
+  enabled_tools: string | null;
   created_at: number;
   updated_at: number;
 };
@@ -83,6 +88,7 @@ type RawConversationSummary = {
   channel_model_id: string | null;
   archived: boolean;
   pinned: boolean;
+  enabled_tools: string | null;
   updated_at: number;
 };
 
@@ -98,6 +104,7 @@ function fromRawConversation(raw: RawConversation): Conversation {
     channelModelId: raw.channel_model_id,
     archived: raw.archived,
     pinned: raw.pinned,
+    enabledTools: parseEnabledTools(raw.enabled_tools),
     createdAt: raw.created_at,
     updatedAt: raw.updated_at
   };
@@ -115,6 +122,7 @@ function fromRawConversationSummary(raw: RawConversationSummary): ConversationSu
     channelModelId: raw.channel_model_id,
     archived: raw.archived,
     pinned: raw.pinned,
+    enabledTools: parseEnabledTools(raw.enabled_tools),
     updatedAt: raw.updated_at
   };
 }
@@ -128,6 +136,7 @@ function toRawCreateInput(input: ConversationInput) {
     agent_id: toOptionalValue(input.agentId),
     channel_id: toOptionalValue(input.channelId),
     channel_model_id: toOptionalValue(input.channelModelId),
+    enabled_tools: toOptionalValue(input.enabledTools),
     archived: undefined,
     pinned: undefined
   };
@@ -135,6 +144,19 @@ function toRawCreateInput(input: ConversationInput) {
 
 function hasOwnPatchField<T extends object, K extends keyof T>(input: T, key: K): boolean {
   return Object.prototype.hasOwnProperty.call(input, key);
+}
+
+/**
+ * 解析 enabled_tools JSON 字符串为字符串数组。
+ */
+function parseEnabledTools(raw: string | null): string[] {
+  if (!raw) return [];
+  try {
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
 }
 
 /**
@@ -152,7 +174,11 @@ function toRawPatch(input: ConversationPatch) {
       ? input.channelModelId ?? null
       : undefined,
     archived: toOptionalValue(input.archived),
-    pinned: toOptionalValue(input.pinned)
+    pinned: toOptionalValue(input.pinned),
+    enabled_tools_set: hasOwnPatchField(input, "enabledTools"),
+    enabled_tools: hasOwnPatchField(input, "enabledTools")
+      ? input.enabledTools ?? null
+      : undefined
   };
 }
 
@@ -204,3 +230,18 @@ export async function deleteConversation(id: string): Promise<void> {
 }
 
 export { toAppError, type AppError };
+
+/**
+ * 内置工具信息。
+ */
+export type BuiltinToolInfo = {
+  name: string;
+  description: string;
+};
+
+/**
+ * 获取所有可用的内置工具列表。
+ */
+export async function listBuiltinTools(): Promise<BuiltinToolInfo[]> {
+  return invoke<BuiltinToolInfo[]>("list_builtin_tools");
+}

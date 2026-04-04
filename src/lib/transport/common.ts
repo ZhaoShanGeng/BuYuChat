@@ -13,6 +13,16 @@
 export type AppError = {
   errorCode: string;
   message: string;
+  details?: ErrorDetails | null;
+};
+
+export type ErrorDetails = {
+  requestUrl?: string | null;
+  requestMethod?: string | null;
+  requestBody?: string | null;
+  responseStatus?: number | null;
+  responseBody?: string | null;
+  rawMessage?: string | null;
 };
 
 /**
@@ -21,7 +31,32 @@ export type AppError = {
 type RawError = {
   error_code?: string;
   message?: string;
+  details?: RawErrorDetails | null;
 };
+
+export type RawErrorDetails = {
+  request_url?: string | null;
+  request_method?: string | null;
+  request_body?: string | null;
+  response_status?: number | null;
+  response_body?: string | null;
+  raw_message?: string | null;
+};
+
+export function fromRawErrorDetails(raw?: RawErrorDetails | null): ErrorDetails | null {
+  if (!raw) {
+    return null;
+  }
+
+  return {
+    requestUrl: raw.request_url ?? null,
+    requestMethod: raw.request_method ?? null,
+    requestBody: raw.request_body ?? null,
+    responseStatus: raw.response_status ?? null,
+    responseBody: raw.response_body ?? null,
+    rawMessage: raw.raw_message ?? null
+  };
+}
 
 /**
  * 将未知错误归一化为前端统一错误结构。
@@ -39,7 +74,8 @@ export function toAppError(error: unknown): AppError {
   const raw = error as RawError;
   return {
     errorCode: raw.error_code ?? fallback.errorCode,
-    message: raw.message ?? fallback.message
+    message: raw.message ?? fallback.message,
+    details: fromRawErrorDetails(raw.details)
   };
 }
 

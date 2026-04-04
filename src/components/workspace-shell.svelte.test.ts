@@ -103,6 +103,8 @@ function createWorkspaceDeps() {
             promptTokens: 1,
             completionTokens: 2,
             finishReason: "stop",
+            receivedAt: 1,
+            completedAt: 2,
             createdAt: 1
           },
           {
@@ -116,6 +118,8 @@ function createWorkspaceDeps() {
             promptTokens: 1,
             completionTokens: 3,
             finishReason: "stop",
+            receivedAt: 2,
+            completedAt: 3,
             createdAt: 2
           }
         ],
@@ -249,6 +253,146 @@ describe("workspace shell runes state", () => {
     workspace.destroy();
   });
 
+  it("marks the active version cancelled immediately after cancel succeeds", async () => {
+    const deps = createWorkspaceDeps();
+    const workspace = createWorkspaceShellState(deps);
+
+    await settleState();
+
+    workspace.activeMessages[0]!.versions[0]!.status = "generating";
+    deps.listMessages.mockResolvedValueOnce([
+      {
+        id: "node-1",
+        conversationId: "conv-1",
+        authorAgentId: null,
+        role: "assistant",
+        orderKey: "0001",
+        activeVersionId: "ver-1",
+        versions: [
+          {
+            id: "ver-1",
+            nodeId: "node-1",
+            content: "第一版",
+            thinkingContent: null,
+            images: [],
+            status: "cancelled",
+            modelName: "gpt-4o-mini",
+            promptTokens: 1,
+            completionTokens: 2,
+            finishReason: "cancelled",
+            receivedAt: 1,
+            completedAt: 2,
+            createdAt: 1
+          }
+        ],
+        createdAt: 1
+      }
+    ]);
+
+    await workspace.handleCancelGeneration("ver-1");
+
+    expect(deps.cancelGeneration).toHaveBeenCalledWith("ver-1");
+    expect(workspace.activeMessages[0]?.versions[0]?.status).toBe("cancelled");
+    workspace.destroy();
+  });
+
+  it("reloads messages after completed events so assistant attachments can surface", async () => {
+    const deps = createWorkspaceDeps();
+    const workspace = createWorkspaceShellState(deps);
+
+    await settleState();
+
+    workspace.activeMessages[0]!.versions[0]!.status = "generating";
+    deps.listMessages.mockResolvedValueOnce([
+      {
+        id: "node-1",
+        conversationId: "conv-1",
+        authorAgentId: null,
+        role: "assistant",
+        orderKey: "0001",
+        activeVersionId: "ver-1",
+        versions: [
+          {
+            id: "ver-1",
+            nodeId: "node-1",
+            content: "这里有结果和附件。",
+            thinkingContent: null,
+            images: [{ base64: "aW1hZ2UtZGF0YQ==", mimeType: "image/png" }],
+            files: [
+              {
+                name: "report.txt",
+                base64: "SGVsbG8sIGZpbGUh",
+                mimeType: "text/plain"
+              }
+            ],
+            status: "committed",
+            modelName: "gpt-4o-mini",
+            promptTokens: 1,
+            completionTokens: 2,
+            finishReason: "stop",
+            receivedAt: 1,
+            completedAt: 2,
+            createdAt: 1
+          }
+        ],
+        createdAt: 1
+      }
+    ]);
+
+    workspace.handleGenerationEvent({
+      type: "completed",
+      conversationId: "conv-1",
+      nodeId: "node-1",
+      versionId: "ver-1",
+      promptTokens: 1,
+      completionTokens: 2,
+      finishReason: "stop",
+      model: "gpt-4o-mini",
+      receivedAt: 1,
+      completedAt: 2
+    });
+
+    await settleState();
+
+    expect(deps.listMessages).toHaveBeenCalledTimes(2);
+    expect(workspace.activeMessages[0]?.versions[0]?.images[0]?.mimeType).toBe("image/png");
+    expect(workspace.activeMessages[0]?.versions[0]?.files?.[0]?.name).toBe("report.txt");
+    workspace.destroy();
+  });
+
+  it("applies structured failure details immediately on failed events", async () => {
+    const deps = createWorkspaceDeps();
+    const workspace = createWorkspaceShellState(deps);
+
+    await settleState();
+
+    workspace.activeMessages[0]!.versions[0]!.status = "generating";
+    workspace.handleGenerationEvent({
+      type: "failed",
+      conversationId: "conv-1",
+      nodeId: "node-1",
+      versionId: "ver-1",
+      errorCode: "AI_REQUEST_FAILED",
+      errorMessage: "remote endpoint returned 401 Unauthorized",
+      errorDetails: {
+        requestUrl: "https://example.com/v1/chat/completions",
+        requestMethod: "POST",
+        requestBody: "{\"model\":\"gpt-5.4\"}",
+        responseStatus: 401,
+        responseBody: "{\"error\":\"invalid api key\"}"
+      }
+    });
+
+    expect(workspace.activeMessages[0]?.versions[0]?.status).toBe("failed");
+    expect(workspace.activeMessages[0]?.versions[0]?.errorCode).toBe("AI_REQUEST_FAILED");
+    expect(workspace.activeMessages[0]?.versions[0]?.errorMessage).toContain("401");
+    expect(workspace.activeMessages[0]?.versions[0]?.errorDetails?.requestUrl).toContain(
+      "/v1/chat/completions"
+    );
+    expect(workspace.activeMessages[0]?.versions[0]?.errorDetails?.responseStatus).toBe(401);
+    workspace.destroy();
+  });
+
   it("keeps the latest reloadMessages result when older requests resolve later", async () => {
     const deps = createWorkspaceDeps();
     const firstReload = createDeferred<MessageNode[]>();
@@ -275,6 +419,8 @@ describe("workspace shell runes state", () => {
               promptTokens: 1,
               completionTokens: 2,
               finishReason: "stop",
+              receivedAt: 1,
+              completedAt: 2,
               createdAt: 1
             }
           ],
@@ -307,6 +453,8 @@ describe("workspace shell runes state", () => {
             promptTokens: null,
             completionTokens: null,
             finishReason: null,
+            receivedAt: null,
+            completedAt: null,
             createdAt: 1
           }
         ],
@@ -333,6 +481,8 @@ describe("workspace shell runes state", () => {
             promptTokens: 1,
             completionTokens: 2,
             finishReason: "stop",
+            receivedAt: 1,
+            completedAt: 2,
             createdAt: 1
           }
         ],
@@ -385,6 +535,8 @@ describe("workspace shell runes state", () => {
               promptTokens: 1,
               completionTokens: 2,
               finishReason: "stop",
+              receivedAt: 1,
+              completedAt: 2,
               createdAt: 1
             }
           ],
@@ -413,6 +565,8 @@ describe("workspace shell runes state", () => {
                 promptTokens: 1,
                 completionTokens: 2,
                 finishReason: "stop",
+                receivedAt: 1,
+                completedAt: 2,
                 createdAt: 1
               }
             ],

@@ -18,6 +18,10 @@ pub struct ChannelModel {
     pub context_window: Option<i64>,
     /// 最大输出 token 数。
     pub max_output_tokens: Option<i64>,
+    /// 默认 temperature。
+    pub temperature: Option<String>,
+    /// 默认 top_p。
+    pub top_p: Option<String>,
 }
 
 /// 创建模型时使用的输入载荷。
@@ -31,6 +35,10 @@ pub struct CreateModelInput {
     pub context_window: Option<i64>,
     /// 最大输出 token 数。
     pub max_output_tokens: Option<i64>,
+    /// 默认 temperature。
+    pub temperature: Option<String>,
+    /// 默认 top_p。
+    pub top_p: Option<String>,
 }
 
 /// 更新模型时使用的输入载荷。
@@ -42,6 +50,10 @@ pub struct UpdateModelInput {
     pub context_window: Option<Option<i64>>,
     /// 更新后的最大输出 token；`Some(None)` 表示显式清空。
     pub max_output_tokens: Option<Option<i64>>,
+    /// 更新后的 temperature；`Some(None)` 表示显式清空。
+    pub temperature: Option<Option<String>>,
+    /// 更新后的 top_p；`Some(None)` 表示显式清空。
+    pub top_p: Option<Option<String>>,
 }
 
 /// 仓储层插入模型时使用的内部模型。
@@ -59,6 +71,10 @@ pub struct NewChannelModel {
     pub context_window: Option<i64>,
     /// 最大输出 token 数。
     pub max_output_tokens: Option<i64>,
+    /// 默认 temperature。
+    pub temperature: Option<String>,
+    /// 默认 top_p。
+    pub top_p: Option<String>,
 }
 
 /// 仓储层更新模型时使用的内部补丁模型。
@@ -70,6 +86,10 @@ pub struct ChannelModelPatch {
     pub context_window: Option<Option<i64>>,
     /// 更新后的最大输出 token；`Some(None)` 表示显式清空。
     pub max_output_tokens: Option<Option<i64>>,
+    /// 更新后的 temperature；`Some(None)` 表示显式清空。
+    pub temperature: Option<Option<String>>,
+    /// 更新后的 top_p；`Some(None)` 表示显式清空。
+    pub top_p: Option<Option<String>>,
 }
 
 /// 从远程渠道读取到的模型元信息。

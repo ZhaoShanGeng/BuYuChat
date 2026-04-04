@@ -2,10 +2,7 @@
 
 mod helpers;
 
-use buyu_lib::{
-    repo::message_repo,
-    utils::ids::new_uuid_v7,
-};
+use buyu_lib::{repo::message_repo, utils::ids::new_uuid_v7};
 
 /// 向测试数据库插入一条会话记录。
 async fn insert_conversation(db: &sqlx::SqlitePool, conversation_id: &str) {
@@ -231,13 +228,12 @@ async fn test_delete_version_cascades_message_contents() {
         .unwrap();
     tx.commit().await.unwrap();
 
-    let count: i64 = sqlx::query_scalar(
-        "SELECT COUNT(*) FROM message_contents WHERE version_id = ?1",
-    )
-    .bind(&version_a)
-    .fetch_one(&state.db)
-    .await
-    .unwrap();
+    let count: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM message_contents WHERE version_id = ?1")
+            .bind(&version_a)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
 
     assert_eq!(count, 0);
 }

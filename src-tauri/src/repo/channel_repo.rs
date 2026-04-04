@@ -40,8 +40,8 @@ impl ChannelRepo for SqlxChannelRepo {
             r#"
             INSERT INTO api_channels (
                 id, name, channel_type, base_url, api_key, auth_type,
-                models_endpoint, chat_endpoint, stream_endpoint, thinking_tags, enabled, created_at, updated_at
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                api_keys, models_endpoint, chat_endpoint, stream_endpoint, thinking_tags, enabled, created_at, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             "#,
         )
         .bind(&new_channel.id)
@@ -50,6 +50,7 @@ impl ChannelRepo for SqlxChannelRepo {
         .bind(&new_channel.base_url)
         .bind(&new_channel.api_key)
         .bind(&new_channel.auth_type)
+        .bind(&new_channel.api_keys)
         .bind(&new_channel.models_endpoint)
         .bind(&new_channel.chat_endpoint)
         .bind(&new_channel.stream_endpoint)
@@ -96,20 +97,22 @@ impl ChannelRepo for SqlxChannelRepo {
                 base_url = COALESCE(?2, base_url),
                 channel_type = COALESCE(?3, channel_type),
                 api_key = COALESCE(?4, api_key),
-                auth_type = COALESCE(?5, auth_type),
-                models_endpoint = COALESCE(?6, models_endpoint),
-                chat_endpoint = COALESCE(?7, chat_endpoint),
-                stream_endpoint = COALESCE(?8, stream_endpoint),
-                thinking_tags = COALESCE(?9, thinking_tags),
-                enabled = COALESCE(?10, enabled),
-                updated_at = ?11
-            WHERE id = ?12
+                api_keys = COALESCE(?5, api_keys),
+                auth_type = COALESCE(?6, auth_type),
+                models_endpoint = COALESCE(?7, models_endpoint),
+                chat_endpoint = COALESCE(?8, chat_endpoint),
+                stream_endpoint = COALESCE(?9, stream_endpoint),
+                thinking_tags = COALESCE(?10, thinking_tags),
+                enabled = COALESCE(?11, enabled),
+                updated_at = ?12
+            WHERE id = ?13
             "#,
         )
         .bind(&patch.name)
         .bind(&patch.base_url)
         .bind(&patch.channel_type)
         .bind(&patch.api_key)
+        .bind(&patch.api_keys)
         .bind(&patch.auth_type)
         .bind(&patch.models_endpoint)
         .bind(&patch.chat_endpoint)

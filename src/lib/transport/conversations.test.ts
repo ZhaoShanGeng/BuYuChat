@@ -77,7 +77,9 @@ describe("conversations transport", () => {
         channel_model_id_set: true,
         channel_model_id: null,
         archived: undefined,
-        pinned: undefined
+        pinned: undefined,
+        enabled_tools_set: false,
+        enabled_tools: undefined
       }
     });
   });
@@ -112,7 +114,9 @@ describe("conversations transport", () => {
         channel_model_id_set: false,
         channel_model_id: undefined,
         archived: false,
-        pinned: false
+        pinned: false,
+        enabled_tools_set: false,
+        enabled_tools: undefined
       }
     });
   });

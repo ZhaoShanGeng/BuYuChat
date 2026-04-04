@@ -16,6 +16,8 @@ export type ChannelModel = {
   displayName: string | null;
   contextWindow: number | null;
   maxOutputTokens: number | null;
+  temperature: string | null;
+  topP: string | null;
 };
 
 /**
@@ -26,6 +28,8 @@ export type ModelInput = {
   displayName?: string | null;
   contextWindow?: number | null;
   maxOutputTokens?: number | null;
+  temperature?: string | null;
+  topP?: string | null;
 };
 
 /**
@@ -35,6 +39,8 @@ export type ModelPatch = {
   displayName?: string | null;
   contextWindow?: number | null;
   maxOutputTokens?: number | null;
+  temperature?: string | null;
+  topP?: string | null;
 };
 
 /**
@@ -56,6 +62,8 @@ type RawChannelModel = {
   display_name: string | null;
   context_window: number | null;
   max_output_tokens: number | null;
+  temperature: string | null;
+  top_p: string | null;
 };
 
 /**
@@ -77,7 +85,9 @@ function fromRawModel(raw: RawChannelModel): ChannelModel {
     modelId: raw.model_id,
     displayName: raw.display_name,
     contextWindow: raw.context_window,
-    maxOutputTokens: raw.max_output_tokens
+    maxOutputTokens: raw.max_output_tokens,
+    temperature: raw.temperature,
+    topP: raw.top_p
   };
 }
 
@@ -100,7 +110,9 @@ function toRawInput(input: ModelInput | ModelPatch) {
     model_id: "modelId" in input ? input.modelId : undefined,
     display_name: toOptionalValue(input.displayName),
     context_window: toOptionalValue(input.contextWindow),
-    max_output_tokens: toOptionalValue(input.maxOutputTokens)
+    max_output_tokens: toOptionalValue(input.maxOutputTokens),
+    temperature: toOptionalValue(input.temperature),
+    top_p: toOptionalValue(input.topP)
   };
 }
 

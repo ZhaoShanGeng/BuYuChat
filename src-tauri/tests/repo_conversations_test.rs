@@ -70,6 +70,7 @@ fn sample_new_conversation(
         channel_model_id: Some(model_id.to_string()),
         archived: false,
         pinned: false,
+        enabled_tools: None,
         created_at: updated_at,
         updated_at,
     }

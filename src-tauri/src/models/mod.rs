@@ -16,10 +16,11 @@ pub use conversation::{
     UpdateConversationInput,
 };
 pub use message::{
-    DeleteVersionResult, DryRunResult, EditMessageInput, EditMessageResult, GenerationEvent,
-    ImageAttachment, MessageNode, MessageNodeRecord, MessageVersion, MessageVersionPatch,
-    NewMessageContent, NewMessageNode, NewMessageVersion, PromptMessage, RerollInput, RerollResult,
-    SendMessageInput, SendMessageResponse, SendMessageResult, VersionContent, VersionMeta,
+    DeleteVersionResult, DryRunResult, EditMessageInput, EditMessageResult, FileAttachment,
+    GenerationEvent, ImageAttachment, MessageNode, MessageNodeRecord, MessageVersion,
+    MessageVersionPatch, NewMessageContent, NewMessageNode, NewMessageVersion, PromptMessage,
+    RerollInput, RerollResult, SendMessageInput, SendMessageResponse, SendMessageResult,
+    ToolCallDelta, ToolCallRecord, ToolResultRecord, VersionContent, VersionMeta,
 };
 pub use model::{
     ChannelModel, ChannelModelPatch, CreateModelInput, NewChannelModel, RemoteModelInfo,

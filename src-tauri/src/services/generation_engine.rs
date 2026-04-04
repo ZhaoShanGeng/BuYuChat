@@ -10,22 +10,20 @@
 //! - 统一写入终态：`committed / failed / cancelled`
 //! - 在 AI 返回空文本时执行自动回滚，并发送 `empty_rollback` 事件
 //!
-//! 当前实现继续使用 `AiAdapter`，即 `aisdk + aisdk-macros` 体系下的统一 AI 接入层。
+//! 当前实现使用自建 OpenAI-compatible 客户端。
 
 use std::time::Duration;
 
-use aisdk::core::{
-    LanguageModelStreamChunkType,
-    language_model::ReasoningEffort,
-};
 use tauri::ipc::Channel;
 use tokio::time::{self, MissedTickBehavior};
 use tokio_util::sync::CancellationToken;
 
 use crate::{
-    ai::adapter::{AiAdapter, AiChannelConfig, AiChatCompletion},
+    ai::adapter::{AiAdapter, AiChannelConfig, AiChatCompletion, AiStreamChunk, ReasoningEffort},
     error::AppError,
-    models::{GenerationEvent, MessageVersionPatch, NewMessageContent, PromptMessage},
+    models::{
+        GenerationEvent, MessageVersionPatch, NewMessageContent, PromptMessage, ToolResultRecord,
+    },
     repo::message_repo,
     state::AppState,
     utils::ids::new_uuid_v7,
@@ -43,7 +41,11 @@ pub struct GenerationRequest {
     pub thinking_tags: Vec<String>,
     pub stream: bool,
     pub event_channel: Option<Channel<GenerationEvent>>,
+    pub tools: Vec<serde_json::Value>,
 }
+
+/// 工具调用循环的最大轮数。
+const MAX_TOOL_ROUNDS: usize = 10;
 
 /// 启动后台生成任务。
 ///
@@ -71,7 +73,8 @@ pub async fn cancel_generation(state: &AppState, version_id: &str) -> Result<(),
 
     let Some(version) = message_repo::get_version_meta(&state.db, version_id)
         .await
-        .map_err(|error| AppError::internal(format!("failed to load version: {error}")))? else {
+        .map_err(|error| AppError::internal(format!("failed to load version: {error}")))?
+    else {
         return Ok(());
     };
 
@@ -90,6 +93,9 @@ pub async fn cancel_generation(state: &AppState, version_id: &str) -> Result<(),
         version_id,
         &MessageVersionPatch {
             status: Some("cancelled".to_string()),
+            error_code: Some(None),
+            error_message: Some(None),
+            error_details: Some(None),
             ..MessageVersionPatch::default()
         },
     )
@@ -97,7 +103,8 @@ pub async fn cancel_generation(state: &AppState, version_id: &str) -> Result<(),
     .map_err(|error| AppError::internal(format!("failed to mark version cancelled: {error}")))?;
     if let Some(node) = message_repo::get_node_record_by_version(&state.db, version_id)
         .await
-        .map_err(|error| AppError::internal(format!("failed to load version node: {error}")))? {
+        .map_err(|error| AppError::internal(format!("failed to load version node: {error}")))?
+    {
         message_repo::touch_conversation_updated_at_tx(&mut tx, &node.conversation_id, timestamp)
             .await
             .map_err(|error| {
@@ -142,9 +149,13 @@ async fn run_generation(state: AppState, request: GenerationRequest, token: Canc
     };
 
     drop(permit);
-    state.cancellation_tokens.remove(&request.assistant_version_id);
+    state
+        .cancellation_tokens
+        .remove(&request.assistant_version_id);
 
-    if let Err(error) = result {
+    if token.is_cancelled() {
+        let _ = mark_cancelled(&state, &request).await;
+    } else if let Err(error) = result {
         let _ = mark_failed(&state, &request, error).await;
     }
 }
@@ -156,6 +167,11 @@ async fn run_non_stream_generation(
     token: &CancellationToken,
 ) -> Result<(), AppError> {
     let adapter = AiAdapter;
+    let tools = if request.tools.is_empty() {
+        None
+    } else {
+        Some(request.tools.as_slice())
+    };
     let completion = tokio::select! {
         _ = token.cancelled() => {
             mark_cancelled(state, request).await?;
@@ -166,10 +182,20 @@ async fn run_non_stream_generation(
             &request.prompt_messages,
             request.max_output_tokens,
             request.reasoning_effort,
+            tools,
         ) => completion?,
     };
 
-    finalize_completion(state, request, completion, None, None).await
+    if token.is_cancelled() {
+        mark_cancelled(state, request).await?;
+        return Ok(());
+    }
+
+    if !completion.tool_calls.is_empty() && !request.tools.is_empty() {
+        run_tool_call_loop(state, request, token, completion, None, None, None).await
+    } else {
+        finalize_completion(state, request, completion, None, None, None).await
+    }
 }
 
 /// 执行流式生成，并按文档约定刷盘内容块。
@@ -179,12 +205,18 @@ async fn run_stream_generation(
     token: &CancellationToken,
 ) -> Result<(), AppError> {
     let adapter = AiAdapter;
+    let tools = if request.tools.is_empty() {
+        None
+    } else {
+        Some(request.tools.as_slice())
+    };
     let mut handle = adapter
         .stream_chat(
             &request.config,
             &request.prompt_messages,
             request.max_output_tokens,
             request.reasoning_effort,
+            tools,
         )
         .await?;
 
@@ -192,6 +224,7 @@ async fn run_stream_generation(
     let mut pending_reasoning_buffer = String::new();
     let mut has_persisted_content = false;
     let mut has_persisted_reasoning = false;
+    let mut first_response_at: Option<i64> = None;
     let mut thinking_detector = (!request.thinking_tags.is_empty())
         .then(|| ThinkingTagDetector::new(request.thinking_tags.clone()));
     let mut interval = time::interval(Duration::from_secs(2));
@@ -212,7 +245,7 @@ async fn run_stream_generation(
             }
             maybe_chunk = handle.next_chunk() => {
                 match maybe_chunk {
-                    Some(LanguageModelStreamChunkType::Text(delta)) => {
+                    Some(AiStreamChunk::Text(delta)) => {
                         let segments = if let Some(detector) = &mut thinking_detector {
                             detector.feed(&delta)
                         } else {
@@ -222,6 +255,9 @@ async fn run_stream_generation(
                         for segment in segments {
                             match segment {
                                 TextSegment::Normal(normal) => {
+                                    if first_response_at.is_none() && !normal.is_empty() {
+                                        first_response_at = Some(current_timestamp_ms());
+                                    }
                                     if request.stream && !normal.is_empty() {
                                         emit_event(
                                             &request.event_channel,
@@ -231,6 +267,7 @@ async fn run_stream_generation(
                                                 version_id: request.assistant_version_id.clone(),
                                                 delta: normal.clone(),
                                                 reasoning_delta: None,
+                                                tool_call_deltas: Vec::new(),
                                             },
                                         );
                                     }
@@ -240,6 +277,9 @@ async fn run_stream_generation(
                                     }
                                 }
                                 TextSegment::Thinking(thinking) => {
+                                    if first_response_at.is_none() && !thinking.is_empty() {
+                                        first_response_at = Some(current_timestamp_ms());
+                                    }
                                     if request.stream && !thinking.is_empty() {
                                         emit_event(
                                             &request.event_channel,
@@ -249,6 +289,7 @@ async fn run_stream_generation(
                                                 version_id: request.assistant_version_id.clone(),
                                                 delta: String::new(),
                                                 reasoning_delta: Some(thinking.clone()),
+                                                tool_call_deltas: Vec::new(),
                                             },
                                         );
                                     }
@@ -261,7 +302,10 @@ async fn run_stream_generation(
                             }
                         }
                     }
-                    Some(LanguageModelStreamChunkType::Reasoning(delta)) => {
+                    Some(AiStreamChunk::Reasoning(delta)) => {
+                        if first_response_at.is_none() && !delta.is_empty() {
+                            first_response_at = Some(current_timestamp_ms());
+                        }
                         if request.stream && !delta.is_empty() {
                             emit_event(
                                 &request.event_channel,
@@ -271,6 +315,7 @@ async fn run_stream_generation(
                                     version_id: request.assistant_version_id.clone(),
                                     delta: String::new(),
                                     reasoning_delta: Some(delta.clone()),
+                                    tool_call_deltas: Vec::new(),
                                 },
                             );
                         }
@@ -280,11 +325,24 @@ async fn run_stream_generation(
                                 flush_pending_thinking(state, request, &mut pending_reasoning_buffer).await?;
                         }
                     }
-                    Some(LanguageModelStreamChunkType::Failed(error))
-                    | Some(LanguageModelStreamChunkType::Incomplete(error)) => {
+                    Some(AiStreamChunk::ToolCallDelta(delta)) => {
+                        if request.stream {
+                            emit_event(
+                                &request.event_channel,
+                                GenerationEvent::Chunk {
+                                    conversation_id: request.conversation_id.clone(),
+                                    node_id: request.assistant_node_id.clone(),
+                                    version_id: request.assistant_version_id.clone(),
+                                    delta: String::new(),
+                                    reasoning_delta: None,
+                                    tool_call_deltas: vec![delta],
+                                },
+                            );
+                        }
+                    }
+                    Some(AiStreamChunk::Failed(error)) | Some(AiStreamChunk::Incomplete(error)) => {
                         return Err(AppError::ai_request_failed(error));
                     }
-                    Some(_) => {}
                     None => {
                         break;
                     }
@@ -303,9 +361,29 @@ async fn run_stream_generation(
     }
 
     has_persisted_content |= flush_pending_chunks(state, request, &mut pending_buffer).await?;
-    has_persisted_reasoning |= flush_pending_thinking(state, request, &mut pending_reasoning_buffer).await?;
+    has_persisted_reasoning |=
+        flush_pending_thinking(state, request, &mut pending_reasoning_buffer).await?;
 
     let completion = handle.finish().await?;
+
+    if token.is_cancelled() {
+        mark_cancelled(state, request).await?;
+        return Ok(());
+    }
+
+    // 如果 AI 返回了 tool_calls 且有可用工具，进入工具循环。
+    if !completion.tool_calls.is_empty() && !request.tools.is_empty() {
+        return run_tool_call_loop(
+            state,
+            request,
+            token,
+            completion,
+            Some(if has_persisted_content { 1 } else { 0 }),
+            Some(if has_persisted_reasoning { 1 } else { 0 }),
+            first_response_at,
+        )
+        .await;
+    }
 
     finalize_completion(
         state,
@@ -313,34 +391,286 @@ async fn run_stream_generation(
         completion,
         Some(if has_persisted_content { 1 } else { 0 }),
         Some(if has_persisted_reasoning { 1 } else { 0 }),
+        first_response_at,
     )
     .await
 }
 
-/// 完成生成后的统一收尾逻辑。
-async fn finalize_completion(
+/// 执行工具调用循环：AI 返回 tool_calls → 执行工具 → 回填结果 → 继续生成。
+///
+/// 最多执行 MAX_TOOL_ROUNDS 轮，超过后强制 finalize。
+async fn run_tool_call_loop(
+    state: &AppState,
+    request: &GenerationRequest,
+    token: &CancellationToken,
+    initial_completion: AiChatCompletion,
+    _existing_content_bytes: Option<usize>,
+    _existing_reasoning_bytes: Option<usize>,
+    first_response_at: Option<i64>,
+) -> Result<(), AppError> {
+    let mut completion = initial_completion;
+    let mut accumulated_messages = request.prompt_messages.clone();
+    let tools = Some(request.tools.as_slice());
+
+    for _round in 0..MAX_TOOL_ROUNDS {
+        if token.is_cancelled() {
+            mark_cancelled(state, request).await?;
+            return Ok(());
+        }
+
+        let tool_calls = completion.tool_calls.clone();
+        if tool_calls.is_empty() {
+            break;
+        }
+
+        // 1. 持久化 tool_call chunks。
+        for tool_call in &tool_calls {
+            let chunk_index =
+                message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
+                    .await
+                    .map_err(|e| {
+                        AppError::internal(format!("failed to load next chunk index: {e}"))
+                    })?;
+            message_repo::append_content_chunk(
+                &state.db,
+                &NewMessageContent {
+                    id: new_uuid_v7(),
+                    version_id: request.assistant_version_id.clone(),
+                    chunk_index,
+                    content_type: "application/vnd.buyu.tool-call+json".to_string(),
+                    body: serde_json::to_string(tool_call).map_err(|e| {
+                        AppError::internal(format!("failed to serialize tool call: {e}"))
+                    })?,
+                    created_at: current_timestamp_ms(),
+                },
+            )
+            .await
+            .map_err(|e| AppError::internal(format!("failed to persist tool call: {e}")))?;
+        }
+
+        // 2. 发送 ToolCallStart 事件。
+        emit_event(
+            &request.event_channel,
+            GenerationEvent::ToolCallStart {
+                conversation_id: request.conversation_id.clone(),
+                node_id: request.assistant_node_id.clone(),
+                version_id: request.assistant_version_id.clone(),
+                tool_calls: tool_calls.clone(),
+            },
+        );
+
+        // 3. 执行每个工具。
+        let mut results = Vec::new();
+        for tool_call in &tool_calls {
+            if token.is_cancelled() {
+                mark_cancelled(state, request).await?;
+                return Ok(());
+            }
+
+            let args: serde_json::Value = serde_json::from_str(&tool_call.arguments_json)
+                .unwrap_or(serde_json::Value::Object(serde_json::Map::new()));
+            let result = state
+                .tool_registry
+                .execute(&state.http_client, &tool_call.name, &args)
+                .await;
+
+            results.push(ToolResultRecord {
+                tool_call_id: tool_call.id.clone(),
+                name: tool_call.name.clone(),
+                content: result.content,
+                is_error: result.is_error,
+            });
+        }
+
+        // 4. 持久化 tool_result chunks。
+        for tool_result in &results {
+            let chunk_index =
+                message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
+                    .await
+                    .map_err(|e| {
+                        AppError::internal(format!("failed to load next chunk index: {e}"))
+                    })?;
+            message_repo::append_content_chunk(
+                &state.db,
+                &NewMessageContent {
+                    id: new_uuid_v7(),
+                    version_id: request.assistant_version_id.clone(),
+                    chunk_index,
+                    content_type: "application/vnd.buyu.tool-result+json".to_string(),
+                    body: serde_json::to_string(tool_result).map_err(|e| {
+                        AppError::internal(format!("failed to serialize tool result: {e}"))
+                    })?,
+                    created_at: current_timestamp_ms(),
+                },
+            )
+            .await
+            .map_err(|e| AppError::internal(format!("failed to persist tool result: {e}")))?;
+        }
+
+        // 5. 发送 ToolResult 事件。
+        emit_event(
+            &request.event_channel,
+            GenerationEvent::ToolResult {
+                conversation_id: request.conversation_id.clone(),
+                node_id: request.assistant_node_id.clone(),
+                version_id: request.assistant_version_id.clone(),
+                results: results.clone(),
+            },
+        );
+
+        // 6. 构建 assistant + tool 消息追加到 prompt。
+        accumulated_messages.push(PromptMessage {
+            role: "assistant".to_string(),
+            content: completion.text.clone(),
+            images: completion.images.clone(),
+            files: completion.files.clone(),
+            tool_calls: tool_calls.clone(),
+            tool_results: Vec::new(),
+        });
+        accumulated_messages.push(PromptMessage {
+            role: "tool".to_string(),
+            content: String::new(),
+            images: Vec::new(),
+            files: Vec::new(),
+            tool_calls: Vec::new(),
+            tool_results: results,
+        });
+
+        // 7. 继续调用 AI。
+        let adapter = AiAdapter;
+        if request.stream {
+            let mut handle = adapter
+                .stream_chat(
+                    &request.config,
+                    &accumulated_messages,
+                    request.max_output_tokens,
+                    request.reasoning_effort,
+                    tools,
+                )
+                .await?;
+
+            loop {
+                tokio::select! {
+                    _ = token.cancelled() => {
+                        mark_cancelled(state, request).await?;
+                        return Ok(());
+                    }
+                    maybe_chunk = handle.next_chunk() => {
+                        match maybe_chunk {
+                            Some(AiStreamChunk::Text(delta)) if !delta.is_empty() => {
+                                emit_event(
+                                    &request.event_channel,
+                                    GenerationEvent::Chunk {
+                                        conversation_id: request.conversation_id.clone(),
+                                        node_id: request.assistant_node_id.clone(),
+                                        version_id: request.assistant_version_id.clone(),
+                                        delta,
+                                        reasoning_delta: None,
+                                        tool_call_deltas: Vec::new(),
+                                    },
+                                );
+                            }
+                            Some(AiStreamChunk::Reasoning(delta)) if !delta.is_empty() => {
+                                emit_event(
+                                    &request.event_channel,
+                                    GenerationEvent::Chunk {
+                                        conversation_id: request.conversation_id.clone(),
+                                        node_id: request.assistant_node_id.clone(),
+                                        version_id: request.assistant_version_id.clone(),
+                                        delta: String::new(),
+                                        reasoning_delta: Some(delta),
+                                        tool_call_deltas: Vec::new(),
+                                    },
+                                );
+                            }
+                            Some(AiStreamChunk::ToolCallDelta(delta)) => {
+                                emit_event(
+                                    &request.event_channel,
+                                    GenerationEvent::Chunk {
+                                        conversation_id: request.conversation_id.clone(),
+                                        node_id: request.assistant_node_id.clone(),
+                                        version_id: request.assistant_version_id.clone(),
+                                        delta: String::new(),
+                                        reasoning_delta: None,
+                                        tool_call_deltas: vec![delta],
+                                    },
+                                );
+                            }
+                            Some(AiStreamChunk::Failed(e)) | Some(AiStreamChunk::Incomplete(e)) => {
+                                return Err(AppError::ai_request_failed(e));
+                            }
+                            None => break,
+                            _ => {}
+                        }
+                    }
+                }
+            }
+
+            completion = handle.finish().await?;
+        } else {
+            completion = tokio::select! {
+                _ = token.cancelled() => {
+                    mark_cancelled(state, request).await?;
+                    return Ok(());
+                }
+                c = adapter.generate_chat(
+                    &request.config,
+                    &accumulated_messages,
+                    request.max_output_tokens,
+                    request.reasoning_effort,
+                    tools,
+                ) => c?,
+            };
+        }
+
+        if token.is_cancelled() {
+            mark_cancelled(state, request).await?;
+            return Ok(());
+        }
+
+        // 如果没有更多 tool_calls，跳出循环。
+        if completion.tool_calls.is_empty() {
+            break;
+        }
+    }
+
+    // 工具循环结束后，直接写入最终文本并标记完成。
+    // 工具循环中已有 tool_call/tool_result 写入，不需要空文本回滚检测。
+    finalize_tool_loop_completion(state, request, completion, first_response_at).await
+}
+
+/// 工具循环结束后的专用 finalize 逻辑。
+///
+/// 与 `finalize_completion` 的区别：不做空文本回滚，始终写入最终文本。
+async fn finalize_tool_loop_completion(
     state: &AppState,
     request: &GenerationRequest,
     completion: AiChatCompletion,
-    existing_content_bytes: Option<usize>,
-    existing_reasoning_bytes: Option<usize>,
+    first_response_at: Option<i64>,
 ) -> Result<(), AppError> {
-    let (visible_text, extracted_thinking) = split_thinking_from_text(
-        &completion.text,
-        &request.thinking_tags,
-    );
-
-    // 流式兼容层在部分服务商上可能只返回 delta，不在最终消息里回填完整正文。
-    // 只要前面已经有内容刷入 `message_contents`，这里就不能再按“空消息”回滚。
-    if visible_text.trim().is_empty() && existing_content_bytes.unwrap_or(0) == 0 {
-        rollback_empty_version(state, request).await?;
+    if !version_is_generating(state, &request.assistant_version_id).await? {
         return Ok(());
     }
 
-    if existing_content_bytes.unwrap_or(0) == 0 && !visible_text.is_empty() {
+    let (visible_text, extracted_thinking_from_text) =
+        split_thinking_from_text(&completion.text, &request.thinking_tags);
+    let extracted_thinking = if completion.thinking.trim().is_empty() {
+        extracted_thinking_from_text
+    } else if extracted_thinking_from_text.trim().is_empty() {
+        completion.thinking.clone()
+    } else {
+        format!(
+            "{}\n\n{}",
+            completion.thinking.trim(),
+            extracted_thinking_from_text.trim()
+        )
+    };
+
+    // 写入最终文本。
+    if !visible_text.is_empty() {
         let chunk_index = message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
             .await
-            .map_err(|error| AppError::internal(format!("failed to load next chunk index: {error}")))?;
+            .map_err(|e| AppError::internal(format!("failed to load next chunk index: {e}")))?;
         message_repo::append_content_chunk(
             &state.db,
             &NewMessageContent {
@@ -353,13 +683,56 @@ async fn finalize_completion(
             },
         )
         .await
-        .map_err(|error| AppError::internal(format!("failed to persist completion content: {error}")))?;
+        .map_err(|e| AppError::internal(format!("failed to persist tool loop text: {e}")))?;
     }
 
-    if existing_reasoning_bytes.unwrap_or(0) == 0 && !extracted_thinking.is_empty() {
+    for image in &completion.images {
         let chunk_index = message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
             .await
-            .map_err(|error| AppError::internal(format!("failed to load next chunk index: {error}")))?;
+            .map_err(|e| AppError::internal(format!("failed to load next chunk index: {e}")))?;
+        message_repo::append_content_chunk(
+            &state.db,
+            &NewMessageContent {
+                id: new_uuid_v7(),
+                version_id: request.assistant_version_id.clone(),
+                chunk_index,
+                content_type: "image/base64".to_string(),
+                body: serde_json::to_string(image).map_err(|e| {
+                    AppError::internal(format!("failed to serialize image attachment: {e}"))
+                })?,
+                created_at: current_timestamp_ms(),
+            },
+        )
+        .await
+        .map_err(|e| AppError::internal(format!("failed to persist tool loop image: {e}")))?;
+    }
+
+    for file in &completion.files {
+        let chunk_index = message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
+            .await
+            .map_err(|e| AppError::internal(format!("failed to load next chunk index: {e}")))?;
+        message_repo::append_content_chunk(
+            &state.db,
+            &NewMessageContent {
+                id: new_uuid_v7(),
+                version_id: request.assistant_version_id.clone(),
+                chunk_index,
+                content_type: "file/base64".to_string(),
+                body: serde_json::to_string(file).map_err(|e| {
+                    AppError::internal(format!("failed to serialize file attachment: {e}"))
+                })?,
+                created_at: current_timestamp_ms(),
+            },
+        )
+        .await
+        .map_err(|e| AppError::internal(format!("failed to persist tool loop file: {e}")))?;
+    }
+
+    // 写入思考内容。
+    if !extracted_thinking.is_empty() {
+        let chunk_index = message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
+            .await
+            .map_err(|e| AppError::internal(format!("failed to load next chunk index: {e}")))?;
         message_repo::append_content_chunk(
             &state.db,
             &NewMessageContent {
@@ -372,10 +745,227 @@ async fn finalize_completion(
             },
         )
         .await
-        .map_err(|error| AppError::internal(format!("failed to persist thinking content: {error}")))?;
+        .map_err(|e| AppError::internal(format!("failed to persist tool loop thinking: {e}")))?;
+    }
+
+    // 标记完成。
+    let timestamp = current_timestamp_ms();
+    let received_at = first_response_at.unwrap_or(timestamp);
+    let mut tx = state
+        .db
+        .begin()
+        .await
+        .map_err(|e| AppError::internal(format!("failed to open transaction: {e}")))?;
+    let updated = message_repo::update_version_tx(
+        &mut tx,
+        &request.assistant_version_id,
+        &MessageVersionPatch {
+            status: Some("committed".to_string()),
+            error_code: Some(None),
+            error_message: Some(None),
+            error_details: Some(None),
+            prompt_tokens: Some(Some(completion.prompt_tokens)),
+            completion_tokens: Some(Some(completion.completion_tokens)),
+            finish_reason: Some(Some(completion.finish_reason.clone())),
+            model_name: Some(Some(completion.model.clone())),
+            received_at: Some(Some(received_at)),
+            completed_at: Some(Some(timestamp)),
+        },
+    )
+    .await
+    .map_err(|e| AppError::internal(format!("failed to finalize version: {e}")))?;
+
+    if !updated {
+        tx.rollback()
+            .await
+            .map_err(|e| AppError::internal(format!("failed to rollback: {e}")))?;
+        return Ok(());
+    }
+
+    message_repo::touch_conversation_updated_at_tx(&mut tx, &request.conversation_id, timestamp)
+        .await
+        .map_err(|e| AppError::internal(format!("failed to touch conversation timestamp: {e}")))?;
+    tx.commit()
+        .await
+        .map_err(|e| AppError::internal(format!("failed to commit tool loop completion: {e}")))?;
+
+    emit_event(
+        &request.event_channel,
+        GenerationEvent::Completed {
+            conversation_id: request.conversation_id.clone(),
+            node_id: request.assistant_node_id.clone(),
+            version_id: request.assistant_version_id.clone(),
+            prompt_tokens: completion.prompt_tokens,
+            completion_tokens: completion.completion_tokens,
+            finish_reason: completion.finish_reason,
+            model: completion.model,
+            received_at,
+            completed_at: timestamp,
+        },
+    );
+
+    Ok(())
+}
+
+/// 完成生成后的统一收尾逻辑。
+async fn finalize_completion(
+    state: &AppState,
+    request: &GenerationRequest,
+    completion: AiChatCompletion,
+    existing_content_bytes: Option<usize>,
+    existing_reasoning_bytes: Option<usize>,
+    first_response_at: Option<i64>,
+) -> Result<(), AppError> {
+    if !version_is_generating(state, &request.assistant_version_id).await? {
+        return Ok(());
+    }
+
+    let (visible_text, extracted_thinking_from_text) =
+        split_thinking_from_text(&completion.text, &request.thinking_tags);
+    let extracted_thinking = if completion.thinking.trim().is_empty() {
+        extracted_thinking_from_text
+    } else if extracted_thinking_from_text.trim().is_empty() {
+        completion.thinking.clone()
+    } else {
+        format!(
+            "{}\n\n{}",
+            completion.thinking.trim(),
+            extracted_thinking_from_text.trim()
+        )
+    };
+
+    // 流式兼容层在部分服务商上可能只返回 delta，不在最终消息里回填完整正文。
+    // 只要前面已经有内容刷入 `message_contents`，这里就不能再按“空消息”回滚。
+    if visible_text.trim().is_empty()
+        && completion.images.is_empty()
+        && completion.files.is_empty()
+        && existing_content_bytes.unwrap_or(0) == 0
+    {
+        rollback_empty_version(state, request).await?;
+        return Ok(());
+    }
+
+    if existing_content_bytes.unwrap_or(0) == 0 && !visible_text.is_empty() {
+        let chunk_index = message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("failed to load next chunk index: {error}"))
+            })?;
+        message_repo::append_content_chunk(
+            &state.db,
+            &NewMessageContent {
+                id: new_uuid_v7(),
+                version_id: request.assistant_version_id.clone(),
+                chunk_index,
+                content_type: "text/plain".to_string(),
+                body: visible_text,
+                created_at: current_timestamp_ms(),
+            },
+        )
+        .await
+        .map_err(|error| {
+            AppError::internal(format!("failed to persist completion content: {error}"))
+        })?;
+    }
+
+    if existing_reasoning_bytes.unwrap_or(0) == 0 && !extracted_thinking.is_empty() {
+        let chunk_index = message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("failed to load next chunk index: {error}"))
+            })?;
+        message_repo::append_content_chunk(
+            &state.db,
+            &NewMessageContent {
+                id: new_uuid_v7(),
+                version_id: request.assistant_version_id.clone(),
+                chunk_index,
+                content_type: "text/thinking".to_string(),
+                body: extracted_thinking,
+                created_at: current_timestamp_ms(),
+            },
+        )
+        .await
+        .map_err(|error| {
+            AppError::internal(format!("failed to persist thinking content: {error}"))
+        })?;
+    }
+
+    for image in &completion.images {
+        let chunk_index = message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("failed to load next chunk index: {error}"))
+            })?;
+        message_repo::append_content_chunk(
+            &state.db,
+            &NewMessageContent {
+                id: new_uuid_v7(),
+                version_id: request.assistant_version_id.clone(),
+                chunk_index,
+                content_type: "image/base64".to_string(),
+                body: serde_json::to_string(image).map_err(|error| {
+                    AppError::internal(format!("failed to serialize image attachment: {error}"))
+                })?,
+                created_at: current_timestamp_ms(),
+            },
+        )
+        .await
+        .map_err(|error| {
+            AppError::internal(format!("failed to persist image attachment: {error}"))
+        })?;
+    }
+
+    for file in &completion.files {
+        let chunk_index = message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("failed to load next chunk index: {error}"))
+            })?;
+        message_repo::append_content_chunk(
+            &state.db,
+            &NewMessageContent {
+                id: new_uuid_v7(),
+                version_id: request.assistant_version_id.clone(),
+                chunk_index,
+                content_type: "file/base64".to_string(),
+                body: serde_json::to_string(file).map_err(|error| {
+                    AppError::internal(format!("failed to serialize file attachment: {error}"))
+                })?,
+                created_at: current_timestamp_ms(),
+            },
+        )
+        .await
+        .map_err(|error| {
+            AppError::internal(format!("failed to persist file attachment: {error}"))
+        })?;
+    }
+
+    for tool_call in &completion.tool_calls {
+        let chunk_index = message_repo::next_chunk_index(&state.db, &request.assistant_version_id)
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("failed to load next chunk index: {error}"))
+            })?;
+        message_repo::append_content_chunk(
+            &state.db,
+            &NewMessageContent {
+                id: new_uuid_v7(),
+                version_id: request.assistant_version_id.clone(),
+                chunk_index,
+                content_type: "application/vnd.buyu.tool-call+json".to_string(),
+                body: serde_json::to_string(tool_call).map_err(|error| {
+                    AppError::internal(format!("failed to serialize tool call: {error}"))
+                })?,
+                created_at: current_timestamp_ms(),
+            },
+        )
+        .await
+        .map_err(|error| AppError::internal(format!("failed to persist tool call: {error}")))?;
     }
 
     let timestamp = current_timestamp_ms();
+    let received_at = first_response_at.unwrap_or(timestamp);
     let mut tx = state
         .db
         .begin()
@@ -386,19 +976,24 @@ async fn finalize_completion(
         &request.assistant_version_id,
         &MessageVersionPatch {
             status: Some("committed".to_string()),
+            error_code: Some(None),
+            error_message: Some(None),
+            error_details: Some(None),
             prompt_tokens: Some(Some(completion.prompt_tokens)),
             completion_tokens: Some(Some(completion.completion_tokens)),
             finish_reason: Some(Some(completion.finish_reason.clone())),
             model_name: Some(Some(completion.model.clone())),
+            received_at: Some(Some(received_at)),
+            completed_at: Some(Some(timestamp)),
         },
     )
     .await
     .map_err(|error| AppError::internal(format!("failed to finalize version: {error}")))?;
 
     if !updated {
-        tx.rollback()
-            .await
-            .map_err(|error| AppError::internal(format!("failed to rollback missing version: {error}")))?;
+        tx.rollback().await.map_err(|error| {
+            AppError::internal(format!("failed to rollback missing version: {error}"))
+        })?;
         return Ok(());
     }
 
@@ -421,6 +1016,8 @@ async fn finalize_completion(
             completion_tokens: completion.completion_tokens,
             finish_reason: completion.finish_reason,
             model: completion.model,
+            received_at,
+            completed_at: timestamp,
         },
     );
 
@@ -433,17 +1030,30 @@ async fn mark_failed(
     request: &GenerationRequest,
     error: AppError,
 ) -> Result<(), AppError> {
+    if !version_is_generating(state, &request.assistant_version_id).await? {
+        return Ok(());
+    }
+
     let timestamp = current_timestamp_ms();
-    let mut tx = state
-        .db
-        .begin()
-        .await
-        .map_err(|db_error| AppError::internal(format!("failed to open transaction: {db_error}")))?;
+    let error_details = error
+        .details
+        .as_ref()
+        .map(serde_json::to_string)
+        .transpose()
+        .map_err(|serde_error| {
+            AppError::internal(format!("failed to serialize error details: {serde_error}"))
+        })?;
+    let mut tx = state.db.begin().await.map_err(|db_error| {
+        AppError::internal(format!("failed to open transaction: {db_error}"))
+    })?;
     let updated = message_repo::update_version_tx(
         &mut tx,
         &request.assistant_version_id,
         &MessageVersionPatch {
             status: Some("failed".to_string()),
+            error_code: Some(Some(error.error_code.clone())),
+            error_message: Some(Some(error.message.clone())),
+            error_details: Some(error_details),
             finish_reason: Some(Some("error".to_string())),
             ..MessageVersionPatch::default()
         },
@@ -452,20 +1062,22 @@ async fn mark_failed(
     .map_err(|db_error| AppError::internal(format!("failed to mark version failed: {db_error}")))?;
 
     if !updated {
-        tx.rollback()
-            .await
-            .map_err(|db_error| AppError::internal(format!("failed to rollback missing version: {db_error}")))?;
+        tx.rollback().await.map_err(|db_error| {
+            AppError::internal(format!("failed to rollback missing version: {db_error}"))
+        })?;
         return Ok(());
     }
 
     message_repo::touch_conversation_updated_at_tx(&mut tx, &request.conversation_id, timestamp)
         .await
         .map_err(|db_error| {
-            AppError::internal(format!("failed to touch conversation timestamp: {db_error}"))
+            AppError::internal(format!(
+                "failed to touch conversation timestamp: {db_error}"
+            ))
         })?;
-    tx.commit()
-        .await
-        .map_err(|db_error| AppError::internal(format!("failed to commit failed status: {db_error}")))?;
+    tx.commit().await.map_err(|db_error| {
+        AppError::internal(format!("failed to commit failed status: {db_error}"))
+    })?;
 
     emit_event(
         &request.event_channel,
@@ -473,7 +1085,9 @@ async fn mark_failed(
             conversation_id: request.conversation_id.clone(),
             node_id: request.assistant_node_id.clone(),
             version_id: request.assistant_version_id.clone(),
-            error: error.message,
+            error_code: error.error_code,
+            error_message: error.message,
+            error_details: error.details,
         },
     );
 
@@ -482,6 +1096,10 @@ async fn mark_failed(
 
 /// 终止任务并把版本标记为取消。
 async fn mark_cancelled(state: &AppState, request: &GenerationRequest) -> Result<(), AppError> {
+    if !version_is_generating(state, &request.assistant_version_id).await? {
+        return Ok(());
+    }
+
     let timestamp = current_timestamp_ms();
     let mut tx = state
         .db
@@ -493,6 +1111,9 @@ async fn mark_cancelled(state: &AppState, request: &GenerationRequest) -> Result
         &request.assistant_version_id,
         &MessageVersionPatch {
             status: Some("cancelled".to_string()),
+            error_code: Some(None),
+            error_message: Some(None),
+            error_details: Some(None),
             finish_reason: Some(Some("cancelled".to_string())),
             ..MessageVersionPatch::default()
         },
@@ -501,9 +1122,9 @@ async fn mark_cancelled(state: &AppState, request: &GenerationRequest) -> Result
     .map_err(|error| AppError::internal(format!("failed to mark version cancelled: {error}")))?;
 
     if !updated {
-        tx.rollback()
-            .await
-            .map_err(|error| AppError::internal(format!("failed to rollback missing version: {error}")))?;
+        tx.rollback().await.map_err(|error| {
+            AppError::internal(format!("failed to rollback missing version: {error}"))
+        })?;
         return Ok(());
     }
 
@@ -512,9 +1133,9 @@ async fn mark_cancelled(state: &AppState, request: &GenerationRequest) -> Result
         .map_err(|error| {
             AppError::internal(format!("failed to touch conversation timestamp: {error}"))
         })?;
-    tx.commit()
-        .await
-        .map_err(|error| AppError::internal(format!("failed to commit cancelled status: {error}")))?;
+    tx.commit().await.map_err(|error| {
+        AppError::internal(format!("failed to commit cancelled status: {error}"))
+    })?;
 
     emit_event(
         &request.event_channel,
@@ -533,10 +1154,16 @@ async fn rollback_empty_version(
     state: &AppState,
     request: &GenerationRequest,
 ) -> Result<(), AppError> {
-    let node = message_repo::get_node_record(&state.db, &request.conversation_id, &request.assistant_node_id)
-        .await
-        .map_err(|error| AppError::internal(format!("failed to load node: {error}")))?
-        .ok_or_else(|| AppError::not_found(format!("node '{}' not found", request.assistant_node_id)))?;
+    let node = message_repo::get_node_record(
+        &state.db,
+        &request.conversation_id,
+        &request.assistant_node_id,
+    )
+    .await
+    .map_err(|error| AppError::internal(format!("failed to load node: {error}")))?
+    .ok_or_else(|| {
+        AppError::not_found(format!("node '{}' not found", request.assistant_node_id))
+    })?;
     let versions = message_repo::list_versions_for_node(&state.db, &request.assistant_node_id)
         .await
         .map_err(|error| AppError::internal(format!("failed to load node versions: {error}")))?;
@@ -556,14 +1183,18 @@ async fn rollback_empty_version(
         let _ = message_repo::delete_node_tx(&mut tx, &request.assistant_node_id)
             .await
             .map_err(|error| AppError::internal(format!("failed to delete empty node: {error}")))?;
-        message_repo::touch_conversation_updated_at_tx(&mut tx, &request.conversation_id, timestamp)
-            .await
-            .map_err(|error| {
-                AppError::internal(format!("failed to touch conversation timestamp: {error}"))
-            })?;
-        tx.commit()
-            .await
-            .map_err(|error| AppError::internal(format!("failed to commit empty rollback: {error}")))?;
+        message_repo::touch_conversation_updated_at_tx(
+            &mut tx,
+            &request.conversation_id,
+            timestamp,
+        )
+        .await
+        .map_err(|error| {
+            AppError::internal(format!("failed to touch conversation timestamp: {error}"))
+        })?;
+        tx.commit().await.map_err(|error| {
+            AppError::internal(format!("failed to commit empty rollback: {error}"))
+        })?;
 
         emit_event(
             &request.event_channel,
@@ -581,21 +1212,22 @@ async fn rollback_empty_version(
         .await
         .map_err(|error| AppError::internal(format!("failed to delete empty version: {error}")))?;
 
-    let fallback_version_id = if node.active_version_id.as_deref()
-        == Some(request.assistant_version_id.as_str())
-    {
-        let fallback_version_id = fallback.as_ref().map(|version| version.id.clone());
-        message_repo::set_node_active_version_tx(
-            &mut tx,
-            &request.assistant_node_id,
-            fallback_version_id.as_deref(),
-        )
-        .await
-        .map_err(|error| AppError::internal(format!("failed to restore fallback version: {error}")))?;
-        fallback_version_id
-    } else {
-        node.active_version_id.clone()
-    };
+    let fallback_version_id =
+        if node.active_version_id.as_deref() == Some(request.assistant_version_id.as_str()) {
+            let fallback_version_id = fallback.as_ref().map(|version| version.id.clone());
+            message_repo::set_node_active_version_tx(
+                &mut tx,
+                &request.assistant_node_id,
+                fallback_version_id.as_deref(),
+            )
+            .await
+            .map_err(|error| {
+                AppError::internal(format!("failed to restore fallback version: {error}"))
+            })?;
+            fallback_version_id
+        } else {
+            node.active_version_id.clone()
+        };
 
     message_repo::touch_conversation_updated_at_tx(&mut tx, &request.conversation_id, timestamp)
         .await
@@ -617,6 +1249,14 @@ async fn rollback_empty_version(
     );
 
     Ok(())
+}
+
+async fn version_is_generating(state: &AppState, version_id: &str) -> Result<bool, AppError> {
+    Ok(message_repo::get_version_meta(&state.db, version_id)
+        .await
+        .map_err(|error| AppError::internal(format!("failed to load version: {error}")))?
+        .map(|version| version.status == "generating")
+        .unwrap_or(false))
 }
 
 /// 把当前缓冲区追加为新的内容块。
@@ -697,11 +1337,7 @@ struct ThinkingTagDetector {
 
 impl ThinkingTagDetector {
     fn new(tags: Vec<String>) -> Self {
-        let max_open_tag_len = tags
-            .iter()
-            .map(|tag| tag.len() + 2)
-            .max()
-            .unwrap_or(0);
+        let max_open_tag_len = tags.iter().map(|tag| tag.len() + 2).max().unwrap_or(0);
 
         Self {
             tags,
@@ -776,7 +1412,10 @@ impl ThinkingTagDetector {
     fn find_next_opening(&self, text: &str) -> Option<(usize, String)> {
         self.tags
             .iter()
-            .filter_map(|tag| text.find(&format!("<{tag}>")).map(|index| (index, tag.clone())))
+            .filter_map(|tag| {
+                text.find(&format!("<{tag}>"))
+                    .map(|index| (index, tag.clone()))
+            })
             .min_by_key(|(index, _)| *index)
     }
 }

@@ -67,6 +67,8 @@ impl ModelRepo for FakeModelRepo {
             display_name: new_model.display_name.clone(),
             context_window: new_model.context_window,
             max_output_tokens: new_model.max_output_tokens,
+            temperature: new_model.temperature.clone(),
+            top_p: new_model.top_p.clone(),
         };
         lock_models(self).push(model.clone());
         Ok(model)
@@ -116,6 +118,12 @@ impl ModelRepo for FakeModelRepo {
         }
         if let Some(max_output_tokens) = patch.max_output_tokens {
             model.max_output_tokens = max_output_tokens;
+        }
+        if let Some(temperature) = &patch.temperature {
+            model.temperature = temperature.clone();
+        }
+        if let Some(top_p) = &patch.top_p {
+            model.top_p = top_p.clone();
         }
 
         Ok(Some(model.clone()))
@@ -205,6 +213,8 @@ fn sample_model(channel_id: &str) -> ChannelModel {
         display_name: Some("GPT-4o".to_string()),
         context_window: Some(128_000),
         max_output_tokens: Some(16_384),
+        temperature: None,
+        top_p: None,
     }
 }
 
@@ -216,6 +226,7 @@ fn sample_channel() -> Channel {
         channel_type: "openai_compatible".to_string(),
         base_url: "https://api.openai.com".to_string(),
         api_key: Some("sk-xxx".to_string()),
+        api_keys: None,
         auth_type: Some("bearer".to_string()),
         models_endpoint: Some("/v1/models".to_string()),
         chat_endpoint: Some("/v1/chat/completions".to_string()),
@@ -244,6 +255,8 @@ async fn create_model_trims_fields_and_generates_uuid() {
             display_name: Some("  GPT-4o  ".to_string()),
             context_window: Some(128_000),
             max_output_tokens: Some(16_384),
+            temperature: None,
+            top_p: None,
         },
     )
     .await
@@ -270,6 +283,8 @@ async fn create_model_with_empty_model_id_returns_validation_error() {
             display_name: None,
             context_window: None,
             max_output_tokens: None,
+            temperature: None,
+            top_p: None,
         },
     )
     .await
@@ -295,6 +310,8 @@ async fn create_model_with_duplicate_model_id_returns_conflict() {
             display_name: None,
             context_window: None,
             max_output_tokens: None,
+            temperature: None,
+            top_p: None,
         },
     )
     .await
@@ -334,6 +351,8 @@ async fn update_model_changes_only_allowed_fields() {
             display_name: Some(Some("GPT-4o Latest".to_string())),
             context_window: Some(Some(200_000)),
             max_output_tokens: None,
+            temperature: None,
+            top_p: None,
         },
     )
     .await

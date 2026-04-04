@@ -227,6 +227,9 @@ export function applyGenerationEvent(
         (version) => ({
           ...version,
           status: "committed",
+          errorCode: null,
+          errorMessage: null,
+          errorDetails: null,
           promptTokens: event.promptTokens,
           completionTokens: event.completionTokens,
           finishReason: event.finishReason,
@@ -240,7 +243,10 @@ export function applyGenerationEvent(
         event.versionId,
         (version) => ({
           ...version,
-          status: "failed"
+          status: "failed",
+          errorCode: event.errorCode,
+          errorMessage: event.errorMessage,
+          errorDetails: event.errorDetails ?? null
         }),
         event.nodeId
       );
@@ -250,7 +256,10 @@ export function applyGenerationEvent(
         event.versionId,
         (version) => ({
           ...version,
-          status: "cancelled"
+          status: "cancelled",
+          errorCode: null,
+          errorMessage: null,
+          errorDetails: null
         }),
         event.nodeId
       );
@@ -276,4 +285,6 @@ export function applyGenerationEvent(
         return nextNodes;
       })();
   }
+
+  return nodes;
 }

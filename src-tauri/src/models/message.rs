@@ -22,6 +22,8 @@
 use serde::{Deserialize, Serialize};
 use sqlx::FromRow;
 
+use crate::error::AppErrorDetails;
+
 /// 返回给前端的消息楼层资源。
 ///
 /// 该结构对应 `GET /conversations/{id}/messages` 中的单个楼层对象。
@@ -49,11 +51,23 @@ pub struct MessageVersion {
     pub thinking_content: Option<String>,
     #[serde(default)]
     pub images: Vec<ImageAttachment>,
+    #[serde(default)]
+    pub files: Vec<FileAttachment>,
+    #[serde(default)]
+    pub tool_calls: Vec<ToolCallRecord>,
+    #[serde(default)]
+    pub tool_results: Vec<ToolResultRecord>,
     pub status: String,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    #[serde(default)]
+    pub error_details: Option<AppErrorDetails>,
     pub model_name: Option<String>,
     pub prompt_tokens: Option<i64>,
     pub completion_tokens: Option<i64>,
     pub finish_reason: Option<String>,
+    pub received_at: Option<i64>,
+    pub completed_at: Option<i64>,
     pub created_at: i64,
 }
 
@@ -74,6 +88,8 @@ pub struct VersionContent {
 pub struct SendMessageInput {
     pub content: String,
     pub images: Option<Vec<ImageAttachment>>,
+    pub files: Option<Vec<FileAttachment>>,
+    pub tool_results: Option<Vec<ToolResultRecord>>,
     pub stream: Option<bool>,
     pub dry_run: Option<bool>,
 }
@@ -166,6 +182,12 @@ pub struct PromptMessage {
     pub content: String,
     #[serde(default)]
     pub images: Vec<ImageAttachment>,
+    #[serde(default)]
+    pub files: Vec<FileAttachment>,
+    #[serde(default)]
+    pub tool_calls: Vec<ToolCallRecord>,
+    #[serde(default)]
+    pub tool_results: Vec<ToolResultRecord>,
 }
 
 /// 通过 Tauri Channel 推送到前端的生成事件。
@@ -180,6 +202,8 @@ pub enum GenerationEvent {
         version_id: String,
         delta: String,
         reasoning_delta: Option<String>,
+        #[serde(default)]
+        tool_call_deltas: Vec<ToolCallDelta>,
     },
     Completed {
         conversation_id: String,
@@ -189,12 +213,17 @@ pub enum GenerationEvent {
         completion_tokens: i64,
         finish_reason: String,
         model: String,
+        received_at: i64,
+        completed_at: i64,
     },
     Failed {
         conversation_id: String,
         node_id: String,
         version_id: String,
-        error: String,
+        error_code: String,
+        error_message: String,
+        #[serde(default)]
+        error_details: Option<AppErrorDetails>,
     },
     Cancelled {
         conversation_id: String,
@@ -207,13 +236,62 @@ pub enum GenerationEvent {
         node_deleted: bool,
         fallback_version_id: Option<String>,
     },
+    ToolCallStart {
+        conversation_id: String,
+        node_id: String,
+        version_id: String,
+        tool_calls: Vec<ToolCallRecord>,
+    },
+    ToolResult {
+        conversation_id: String,
+        node_id: String,
+        version_id: String,
+        results: Vec<ToolResultRecord>,
+    },
 }
 
 /// 消息中的图片附件。
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ImageAttachment {
+    #[serde(default)]
     pub base64: String,
     pub mime_type: String,
+    #[serde(default)]
+    pub url: Option<String>,
+}
+
+/// 消息中的文件附件。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct FileAttachment {
+    pub name: String,
+    pub base64: String,
+    pub mime_type: String,
+}
+
+/// Assistant 返回的工具调用。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolCallRecord {
+    pub id: String,
+    pub name: String,
+    pub arguments_json: String,
+}
+
+/// 工具调用结果。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolResultRecord {
+    pub tool_call_id: String,
+    pub name: String,
+    pub content: String,
+    pub is_error: bool,
+}
+
+/// 流式工具调用增量。
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct ToolCallDelta {
+    pub id: Option<String>,
+    pub name: Option<String>,
+    pub arguments_delta: String,
+    pub index: usize,
 }
 
 /// `message_nodes` 表对应的持久化楼层记录。
@@ -238,10 +316,15 @@ pub struct VersionMeta {
     pub id: String,
     pub node_id: String,
     pub status: String,
+    pub error_code: Option<String>,
+    pub error_message: Option<String>,
+    pub error_details: Option<String>,
     pub model_name: Option<String>,
     pub prompt_tokens: Option<i64>,
     pub completion_tokens: Option<i64>,
     pub finish_reason: Option<String>,
+    pub received_at: Option<i64>,
+    pub completed_at: Option<i64>,
     pub created_at: i64,
 }
 
@@ -289,8 +372,13 @@ pub struct NewMessageContent {
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct MessageVersionPatch {
     pub status: Option<String>,
+    pub error_code: Option<Option<String>>,
+    pub error_message: Option<Option<String>>,
+    pub error_details: Option<Option<String>>,
     pub prompt_tokens: Option<Option<i64>>,
     pub completion_tokens: Option<Option<i64>>,
     pub finish_reason: Option<Option<String>>,
     pub model_name: Option<Option<String>>,
+    pub received_at: Option<Option<i64>>,
+    pub completed_at: Option<Option<i64>>,
 }

@@ -1,15 +1,19 @@
 <script lang="ts">
-  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { getOptionalCurrentWindow } from "../lib/tauri-window";
 
   type Props = {
     class?: string;
   };
 
   const { class: className = "" }: Props = $props();
-  const currentWindow = getCurrentWindow();
+  const currentWindow = getOptionalCurrentWindow();
 
   async function handleMouseDown(event: MouseEvent) {
     if (event.button !== 0) {
+      return;
+    }
+
+    if (!currentWindow) {
       return;
     }
 

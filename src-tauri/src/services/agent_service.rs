@@ -124,7 +124,8 @@ pub async fn delete_with<R: AgentRepo>(repo: &R, id: &str) -> Result<(), AppErro
     match repo
         .delete(id)
         .await
-        .map_err(|error| AppError::internal(format!("failed to delete agent: {error}")))? {
+        .map_err(|error| AppError::internal(format!("failed to delete agent: {error}")))?
+    {
         true => Ok(()),
         false => Err(AppError::not_found(format!("agent '{id}' not found"))),
     }

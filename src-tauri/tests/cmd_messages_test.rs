@@ -28,10 +28,7 @@ use wiremock::{
 };
 
 /// 创建一条已绑定 Agent / 渠道 / 模型的测试会话。
-async fn create_bound_conversation(
-    state: &buyu_lib::state::AppState,
-    base_url: &str,
-) -> String {
+async fn create_bound_conversation(state: &buyu_lib::state::AppState, base_url: &str) -> String {
     let agent = create_agent_impl(
         state,
         CreateAgentInput {
@@ -48,6 +45,7 @@ async fn create_bound_conversation(
             base_url: base_url.to_string(),
             channel_type: None,
             api_key: Some("sk-test".to_string()),
+            api_keys: None,
             auth_type: None,
             models_endpoint: None,
             chat_endpoint: None,
@@ -66,6 +64,8 @@ async fn create_bound_conversation(
             display_name: Some("GPT-4o".to_string()),
             context_window: Some(128_000),
             max_output_tokens: Some(16_384),
+            temperature: None,
+            top_p: None,
         },
     )
     .await
@@ -77,6 +77,7 @@ async fn create_bound_conversation(
             agent_id: Some(agent.id),
             channel_id: Some(channel.id),
             channel_model_id: Some(model.id),
+            enabled_tools: None,
         }),
     )
     .await
@@ -163,18 +164,14 @@ async fn seed_history(db: &sqlx::SqlitePool, conversation_id: &str) {
 }
 
 /// 等待后台生成任务把版本状态从 generating 推进到终态。
-async fn wait_for_terminal_status(
-    db: &sqlx::SqlitePool,
-    version_id: &str,
-) -> String {
+async fn wait_for_terminal_status(db: &sqlx::SqlitePool, version_id: &str) -> String {
     for _ in 0..50 {
-        let status: Option<String> = sqlx::query_scalar(
-            "SELECT status FROM message_versions WHERE id = ?1",
-        )
-        .bind(version_id)
-        .fetch_optional(db)
-        .await
-        .unwrap();
+        let status: Option<String> =
+            sqlx::query_scalar("SELECT status FROM message_versions WHERE id = ?1")
+                .bind(version_id)
+                .fetch_optional(db)
+                .await
+                .unwrap();
 
         if let Some(status) = status {
             if status != "generating" {
@@ -201,6 +198,8 @@ async fn test_send_message_dry_run_returns_prompt_debug_payload() {
         SendMessageInput {
             content: "测试问题".to_string(),
             images: None,
+            files: None,
+            tool_results: None,
             stream: Some(false),
             dry_run: Some(true),
         },
@@ -255,6 +254,8 @@ async fn test_send_message_non_stream_persists_final_assistant_content() {
         SendMessageInput {
             content: "请给我一个结果".to_string(),
             images: None,
+            files: None,
+            tool_results: None,
             stream: Some(false),
             dry_run: Some(false),
         },
@@ -278,6 +279,94 @@ async fn test_send_message_non_stream_persists_final_assistant_content() {
         messages[1].versions[0].content.as_deref(),
         Some("当然可以，这是结果。")
     );
+}
+
+/// 非流式发送在 assistant 返回 content parts 时，应同时持久化正文、图片与文件附件。
+#[tokio::test]
+async fn test_send_message_non_stream_persists_assistant_attachments() {
+    let state = helpers::test_state().await;
+    let server = MockServer::start().await;
+    let conversation_id = create_bound_conversation(&state, &server.uri()).await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "id": "chatcmpl-attachments-1",
+            "object": "chat.completion",
+            "created": 1735000002,
+            "model": "gpt-4o",
+            "choices": [
+                {
+                    "index": 0,
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            { "type": "text", "text": "这里有结果和附件。" },
+                            {
+                                "type": "image_url",
+                                "image_url": { "url": "data:image/png;base64,aW1hZ2UtZGF0YQ==" }
+                            },
+                            {
+                                "type": "file",
+                                "file": {
+                                    "filename": "report.txt",
+                                    "mime_type": "text/plain",
+                                    "data": "data:text/plain;base64,SGVsbG8sIGZpbGUh"
+                                }
+                            }
+                        ]
+                    },
+                    "finish_reason": "stop"
+                }
+            ],
+            "usage": {
+                "prompt_tokens": 16,
+                "completion_tokens": 10,
+                "total_tokens": 26
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let response = send_message_impl(
+        &state,
+        conversation_id.clone(),
+        SendMessageInput {
+            content: "给我一个带附件的结果".to_string(),
+            images: None,
+            files: None,
+            tool_results: None,
+            stream: Some(false),
+            dry_run: Some(false),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+
+    let SendMessageResponse::Started(result) = response else {
+        panic!("expected started response");
+    };
+
+    let status = wait_for_terminal_status(&state.db, &result.assistant_version_id).await;
+    assert_eq!(status, "committed");
+
+    let messages = list_messages_impl(&state, conversation_id, None, None, None)
+        .await
+        .unwrap();
+    let assistant_version = &messages[1].versions[0];
+
+    assert_eq!(
+        assistant_version.content.as_deref(),
+        Some("这里有结果和附件。")
+    );
+    assert_eq!(assistant_version.images.len(), 1);
+    assert_eq!(assistant_version.images[0].mime_type, "image/png");
+    assert_eq!(assistant_version.images[0].base64, "aW1hZ2UtZGF0YQ==");
+    assert_eq!(assistant_version.files.len(), 1);
+    assert_eq!(assistant_version.files[0].name, "report.txt");
+    assert_eq!(assistant_version.files[0].mime_type, "text/plain");
+    assert_eq!(assistant_version.files[0].base64, "SGVsbG8sIGZpbGUh");
 }
 
 /// 流式发送在只返回 delta、最终 Done 不带完整文本时，也应保留 assistant 节点与正文。
@@ -310,6 +399,8 @@ async fn test_send_message_stream_persists_delta_content_without_empty_rollback(
         SendMessageInput {
             content: "请给我一个流式结果".to_string(),
             images: None,
+            files: None,
+            tool_results: None,
             stream: Some(true),
             dry_run: Some(false),
         },
@@ -334,6 +425,67 @@ async fn test_send_message_stream_persists_delta_content_without_empty_rollback(
         messages[1].versions[0].content.as_deref(),
         Some("当然可以，这是结果。")
     );
+}
+
+/// 流式发送在只返回图片/文件附件、不返回正文时，也不应触发空消息回滚。
+#[tokio::test]
+async fn test_send_message_stream_persists_attachment_only_response() {
+    let state = helpers::test_state().await;
+    let server = MockServer::start().await;
+    let conversation_id = create_bound_conversation(&state, &server.uri()).await;
+
+    let sse_body = concat!(
+        "data: {\"id\":\"chatcmpl-attachments-2\",\"object\":\"chat.completion.chunk\",\"created\":1735000003,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\",\"content\":[{\"type\":\"image_url\",\"image_url\":{\"url\":\"data:image/png;base64,c3RyZWFtLWltYWdl\"}},{\"type\":\"file\",\"file\":{\"filename\":\"stream.txt\",\"mime_type\":\"text/plain\",\"data\":\"data:text/plain;base64,c3RyZWFtLWZpbGU=\"}}]},\"finish_reason\":null}]}\n\n",
+        "data: {\"id\":\"chatcmpl-attachments-2\",\"object\":\"chat.completion.chunk\",\"created\":1735000003,\"model\":\"gpt-4o\",\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}],\"usage\":{\"prompt_tokens\":14,\"completion_tokens\":6,\"total_tokens\":20}}\n\n",
+        "data: [DONE]\n\n"
+    );
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .insert_header("content-type", "text/event-stream")
+                .set_body_raw(sse_body, "text/event-stream"),
+        )
+        .mount(&server)
+        .await;
+
+    let response = send_message_impl(
+        &state,
+        conversation_id.clone(),
+        SendMessageInput {
+            content: "给我一个纯附件流式结果".to_string(),
+            images: None,
+            files: None,
+            tool_results: None,
+            stream: Some(true),
+            dry_run: Some(false),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+
+    let SendMessageResponse::Started(result) = response else {
+        panic!("expected started response");
+    };
+
+    let status = wait_for_terminal_status(&state.db, &result.assistant_version_id).await;
+    assert_eq!(status, "committed");
+
+    let messages = list_messages_impl(&state, conversation_id, None, None, None)
+        .await
+        .unwrap();
+    let assistant_version = &messages[1].versions[0];
+
+    assert_eq!(assistant_version.content, None);
+    assert_eq!(assistant_version.images.len(), 1);
+    assert_eq!(assistant_version.images[0].mime_type, "image/png");
+    assert_eq!(assistant_version.images[0].base64, "c3RyZWFtLWltYWdl");
+    assert_eq!(assistant_version.files.len(), 1);
+    assert_eq!(assistant_version.files[0].name, "stream.txt");
+    assert_eq!(assistant_version.files[0].mime_type, "text/plain");
+    assert_eq!(assistant_version.files[0].base64, "c3RyZWFtLWZpbGU=");
 }
 
 /// 当 user node 后已有 assistant 楼层时，reroll 应复用该 assistant node 创建新版本。
@@ -372,6 +524,8 @@ async fn test_reroll_user_node_reuses_following_assistant_node() {
         SendMessageInput {
             content: "第一条".to_string(),
             images: None,
+            files: None,
+            tool_results: None,
             stream: Some(false),
             dry_run: Some(false),
         },
@@ -389,7 +543,9 @@ async fn test_reroll_user_node_reuses_following_assistant_node() {
         &state,
         conversation_id.clone(),
         started.user_node_id.clone(),
-        Some(RerollInput { stream: Some(false) }),
+        Some(RerollInput {
+            stream: Some(false),
+        }),
         None,
     )
     .await
@@ -445,7 +601,10 @@ async fn test_edit_message_creates_new_version_on_same_node() {
         .find(|node| node.id == user_node.id)
         .expect("edited user node should exist");
 
-    assert_eq!(updated_user_node.active_version_id.as_deref(), Some(result.edited_version_id.as_str()));
+    assert_eq!(
+        updated_user_node.active_version_id.as_deref(),
+        Some(result.edited_version_id.as_str())
+    );
     assert_eq!(updated_user_node.versions.len(), 2);
     assert_eq!(
         updated_user_node
@@ -538,7 +697,171 @@ async fn test_set_active_version_and_delete_version_commands() {
         .await
         .unwrap();
     assert!(!result.node_deleted);
-    assert_eq!(result.new_active_version_id.as_deref(), Some(version_b.as_str()));
+    assert_eq!(
+        result.new_active_version_id.as_deref(),
+        Some(version_b.as_str())
+    );
+}
+
+/// 上游返回非 2xx 时，应把错误码、错误消息与请求/响应详情落到失败版本。
+#[tokio::test]
+async fn test_send_message_persists_structured_error_details() {
+    let state = helpers::test_state().await;
+    let server = MockServer::start().await;
+    let conversation_id = create_bound_conversation(&state, &server.uri()).await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(ResponseTemplate::new(401).set_body_json(serde_json::json!({
+            "error": {
+                "message": "invalid api key",
+                "code": "invalid_api_key"
+            }
+        })))
+        .mount(&server)
+        .await;
+
+    let response = send_message_impl(
+        &state,
+        conversation_id.clone(),
+        SendMessageInput {
+            content: "请触发失败".to_string(),
+            images: None,
+            files: None,
+            tool_results: None,
+            stream: Some(false),
+            dry_run: Some(false),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+
+    let SendMessageResponse::Started(started) = response else {
+        panic!("expected started response");
+    };
+
+    let status = wait_for_terminal_status(&state.db, &started.assistant_version_id).await;
+    assert_eq!(status, "failed");
+
+    let messages = list_messages_impl(&state, conversation_id, None, None, None)
+        .await
+        .unwrap();
+    let assistant_version = &messages[1].versions[0];
+
+    assert_eq!(assistant_version.status, "failed");
+    assert_eq!(
+        assistant_version.error_code.as_deref(),
+        Some("AI_REQUEST_FAILED")
+    );
+    assert!(assistant_version
+        .error_message
+        .as_deref()
+        .unwrap_or_default()
+        .contains("401"));
+
+    let error_details = assistant_version
+        .error_details
+        .as_ref()
+        .expect("error details should be present");
+    let expected_request_url = format!("{}/v1/chat/completions", server.uri());
+    assert_eq!(
+        error_details.request_url.as_deref(),
+        Some(expected_request_url.as_str())
+    );
+    assert_eq!(error_details.request_method.as_deref(), Some("POST"));
+    assert_eq!(error_details.response_status, Some(401));
+    assert!(error_details
+        .request_body
+        .as_deref()
+        .unwrap_or_default()
+        .contains("\"content\": \"请触发失败\""));
+    assert!(error_details
+        .response_body
+        .as_deref()
+        .unwrap_or_default()
+        .contains("invalid api key"));
+}
+
+/// 取消进行中的生成后，版本应最终变成 cancelled，且不会再被后续完成覆盖。
+#[tokio::test]
+async fn test_cancel_generation_keeps_version_cancelled() {
+    let state = helpers::test_state().await;
+    let server = MockServer::start().await;
+    let conversation_id = create_bound_conversation(&state, &server.uri()).await;
+
+    Mock::given(method("POST"))
+        .and(path("/v1/chat/completions"))
+        .respond_with(
+            ResponseTemplate::new(200)
+                .set_delay(Duration::from_millis(400))
+                .set_body_json(serde_json::json!({
+                    "id": "chatcmpl-cancel-1",
+                    "object": "chat.completion",
+                    "created": 1735000004,
+                    "model": "gpt-4o",
+                    "choices": [
+                        {
+                            "index": 0,
+                            "message": { "role": "assistant", "content": "这条结果不该写回。" },
+                            "finish_reason": "stop"
+                        }
+                    ],
+                    "usage": {
+                        "prompt_tokens": 12,
+                        "completion_tokens": 8,
+                        "total_tokens": 20
+                    }
+                })),
+        )
+        .mount(&server)
+        .await;
+
+    let response = send_message_impl(
+        &state,
+        conversation_id.clone(),
+        SendMessageInput {
+            content: "请开始一个可取消的请求".to_string(),
+            images: None,
+            files: None,
+            tool_results: None,
+            stream: Some(false),
+            dry_run: Some(false),
+        },
+        None,
+    )
+    .await
+    .unwrap();
+
+    let SendMessageResponse::Started(started) = response else {
+        panic!("expected started response");
+    };
+
+    cancel_generation_impl(&state, started.assistant_version_id.clone())
+        .await
+        .unwrap();
+
+    let status = wait_for_terminal_status(&state.db, &started.assistant_version_id).await;
+    assert_eq!(status, "cancelled");
+
+    tokio::time::sleep(Duration::from_millis(700)).await;
+
+    let final_status: String =
+        sqlx::query_scalar("SELECT status FROM message_versions WHERE id = ?1")
+            .bind(&started.assistant_version_id)
+            .fetch_one(&state.db)
+            .await
+            .unwrap();
+    assert_eq!(final_status, "cancelled");
+
+    let messages = list_messages_impl(&state, conversation_id, None, None, None)
+        .await
+        .unwrap();
+    assert_eq!(messages[1].versions[0].status, "cancelled");
+    assert_ne!(
+        messages[1].versions[0].content.as_deref(),
+        Some("这条结果不该写回。")
+    );
 }
 
 /// 取消不存在的版本应保持幂等成功。

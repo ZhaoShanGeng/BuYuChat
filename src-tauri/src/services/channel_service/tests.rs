@@ -17,9 +17,7 @@ use crate::{
     repo::channel_repo::ChannelRepo,
 };
 
-use super::{
-    create_with, delete_with, get_with, list_with, test_with, update_with, Clock,
-};
+use super::{create_with, delete_with, get_with, list_with, test_with, update_with, Clock};
 
 #[derive(Default)]
 struct FakeRepo {
@@ -50,6 +48,7 @@ impl ChannelRepo for FakeRepo {
             channel_type: new_channel.channel_type.clone(),
             base_url: new_channel.base_url.clone(),
             api_key: new_channel.api_key.clone(),
+            api_keys: new_channel.api_keys.clone(),
             auth_type: new_channel.auth_type.clone(),
             models_endpoint: new_channel.models_endpoint.clone(),
             chat_endpoint: new_channel.chat_endpoint.clone(),
@@ -104,6 +103,9 @@ impl ChannelRepo for FakeRepo {
         }
         if let Some(api_key) = &patch.api_key {
             channel.api_key = Some(api_key.clone());
+        }
+        if let Some(api_keys) = &patch.api_keys {
+            channel.api_keys = Some(api_keys.clone());
         }
         if let Some(auth_type) = &patch.auth_type {
             channel.auth_type = Some(auth_type.clone());
@@ -166,7 +168,9 @@ impl AiMetadataClient for FakeMetadataClient {
             .expect("假探测器互斥锁不应中毒")
             .pop_front()
             .unwrap_or(Ok(()))
-            .map_err(|error| AppError::channel_unreachable(format!("failed to reach channel: {error}")))
+            .map_err(|error| {
+                AppError::channel_unreachable(format!("failed to reach channel: {error}"))
+            })
     }
 
     /// 渠道服务测试不会调用远程模型拉取。
@@ -187,6 +191,7 @@ fn sample_channel() -> Channel {
         channel_type: "openai_compatible".to_string(),
         base_url: "https://api.openai.com/".to_string(),
         api_key: Some("sk-xxx".to_string()),
+        api_keys: None,
         auth_type: None,
         models_endpoint: None,
         chat_endpoint: None,
@@ -210,6 +215,7 @@ async fn create_channel_sets_defaults_and_uuid_v7() {
             base_url: "https://api.openai.com".to_string(),
             channel_type: None,
             api_key: Some("sk-xxx".to_string()),
+            api_keys: None,
             auth_type: None,
             models_endpoint: None,
             chat_endpoint: None,
@@ -240,6 +246,7 @@ async fn create_channel_with_invalid_url_returns_invalid_url_error() {
             base_url: "api.openai.com".to_string(),
             channel_type: None,
             api_key: None,
+            api_keys: None,
             auth_type: None,
             models_endpoint: None,
             chat_endpoint: None,

@@ -97,6 +97,7 @@ export type ConversationDraft = {
   agentId: string;
   channelId: string;
   modelId: string;
+  enabledTools: string[];
 };
 
 export type MessageHistoryState = {
@@ -186,7 +187,8 @@ const EMPTY_CONVERSATION_DRAFT: ConversationDraft = {
   title: "",
   agentId: "",
   channelId: "",
-  modelId: ""
+  modelId: "",
+  enabledTools: []
 };
 
 const MESSAGE_PAGE_SIZE = 40;
@@ -498,10 +500,15 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
             thinkingContent: null,
             images: images.map(({ name: _, ...image }) => image),
             status: "committed",
+            errorCode: null,
+            errorMessage: null,
+            errorDetails: null,
             modelName: null,
             promptTokens: null,
             completionTokens: null,
             finishReason: null,
+            receivedAt: null,
+            completedAt: null,
             createdAt
           }
         ],
@@ -522,10 +529,15 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
             thinkingContent: null,
             images: [],
             status: "generating",
+            errorCode: null,
+            errorMessage: null,
+            errorDetails: null,
             modelName: null,
             promptTokens: null,
             completionTokens: null,
             finishReason: null,
+            receivedAt: null,
+            completedAt: null,
             createdAt
           }
         ],
@@ -610,10 +622,15 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
           return;
         }
         version.status = "committed";
+        version.errorCode = null;
+        version.errorMessage = null;
+        version.errorDetails = null;
         version.promptTokens = event.promptTokens;
         version.completionTokens = event.completionTokens;
         version.finishReason = event.finishReason;
         version.modelName = event.model;
+        version.receivedAt = event.receivedAt;
+        version.completedAt = event.completedAt;
         return;
       }
       case "failed": {
@@ -622,6 +639,9 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
           return;
         }
         version.status = "failed";
+        version.errorCode = event.errorCode;
+        version.errorMessage = event.errorMessage;
+        version.errorDetails = event.errorDetails ?? null;
         return;
       }
       case "cancelled": {
@@ -630,6 +650,9 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
           return;
         }
         version.status = "cancelled";
+        version.errorCode = null;
+        version.errorMessage = null;
+        version.errorDetails = null;
         return;
       }
       case "empty_rollback": {
@@ -666,7 +689,8 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
       title: conversation.title,
       agentId: conversation.agentId ?? "",
       channelId: conversation.channelId ?? "",
-      modelId: conversation.channelModelId ?? ""
+      modelId: conversation.channelModelId ?? "",
+      enabledTools: conversation.enabledTools ?? []
     };
     lastConversationDraftChannelId = conversation.channelId ?? "";
   }
@@ -922,13 +946,38 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
       return;
     }
 
+    if (event.type === "tool_call_start" || event.type === "tool_result") {
+      applyToolEventImmediately(event);
+      return;
+    }
+
     replayPendingChunkEvents(event.conversationId);
     applyTerminalEventImmediately(event);
 
-    if (event.type !== "completed") {
-      void reloadMessages(event.conversationId);
-    }
+    void reloadMessages(event.conversationId);
     void reloadConversations();
+  }
+
+  /**
+   * 将工具调用/结果事件直接应用到对应 version 上。
+   */
+  function applyToolEventImmediately(
+    event: Extract<GenerationEvent, { type: "tool_call_start" }> | Extract<GenerationEvent, { type: "tool_result" }>
+  ) {
+    const nodes = state.messagesByConversation[event.conversationId];
+    if (!nodes) return;
+
+    const node = findNode(nodes, event.nodeId);
+    if (!node) return;
+
+    const version = node.versions.find((v) => v.id === event.versionId);
+    if (!version) return;
+
+    if (event.type === "tool_call_start") {
+      version.toolCalls = [...(version.toolCalls ?? []), ...event.toolCalls];
+    } else {
+      version.toolResults = [...(version.toolResults ?? []), ...event.results];
+    }
   }
 
   /**
@@ -1174,10 +1223,17 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   async function handleCancelGeneration(versionId: string) {
     try {
       await deps.cancelGeneration(versionId);
-      setNotice({ kind: "info", text: "已请求取消当前生成" });
       if (state.activeConversationId) {
-        await reloadMessages(state.activeConversationId);
+        const nodes = state.messagesByConversation[state.activeConversationId] ?? [];
+        const version = findVersion(nodes, versionId);
+        if (version) {
+          version.status = "cancelled";
+          version.errorCode = null;
+          version.errorMessage = null;
+          version.errorDetails = null;
+        }
       }
+      setNotice({ kind: "info", text: "已请求取消当前生成" });
     } catch (error) {
       setErrorNotice(error);
     }
@@ -1222,6 +1278,8 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
             promptTokens: null,
             completionTokens: null,
             finishReason: null,
+            receivedAt: null,
+            completedAt: null,
             createdAt: now
           }
         ];
@@ -1750,6 +1808,22 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   }
 
   /**
+   * 切换当前会话启用的工具列表。
+   */
+  async function handleEnabledToolsChange(tools: string[]) {
+    if (!state.activeConversationId) return;
+    state.conversationDraft.enabledTools = tools;
+    try {
+      await deps.updateConversation(state.activeConversationId, {
+        enabledTools: tools
+      });
+      await refreshActiveConversation();
+    } catch (error) {
+      setErrorNotice(error);
+    }
+  }
+
+  /**
    * 快速切换当前会话的渠道绑定。
    *
    * 模型加载失败时降级处理，不阻塞渠道切换流程。
@@ -1930,6 +2004,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     handleQuickModelChange,
     handleQuickAgentChange,
     handleQuickChannelChange,
-    handleQuickTitleChange
+    handleQuickTitleChange,
+    handleEnabledToolsChange
   };
 }

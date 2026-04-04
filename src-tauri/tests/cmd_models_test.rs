@@ -27,10 +27,12 @@ async fn create_test_channel(state: &buyu_lib::state::AppState, base_url: &str) 
             base_url: base_url.to_string(),
             channel_type: None,
             api_key: Some("sk-xxx".to_string()),
+            api_keys: None,
             auth_type: None,
             models_endpoint: None,
             chat_endpoint: None,
             stream_endpoint: None,
+            thinking_tags: None,
             enabled: None,
         },
     )
@@ -53,6 +55,8 @@ async fn test_model_commands_cover_crud_flow() {
             display_name: Some("GPT-4o".to_string()),
             context_window: Some(128_000),
             max_output_tokens: Some(16_384),
+            temperature: None,
+            top_p: None,
         },
     )
     .await
@@ -70,6 +74,8 @@ async fn test_model_commands_cover_crud_flow() {
             display_name: Some(Some("GPT-4o Latest".to_string())),
             context_window: None,
             max_output_tokens: Some(Some(8_192)),
+            temperature: None,
+            top_p: None,
         },
     )
     .await
@@ -98,6 +104,8 @@ async fn test_create_model_returns_conflict_for_duplicate_model_id() {
             display_name: None,
             context_window: None,
             max_output_tokens: None,
+            temperature: None,
+            top_p: None,
         },
     )
     .await
@@ -111,6 +119,8 @@ async fn test_create_model_returns_conflict_for_duplicate_model_id() {
             display_name: None,
             context_window: None,
             max_output_tokens: None,
+            temperature: None,
+            top_p: None,
         },
     )
     .await
@@ -147,14 +157,12 @@ async fn test_fetch_remote_models_returns_remote_model_list() {
     Mock::given(method("GET"))
         .and(path("/v1/models"))
         .and(header("authorization", "Bearer sk-xxx"))
-        .respond_with(
-            ResponseTemplate::new(200).set_body_json(serde_json::json!({
-                "data": [
-                    { "id": "gpt-4o", "display_name": "GPT-4o", "context_window": 128000 },
-                    { "id": "gpt-4o-mini" }
-                ]
-            })),
-        )
+        .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+            "data": [
+                { "id": "gpt-4o", "display_name": "GPT-4o", "context_window": 128000 },
+                { "id": "gpt-4o-mini" }
+            ]
+        })))
         .mount(&server)
         .await;
 

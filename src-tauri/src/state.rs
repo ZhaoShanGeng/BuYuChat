@@ -1,6 +1,6 @@
 //! Tauri 异步命令共享的运行时状态。
 
-use std::{str::FromStr, sync::Arc};
+use std::{str::FromStr, sync::Arc, time::Duration};
 
 use dashmap::DashMap;
 use sqlx::{
@@ -10,7 +10,7 @@ use sqlx::{
 use tokio::sync::Semaphore;
 use tokio_util::sync::CancellationToken;
 
-use crate::repo::migrations::MIGRATOR;
+use crate::{mcp::tools::ToolRegistry, repo::migrations::MIGRATOR};
 
 /// 通过 `State<AppState>` 注入命令层的共享应用状态。
 #[derive(Debug, Clone)]
@@ -23,6 +23,8 @@ pub struct AppState {
     pub cancellation_tokens: Arc<DashMap<String, CancellationToken>>,
     /// 生成任务并发上限控制器。
     pub generation_semaphore: Arc<Semaphore>,
+    /// 内置工具注册表。
+    pub tool_registry: Arc<ToolRegistry>,
 }
 
 impl AppState {
@@ -42,10 +44,6 @@ impl AppState {
             })
             .connect_with(options)
             .await?;
-
-        sqlx::query("PRAGMA busy_timeout = 5000;")
-            .execute(&db)
-            .await?;
         MIGRATOR.run(&db).await?;
         sqlx::query("UPDATE message_versions SET status = 'failed' WHERE status = 'generating'")
             .execute(&db)
@@ -53,11 +51,19 @@ impl AppState {
 
         Ok(Self {
             db,
-            http_client: reqwest::Client::new(),
+            http_client: build_http_client()?,
             cancellation_tokens: Arc::new(DashMap::new()),
             generation_semaphore: Arc::new(Semaphore::new(5)),
+            tool_registry: Arc::new(ToolRegistry::new()),
         })
     }
+}
+
+fn build_http_client() -> anyhow::Result<reqwest::Client> {
+    Ok(reqwest::Client::builder()
+        .connect_timeout(Duration::from_secs(10))
+        .pool_idle_timeout(Duration::from_secs(90))
+        .build()?)
 }
 
 /// 构建符合架构文档要求的 SQLite 连接选项。
@@ -67,6 +73,7 @@ pub fn build_connect_options(
 ) -> anyhow::Result<SqliteConnectOptions> {
     Ok(SqliteConnectOptions::from_str(database_url)?
         .create_if_missing(create_if_missing)
+        .busy_timeout(Duration::from_secs(5))
         .foreign_keys(true)
         .journal_mode(SqliteJournalMode::Wal)
         .synchronous(SqliteSynchronous::Normal))

@@ -4,7 +4,9 @@ use sqlx::SqlitePool;
 
 use crate::{
     error::AppError,
-    models::{ChannelModel, ChannelModelPatch, CreateModelInput, NewChannelModel, UpdateModelInput},
+    models::{
+        ChannelModel, ChannelModelPatch, CreateModelInput, NewChannelModel, UpdateModelInput,
+    },
     repo::model_repo::{ModelRepo, SqlxModelRepo},
     utils::ids::new_uuid_v7,
 };
@@ -72,6 +74,8 @@ pub async fn create_with<R: ModelRepo>(
         display_name: normalize_optional_text(input.display_name),
         context_window: input.context_window,
         max_output_tokens: input.max_output_tokens,
+        temperature: normalize_optional_text(input.temperature),
+        top_p: normalize_optional_text(input.top_p),
     })
     .await
     .map_err(|error| AppError::internal(format!("failed to create model: {error}")))
@@ -105,6 +109,8 @@ pub async fn update_with<R: ModelRepo>(
             display_name: input.display_name.map(normalize_optional_text),
             context_window: input.context_window,
             max_output_tokens: input.max_output_tokens,
+            temperature: input.temperature.map(normalize_optional_text),
+            top_p: input.top_p.map(normalize_optional_text),
         },
     )
     .await
@@ -123,7 +129,8 @@ pub async fn delete_with<R: ModelRepo>(
     match repo
         .delete(channel_id, id)
         .await
-        .map_err(|error| AppError::internal(format!("failed to delete model: {error}")))? {
+        .map_err(|error| AppError::internal(format!("failed to delete model: {error}")))?
+    {
         true => Ok(()),
         false => Err(AppError::not_found(format!("model '{id}' not found"))),
     }
@@ -139,5 +146,7 @@ async fn ensure_channel_exists<R: ModelRepo>(repo: &R, channel_id: &str) -> Resu
         return Ok(());
     }
 
-    Err(AppError::not_found(format!("channel '{channel_id}' not found")))
+    Err(AppError::not_found(format!(
+        "channel '{channel_id}' not found"
+    )))
 }

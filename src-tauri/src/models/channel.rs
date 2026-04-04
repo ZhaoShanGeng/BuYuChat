@@ -16,6 +16,8 @@ pub struct Channel {
     pub base_url: String,
     /// 鉴权使用的 API Key。
     pub api_key: Option<String>,
+    /// 轮换使用的多个 API Key，JSON 数组字符串。
+    pub api_keys: Option<String>,
     /// 对外请求使用的鉴权方式。
     pub auth_type: Option<String>,
     /// 模型列表与连通性测试使用的接口。
@@ -45,6 +47,8 @@ pub struct CreateChannelInput {
     pub channel_type: Option<String>,
     /// API Key 覆盖值。
     pub api_key: Option<String>,
+    /// 轮换 API Key 覆盖值，JSON 数组字符串。
+    pub api_keys: Option<String>,
     /// 鉴权方式覆盖值。
     pub auth_type: Option<String>,
     /// 模型列表接口覆盖值。
@@ -70,6 +74,8 @@ pub struct UpdateChannelInput {
     pub channel_type: Option<String>,
     /// 更新后的 API Key。
     pub api_key: Option<String>,
+    /// 更新后的轮换 API Key。
+    pub api_keys: Option<String>,
     /// 更新后的鉴权方式。
     pub auth_type: Option<String>,
     /// 更新后的模型列表接口。
@@ -97,6 +103,8 @@ pub struct NewChannel {
     pub base_url: String,
     /// 鉴权使用的 API Key。
     pub api_key: Option<String>,
+    /// 轮换使用的多个 API Key，JSON 数组字符串。
+    pub api_keys: Option<String>,
     /// 对外请求使用的鉴权方式。
     pub auth_type: Option<String>,
     /// 模型列表与连通性测试使用的接口。
@@ -126,6 +134,8 @@ pub struct ChannelPatch {
     pub channel_type: Option<String>,
     /// 更新后的 API Key。
     pub api_key: Option<String>,
+    /// 更新后的轮换 API Key。
+    pub api_keys: Option<String>,
     /// 更新后的鉴权方式。
     pub auth_type: Option<String>,
     /// 更新后的模型列表接口。

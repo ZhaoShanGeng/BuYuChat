@@ -1,16 +1,12 @@
 <script lang="ts">
-  import { Button } from "$lib/components/ui/button/index.js";
   import { Input } from "$lib/components/ui/input/index.js";
-  import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
-  import BotIcon from "@lucide/svelte/icons/bot";
-  import ChevronDownIcon from "@lucide/svelte/icons/chevron-down";
-  import WaypointsIcon from "@lucide/svelte/icons/waypoints";
-  import CpuIcon from "@lucide/svelte/icons/cpu";
+  import * as Popover from "$lib/components/ui/popover/index.js";
+  import MenuIcon from "@lucide/svelte/icons/menu";
   import type { Agent } from "../lib/transport/agents";
   import type { Channel } from "../lib/transport/channels";
   import type { Conversation } from "../lib/transport/conversations";
   import type { ChannelModel } from "../lib/transport/models";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { getOptionalCurrentWindow } from "../lib/tauri-window";
   import WindowControls from "./WindowControls.svelte";
 
   type Props = {
@@ -26,13 +22,17 @@
     onQuickChannelChange: (channelId: string) => void | Promise<void>;
     onQuickChannelMenuOpen: () => void | Promise<void>;
     onQuickTitleChange: (title: string) => void | Promise<void>;
+    isMobile?: boolean;
+    onMenuToggle?: () => void;
   };
 
   const props: Props = $props();
-  const currentWindow = getCurrentWindow();
+  const currentWindow = getOptionalCurrentWindow();
   let titleEditing = $state(false);
   let titleInput = $state("");
-  let channelMenuOpen = $state(false);
+  let agentPopoverOpen = $state(false);
+  let channelPopoverOpen = $state(false);
+  let modelPopoverOpen = $state(false);
 
   async function handleHeaderMouseDown(event: MouseEvent) {
     const target = event.target as HTMLElement | null;
@@ -40,6 +40,10 @@
       event.button !== 0 ||
       target?.closest("button, input, textarea, select, a, [role='button'], [data-no-drag]")
     ) {
+      return;
+    }
+
+    if (!currentWindow) {
       return;
     }
 
@@ -64,7 +68,7 @@
   }
 
   $effect(() => {
-    if (!channelMenuOpen) {
+    if (!channelPopoverOpen) {
       return;
     }
 
@@ -74,96 +78,28 @@
 
 <!-- svelte-ignore a11y_no_static_element_interactions -->
 <div
-  class="flex min-h-14 min-w-0 shrink-0 items-center gap-2 border-b bg-background px-3 py-2 pr-4"
+  class="flex min-h-14 min-w-0 shrink-0 flex-col justify-center border-b bg-background/80 px-4 py-2"
   onmousedown={handleHeaderMouseDown}
 >
-  {#if props.conversation}
-    <div class="flex min-w-0 shrink items-center gap-2 overflow-hidden">
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger>
-          {#snippet child({ props: triggerProps })}
-            <Button
-              {...triggerProps}
-              class="h-8 min-w-0 max-w-[10rem] shrink gap-2 rounded-xl px-3 text-xs"
-              size="sm"
-              variant="outline"
-            >
-              <BotIcon class="size-3.5 text-muted-foreground" />
-              <span class="truncate">{props.agentName || "选择 Agent"}</span>
-              <ChevronDownIcon class="size-3 opacity-60" />
-            </Button>
-          {/snippet}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content align="start" class="w-52">
-          <DropdownMenu.Item onclick={() => props.onQuickAgentChange("")}>不绑定</DropdownMenu.Item>
-          <DropdownMenu.Separator />
-          {#each props.agents as agent}
-            <DropdownMenu.Item onclick={() => props.onQuickAgentChange(agent.id)}>
-              {agent.name}
-            </DropdownMenu.Item>
-          {/each}
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
+  <div class="flex items-center gap-2">
+    {#if props.isMobile}
+      <button
+        class="flex size-9 shrink-0 items-center justify-center rounded-xl text-muted-foreground transition-colors hover:bg-accent hover:text-foreground"
+        onclick={props.onMenuToggle}
+        title="菜单"
+        type="button"
+      >
+        <MenuIcon class="size-5" />
+      </button>
+    {/if}
 
-      <DropdownMenu.Root bind:open={channelMenuOpen}>
-        <DropdownMenu.Trigger>
-          {#snippet child({ props: triggerProps })}
-            <Button
-              {...triggerProps}
-              class="h-8 min-w-0 max-w-[10rem] shrink gap-2 rounded-xl px-3 text-xs"
-              size="sm"
-              variant="outline"
-            >
-              <WaypointsIcon class="size-3.5 text-muted-foreground" />
-              <span class="truncate">{props.channelName || "选择渠道"}</span>
-              <ChevronDownIcon class="size-3 opacity-60" />
-            </Button>
-          {/snippet}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content align="start" class="w-52">
-          <DropdownMenu.Item onclick={() => props.onQuickChannelChange("")}>不绑定</DropdownMenu.Item>
-          <DropdownMenu.Separator />
-          {#each props.channels as channel}
-            <DropdownMenu.Item onclick={() => props.onQuickChannelChange(channel.id)}>
-              {channel.name}
-            </DropdownMenu.Item>
-          {/each}
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
-
-      <DropdownMenu.Root>
-        <DropdownMenu.Trigger>
-          {#snippet child({ props: triggerProps })}
-            <Button
-              {...triggerProps}
-              class="h-8 min-w-0 max-w-[12rem] shrink gap-2 rounded-xl px-3 text-xs"
-              size="sm"
-              variant="outline"
-            >
-              <CpuIcon class="size-3.5 text-muted-foreground" />
-              <span class="truncate">{props.modelName}</span>
-              <ChevronDownIcon class="size-3 opacity-60" />
-            </Button>
-          {/snippet}
-        </DropdownMenu.Trigger>
-        <DropdownMenu.Content align="start" class="max-h-72 w-64 overflow-y-auto">
-          {#if props.models.length === 0}
-            <DropdownMenu.Item disabled>请先在设置中配置模型</DropdownMenu.Item>
-          {:else}
-            {#each props.models as model}
-              <DropdownMenu.Item onclick={() => props.onQuickModelChange(model.id)}>
-                {model.displayName ?? model.modelId}
-              </DropdownMenu.Item>
-            {/each}
-          {/if}
-        </DropdownMenu.Content>
-      </DropdownMenu.Root>
-
-      <div class="ml-1 min-w-0 w-[clamp(7rem,16vw,14rem)] shrink">
+    {#if props.conversation}
+      <div class="min-w-0 flex-1">
+        <!-- 第一行：会话标题（大号、可编辑） -->
         {#if titleEditing}
           <Input
             bind:value={titleInput}
-            class="h-8 w-full min-w-0 rounded-xl border-transparent bg-muted/70 text-sm shadow-none focus-visible:border-border"
+            class="h-8 w-full max-w-sm min-w-0 rounded-lg border-transparent bg-muted/70 text-sm font-semibold shadow-none focus-visible:border-border"
             onblur={saveTitleEdit}
             onkeydown={(event) => {
               if (event.key === "Enter") saveTitleEdit();
@@ -172,22 +108,120 @@
           />
         {:else}
           <button
-            class="w-full truncate rounded-xl px-3 py-1.5 text-left text-sm font-medium text-foreground transition-colors hover:bg-muted/70"
+            class="max-w-md truncate text-left text-[15px] font-semibold text-foreground transition-colors hover:text-primary"
             onclick={startTitleEdit}
+            title="点击编辑标题"
             type="button"
           >
             {props.conversation.title}
           </button>
         {/if}
+
+        <!-- 第二行：面包屑上下文 (Agent · Channel · Model) -->
+        <div class="mt-0.5 flex items-center gap-0 text-[12px] text-muted-foreground" data-no-drag>
+          <!-- Agent 切换 -->
+          <Popover.Root bind:open={agentPopoverOpen}>
+            <Popover.Trigger>
+              <button
+                class="rounded-md px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground"
+                type="button"
+              >
+                {props.agentName || "未绑定 Agent"}
+              </button>
+            </Popover.Trigger>
+            <Popover.Content align="start" class="w-48 p-1.5">
+              <div class="mb-1 px-2 text-[11px] font-medium text-muted-foreground">切换 Agent</div>
+              <button
+                class="flex w-full items-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                onclick={() => { void props.onQuickAgentChange(""); agentPopoverOpen = false; }}
+                type="button"
+              >
+                不绑定
+              </button>
+              {#each props.agents as agent}
+                <button
+                  class="flex w-full items-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                  onclick={() => { void props.onQuickAgentChange(agent.id); agentPopoverOpen = false; }}
+                  type="button"
+                >
+                  {agent.name}
+                </button>
+              {/each}
+            </Popover.Content>
+          </Popover.Root>
+
+          <span class="text-muted-foreground/40 select-none">·</span>
+
+          <!-- Channel 切换 -->
+          <Popover.Root bind:open={channelPopoverOpen}>
+            <Popover.Trigger>
+              <button
+                class="rounded-md px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground"
+                type="button"
+              >
+                {props.channelName || "未选择渠道"}
+              </button>
+            </Popover.Trigger>
+            <Popover.Content align="start" class="w-48 p-1.5">
+              <div class="mb-1 px-2 text-[11px] font-medium text-muted-foreground">切换渠道</div>
+              <button
+                class="flex w-full items-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                onclick={() => { void props.onQuickChannelChange(""); channelPopoverOpen = false; }}
+                type="button"
+              >
+                不绑定
+              </button>
+              {#each props.channels as channel}
+                <button
+                  class="flex w-full items-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                  onclick={() => { void props.onQuickChannelChange(channel.id); channelPopoverOpen = false; }}
+                  type="button"
+                >
+                  {channel.name}
+                </button>
+              {/each}
+            </Popover.Content>
+          </Popover.Root>
+
+          <span class="text-muted-foreground/40 select-none">·</span>
+
+          <!-- Model 切换 -->
+          <Popover.Root bind:open={modelPopoverOpen}>
+            <Popover.Trigger>
+              <button
+                class="rounded-md px-1.5 py-0.5 transition-colors hover:bg-accent hover:text-foreground"
+                type="button"
+              >
+                {props.modelName}
+              </button>
+            </Popover.Trigger>
+            <Popover.Content align="start" class="max-h-64 w-56 overflow-y-auto p-1.5">
+              <div class="mb-1 px-2 text-[11px] font-medium text-muted-foreground">切换模型</div>
+              {#if props.models.length === 0}
+                <div class="px-2 py-1.5 text-sm text-muted-foreground">请先在设置中配置模型</div>
+              {:else}
+                {#each props.models as model}
+                  <button
+                    class="flex w-full items-center rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-accent"
+                    onclick={() => { void props.onQuickModelChange(model.id); modelPopoverOpen = false; }}
+                    type="button"
+                  >
+                    {model.displayName ?? model.modelId}
+                  </button>
+                {/each}
+              {/if}
+            </Popover.Content>
+          </Popover.Root>
+        </div>
       </div>
+    {:else}
+      <div class="min-w-0 shrink text-sm text-muted-foreground">选择或创建一个会话</div>
+    {/if}
+
+    <div aria-hidden="true" class="min-w-4 flex-1 self-stretch md:min-w-10"></div>
+
+    <div class="hidden shrink-0 md:block">
+      <WindowControls compact />
     </div>
-  {:else}
-    <div class="min-w-0 shrink text-sm text-muted-foreground">选择或创建一个会话</div>
-  {/if}
-
-  <div aria-hidden="true" class="min-w-10 flex-1 self-stretch"></div>
-
-  <div class="shrink-0">
-    <WindowControls compact />
   </div>
 </div>

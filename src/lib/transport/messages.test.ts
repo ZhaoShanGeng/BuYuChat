@@ -51,7 +51,16 @@ describe("messages transport", () => {
     );
     expect(response).toEqual({
       kind: "dryRun",
-      messages: [{ role: "system", content: "你是助手", images: [] }],
+      messages: [
+        {
+          role: "system",
+          content: "你是助手",
+          images: [],
+          files: [],
+          toolCalls: [],
+          toolResults: []
+        }
+      ],
       totalTokensEstimate: 12,
       model: "gpt-4o"
     });
@@ -86,6 +95,8 @@ describe("messages transport", () => {
         completion_tokens: number;
         finish_reason: string;
         model: string;
+        received_at: number;
+        completed_at: number;
       }>;
     };
 
@@ -97,7 +108,9 @@ describe("messages transport", () => {
       prompt_tokens: 11,
       completion_tokens: 22,
       finish_reason: "stop",
-      model: "gpt-4o-mini"
+      model: "gpt-4o-mini",
+      received_at: 1000,
+      completed_at: 2500
     });
 
     expect(onEvent).toHaveBeenCalledWith({
@@ -108,7 +121,9 @@ describe("messages transport", () => {
       promptTokens: 11,
       completionTokens: 22,
       finishReason: "stop",
-      model: "gpt-4o-mini"
+      model: "gpt-4o-mini",
+      receivedAt: 1000,
+      completedAt: 2500
     });
   });
 

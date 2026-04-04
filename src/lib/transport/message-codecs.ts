@@ -8,11 +8,12 @@
  */
 
 import { Channel } from "@tauri-apps/api/core";
-import { toOptionalValue } from "./common";
+import { fromRawErrorDetails, toOptionalValue } from "./common";
 import type {
   DeleteVersionResult,
   EditMessageInput,
   EditMessageResult,
+  FileAttachment,
   GenerationEvent,
   ImageAttachment,
   MessageNode,
@@ -21,10 +22,14 @@ import type {
   RawDeleteVersionResult,
   RawDryRunResult,
   RawEditMessageResult,
+  RawFileAttachment,
   RawGenerationEvent,
   RawImageAttachment,
   RawMessageNode,
   RawPromptMessage,
+  RawToolCallDelta,
+  RawToolCallRecord,
+  RawToolResultRecord,
   RawMessageVersion,
   RawRerollResult,
   RawStartedResult,
@@ -39,7 +44,42 @@ import type {
 function fromRawImageAttachment(raw: RawImageAttachment): ImageAttachment {
   return {
     base64: raw.base64,
+    mimeType: raw.mime_type,
+    url: raw.url ?? null
+  };
+}
+
+function fromRawFileAttachment(raw: RawFileAttachment): FileAttachment {
+  return {
+    name: raw.name,
+    base64: raw.base64,
     mimeType: raw.mime_type
+  };
+}
+
+function fromRawToolCall(raw: RawToolCallRecord) {
+  return {
+    id: raw.id,
+    name: raw.name,
+    argumentsJson: raw.arguments_json
+  };
+}
+
+function fromRawToolResult(raw: RawToolResultRecord) {
+  return {
+    toolCallId: raw.tool_call_id,
+    name: raw.name,
+    content: raw.content,
+    isError: raw.is_error
+  };
+}
+
+function fromRawToolCallDelta(raw: RawToolCallDelta) {
+  return {
+    id: raw.id ?? undefined,
+    name: raw.name ?? undefined,
+    argumentsDelta: raw.arguments_delta,
+    index: raw.index
   };
 }
 
@@ -47,7 +87,10 @@ function fromRawPromptMessage(raw: RawPromptMessage): PromptMessage {
   return {
     role: raw.role,
     content: raw.content,
-    images: (raw.images ?? []).map(fromRawImageAttachment)
+    images: (raw.images ?? []).map(fromRawImageAttachment),
+    files: (raw.files ?? []).map(fromRawFileAttachment),
+    toolCalls: (raw.tool_calls ?? []).map(fromRawToolCall),
+    toolResults: (raw.tool_results ?? []).map(fromRawToolResult)
   };
 }
 
@@ -61,11 +104,19 @@ export function fromRawMessageVersion(raw: RawMessageVersion): MessageVersion {
     content: raw.content,
     thinkingContent: raw.thinking_content ?? null,
     images: (raw.images ?? []).map(fromRawImageAttachment),
+    files: (raw.files ?? []).map(fromRawFileAttachment),
+    toolCalls: (raw.tool_calls ?? []).map(fromRawToolCall),
+    toolResults: (raw.tool_results ?? []).map(fromRawToolResult),
     status: raw.status,
+    errorCode: raw.error_code ?? null,
+    errorMessage: raw.error_message ?? null,
+    errorDetails: fromRawErrorDetails(raw.error_details),
     modelName: raw.model_name,
     promptTokens: raw.prompt_tokens,
     completionTokens: raw.completion_tokens,
     finishReason: raw.finish_reason,
+    receivedAt: raw.received_at ?? null,
+    completedAt: raw.completed_at ?? null,
     createdAt: raw.created_at
   };
 }
@@ -109,7 +160,8 @@ export function fromRawGenerationEvent(raw: RawGenerationEvent): GenerationEvent
         nodeId: raw.node_id,
         versionId: raw.version_id,
         delta: raw.delta,
-        reasoningDelta: raw.reasoning_delta ?? undefined
+        reasoningDelta: raw.reasoning_delta ?? undefined,
+        toolCallDeltas: (raw.tool_call_deltas ?? []).map(fromRawToolCallDelta)
       };
     case "completed":
       return {
@@ -120,7 +172,9 @@ export function fromRawGenerationEvent(raw: RawGenerationEvent): GenerationEvent
         promptTokens: raw.prompt_tokens,
         completionTokens: raw.completion_tokens,
         finishReason: raw.finish_reason,
-        model: raw.model
+        model: raw.model,
+        receivedAt: raw.received_at,
+        completedAt: raw.completed_at
       };
     case "failed":
       return {
@@ -128,7 +182,9 @@ export function fromRawGenerationEvent(raw: RawGenerationEvent): GenerationEvent
         conversationId: raw.conversation_id,
         nodeId: raw.node_id,
         versionId: raw.version_id,
-        error: raw.error
+        errorCode: raw.error_code,
+        errorMessage: raw.error_message,
+        errorDetails: fromRawErrorDetails(raw.error_details)
       };
     case "cancelled":
       return {
@@ -145,6 +201,31 @@ export function fromRawGenerationEvent(raw: RawGenerationEvent): GenerationEvent
         nodeDeleted: raw.node_deleted,
         fallbackVersionId: raw.fallback_version_id
       };
+    case "tool_call_start":
+      return {
+        type: raw.type,
+        conversationId: raw.conversation_id,
+        nodeId: raw.node_id,
+        versionId: raw.version_id,
+        toolCalls: raw.tool_calls.map((tc) => ({
+          id: tc.id,
+          name: tc.name,
+          argumentsJson: tc.arguments_json
+        }))
+      };
+    case "tool_result":
+      return {
+        type: raw.type,
+        conversationId: raw.conversation_id,
+        nodeId: raw.node_id,
+        versionId: raw.version_id,
+        results: raw.results.map((tr) => ({
+          toolCallId: tr.tool_call_id,
+          name: tr.name,
+          content: tr.content,
+          isError: tr.is_error
+        }))
+      };
   }
 }
 
@@ -156,7 +237,19 @@ export function toRawSendMessageInput(input: SendMessageInput) {
     content: input.content,
     images: input.images?.map((image) => ({
       base64: image.base64,
-      mime_type: image.mimeType
+      mime_type: image.mimeType,
+      url: image.url ?? null
+    })),
+    files: input.files?.map((file) => ({
+      name: file.name,
+      base64: file.base64,
+      mime_type: file.mimeType
+    })),
+    tool_results: input.toolResults?.map((result) => ({
+      tool_call_id: result.toolCallId,
+      name: result.name,
+      content: result.content,
+      is_error: result.isError
     })),
     stream: toOptionalValue(input.stream),
     dry_run: toOptionalValue(input.dryRun)

@@ -14,6 +14,7 @@ export type Channel = {
   channelType: string;
   baseUrl: string;
   apiKey: string | null;
+  apiKeys: string | null;
   authType: string | null;
   modelsEndpoint: string | null;
   chatEndpoint: string | null;
@@ -32,6 +33,7 @@ export type ChannelInput = {
   baseUrl: string;
   channelType?: string | null;
   apiKey?: string | null;
+  apiKeys?: string | null;
   authType?: string | null;
   modelsEndpoint?: string | null;
   chatEndpoint?: string | null;
@@ -62,6 +64,7 @@ type RawChannel = {
   channel_type: string;
   base_url: string;
   api_key: string | null;
+  api_keys: string | null;
   auth_type: string | null;
   models_endpoint: string | null;
   chat_endpoint: string | null;
@@ -82,6 +85,7 @@ function fromRawChannel(raw: RawChannel): Channel {
     channelType: raw.channel_type,
     baseUrl: raw.base_url,
     apiKey: raw.api_key,
+    apiKeys: raw.api_keys,
     authType: raw.auth_type,
     modelsEndpoint: raw.models_endpoint,
     chatEndpoint: raw.chat_endpoint,
@@ -102,6 +106,7 @@ function toRawInput(input: ChannelInput | ChannelPatch) {
     base_url: input.baseUrl,
     channel_type: toOptionalValue(input.channelType),
     api_key: toOptionalValue(input.apiKey),
+    api_keys: toOptionalValue(input.apiKeys),
     auth_type: toOptionalValue(input.authType),
     models_endpoint: toOptionalValue(input.modelsEndpoint),
     chat_endpoint: toOptionalValue(input.chatEndpoint),

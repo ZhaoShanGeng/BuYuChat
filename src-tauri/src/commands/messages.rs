@@ -4,7 +4,7 @@
 //! 由于生成过程需要通过 Tauri Channel 持续回推事件，这里把 `Channel<GenerationEvent>`
 //! 直接作为命令参数暴露给前端。
 
-use tauri::{State, ipc::Channel};
+use tauri::{ipc::Channel, State};
 
 use crate::{
     error::AppError,
@@ -180,10 +180,7 @@ pub async fn edit_message(
 }
 
 /// 取消某个 generating version。
-pub async fn cancel_generation_impl(
-    state: &AppState,
-    version_id: String,
-) -> Result<(), AppError> {
+pub async fn cancel_generation_impl(state: &AppState, version_id: String) -> Result<(), AppError> {
     message_service::cancel_generation(state, &version_id).await
 }
 

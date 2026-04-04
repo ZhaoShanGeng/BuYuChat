@@ -9,7 +9,7 @@
   import { Label } from "$lib/components/ui/label/index.js";
   import * as Switch from "$lib/components/ui/switch/index.js";
   import * as Textarea from "$lib/components/ui/textarea/index.js";
-  import { getCurrentWindow } from "@tauri-apps/api/window";
+  import { getOptionalCurrentWindow } from "../lib/tauri-window";
   import type { Agent } from "../lib/transport/agents";
   import type { AgentFormState } from "./workspace-shell.svelte.js";
   import WindowControls from "./WindowControls.svelte";
@@ -34,7 +34,7 @@
     onNameChange, onSystemPromptChange, onReset, onEdit, onDelete, onSubmit, onToggleEnabled
   }: Props = $props();
 
-  const currentWindow = getCurrentWindow();
+  const currentWindow = getOptionalCurrentWindow();
   let editingAgent = $derived(editingId ? agents.find((a) => a.id === editingId) : null);
   async function handleHeaderMouseDown(event: MouseEvent) {
     const target = event.target as HTMLElement | null;
@@ -42,6 +42,10 @@
       event.button !== 0 ||
       target?.closest("button, input, textarea, select, a, [role='button'], [data-no-drag]")
     ) {
+      return;
+    }
+
+    if (!currentWindow) {
       return;
     }
 

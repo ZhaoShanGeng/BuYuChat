@@ -6,73 +6,93 @@
 
 :root {
   color-scheme: light;
-  --workspace-rail-width: 52px;
+  --workspace-rail-width: 56px;
   --workspace-sidebar-width: clamp(14rem, 22vw, 18rem);
   --settings-sidebar-width: 22rem;
   --settings-content-max-width: 80rem;
-  --background: hsl(0 0% 100%);
-  --foreground: hsl(240 10% 3.9%);
-  --muted: hsl(240 4.8% 95.9%);
-  --muted-foreground: hsl(240 3.8% 46.1%);
+
+  /* ================================= */
+  /* Notebook Theme - Light (#FAF7F2 / #C4654A) */
+  /* ================================= */
+  --background: hsl(34 33% 96%);
+  --foreground: hsl(15 10% 22%);
+  --muted: hsl(30 18% 91%);
+  --muted-foreground: hsl(30 9% 45%);
   --popover: hsl(0 0% 100%);
-  --popover-foreground: hsl(240 10% 3.9%);
+  --popover-foreground: hsl(15 10% 22%);
   --card: hsl(0 0% 100%);
-  --card-foreground: hsl(240 10% 3.9%);
-  --border: hsl(240 5.9% 90%);
-  --input: hsl(240 5.9% 90%);
-  --primary: hsl(240 5.9% 10%);
+  --card-foreground: hsl(15 10% 22%);
+  --border: hsl(30 18% 91%);
+  --input: hsl(30 18% 91%);
+  --primary: hsl(15 46% 53%);
   --primary-foreground: hsl(0 0% 98%);
-  --secondary: hsl(240 4.8% 95.9%);
-  --secondary-foreground: hsl(240 5.9% 10%);
-  --accent: hsl(240 4.8% 95.9%);
-  --accent-foreground: hsl(240 5.9% 10%);
+  --secondary: hsl(30 18% 91%);
+  --secondary-foreground: hsl(15 10% 22%);
+  --accent: hsl(30 18% 91%);
+  --accent-foreground: hsl(15 10% 22%);
   --destructive: hsl(0 72.2% 50.6%);
   --destructive-foreground: hsl(0 0% 98%);
-  --ring: hsl(240 5.9% 10%);
-  --sidebar: hsl(0 0% 98%);
-  --sidebar-foreground: hsl(240 5.3% 26.1%);
-  --sidebar-primary: hsl(240 5.9% 10%);
+  --ring: hsl(15 46% 53%);
+  --sidebar: hsl(34 25% 93%);
+  --sidebar-foreground: hsl(15 10% 30%);
+  --sidebar-primary: hsl(15 46% 53%);
   --sidebar-primary-foreground: hsl(0 0% 98%);
-  --sidebar-accent: hsl(240 4.8% 95.9%);
-  --sidebar-accent-foreground: hsl(240 5.9% 10%);
-  --sidebar-border: hsl(220 13% 91%);
-  --sidebar-ring: hsl(217.2 91.2% 59.8%);
-  --radius: 0.625rem;
+  --sidebar-accent: hsl(30 18% 91%);
+  --sidebar-accent-foreground: hsl(15 10% 22%);
+  --sidebar-border: hsl(30 18% 88%);
+  --sidebar-ring: hsl(15 46% 53%);
+  --radius: 0.75rem;
+
+  /* BuYu Extended Tokens */
+  --buyu-font-heading: 'Playfair Display', 'Noto Serif SC', Georgia, serif;
+  --buyu-font-body: 'Inter', 'Noto Sans SC', system-ui, sans-serif;
+  --buyu-accent-sage: hsl(105 20% 52%);
+  --buyu-accent-gold: hsl(40 58% 58%);
+  --buyu-rail-bg: hsl(15 14% 15%);
+  --buyu-paper-grain: 0.03;
+  --buyu-radius-bubble: 16px;
 }
 
 .dark {
-  --background: hsl(240 10% 3.9%);
-  --foreground: hsl(0 0% 98%);
-  --muted: hsl(240 3.7% 15.9%);
-  --muted-foreground: hsl(240 5% 64.9%);
-  --popover: hsl(240 10% 3.9%);
-  --popover-foreground: hsl(0 0% 98%);
-  --card: hsl(240 10% 3.9%);
-  --card-foreground: hsl(0 0% 98%);
-  --border: hsl(240 3.7% 15.9%);
-  --input: hsl(240 3.7% 15.9%);
-  --primary: hsl(0 0% 98%);
-  --primary-foreground: hsl(240 5.9% 10%);
-  --secondary: hsl(240 3.7% 15.9%);
-  --secondary-foreground: hsl(0 0% 98%);
-  --accent: hsl(240 3.7% 15.9%);
-  --accent-foreground: hsl(0 0% 98%);
+  /* ================================= */
+  /* Notebook Theme - Dark (#1A1512 / #D4785E) */
+  /* ================================= */
+  --background: hsl(24 18% 9%);
+  --foreground: hsl(32 30% 86%);
+  --muted: hsl(24 15% 15%);
+  --muted-foreground: hsl(32 16% 55%);
+  --popover: hsl(24 18% 9%);
+  --popover-foreground: hsl(32 30% 86%);
+  --card: hsl(32 10% 14%);
+  --card-foreground: hsl(32 30% 86%);
+  --border: hsl(24 15% 15%);
+  --input: hsl(24 15% 15%);
+  --primary: hsl(13 60% 60%);
+  --primary-foreground: hsl(0 0% 98%);
+  --secondary: hsl(24 15% 15%);
+  --secondary-foreground: hsl(32 30% 86%);
+  --accent: hsl(24 15% 15%);
+  --accent-foreground: hsl(32 30% 86%);
   --destructive: hsl(0 62.8% 30.6%);
   --destructive-foreground: hsl(0 0% 98%);
-  --ring: hsl(240 4.9% 83.9%);
-  --sidebar: hsl(240 5.9% 10%);
-  --sidebar-foreground: hsl(240 4.8% 95.9%);
-  --sidebar-primary: hsl(224.3 76.3% 48%);
+  --ring: hsl(13 60% 60%);
+  --sidebar: hsl(24 18% 7%);
+  --sidebar-foreground: hsl(32 30% 86%);
+  --sidebar-primary: hsl(13 60% 60%);
   --sidebar-primary-foreground: hsl(0 0% 100%);
-  --sidebar-accent: hsl(240 3.7% 15.9%);
-  --sidebar-accent-foreground: hsl(240 4.8% 95.9%);
-  --sidebar-border: hsl(240 3.7% 15.9%);
-  --sidebar-ring: hsl(217.2 91.2% 59.8%);
+  --sidebar-accent: hsl(24 15% 15%);
+  --sidebar-accent-foreground: hsl(32 30% 86%);
+  --sidebar-border: hsl(24 15% 15%);
+  --sidebar-ring: hsl(13 60% 60%);
+
+  --buyu-rail-bg: hsl(24 18% 5%);
+  --buyu-paper-grain: 0.05;
 }
 
 @theme inline {
-  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif;
-  --font-mono: "SFMono-Regular", ui-monospace, monospace;
+  --font-sans: var(--buyu-font-body);
+  --font-heading: var(--buyu-font-heading);
+  --font-mono: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
 
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
@@ -160,6 +180,10 @@ button {
   width: var(--workspace-sidebar-width);
 }
 
+.workspace-shell__context[data-section="settings"] {
+  width: var(--settings-sidebar-width);
+}
+
 .settings-page__sidebar {
   width: var(--settings-sidebar-width);
 }
@@ -175,6 +199,98 @@ button {
   position: relative;
 }
 
+.message-card__bubble--user {
+  max-width: 100%;
+}
+
+.message-card__bubble--user :is(p, li, blockquote, h1, h2, h3, h4, h5, h6) {
+  color: inherit;
+}
+
+.message-card__assistant-content,
+.message-card__assistant-body {
+  max-width: 100%;
+}
+
+.message-card--assistant {
+  align-items: flex-start;
+}
+
+.message-card--assistant ::selection {
+  background: hsl(206 100% 72% / 0.28);
+}
+
+.message-card--user ::selection {
+  background: hsl(0 0% 100% / 0.26);
+  color: inherit;
+}
+
+.message-card__thinking-panel ::selection {
+  background: hsl(45 100% 72% / 0.22);
+}
+
+/* ── 移动端 Drawer 抽屉 ── */
+.drawer-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  background: hsl(0 0% 0% / 0.45);
+  animation: drawer-overlay-in 200ms ease-out;
+}
+
+.drawer-overlay[data-closing] {
+  animation: drawer-overlay-out 200ms ease-in forwards;
+}
+
+.drawer-panel {
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  z-index: 50;
+  width: min(80vw, 20rem);
+  background: var(--background);
+  border-right: 1px solid var(--border);
+  animation: drawer-slide-in 250ms cubic-bezier(0.32, 0.72, 0, 1);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+}
+
+.drawer-panel[data-closing] {
+  animation: drawer-slide-out 200ms ease-in forwards;
+}
+
+@keyframes drawer-overlay-in {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes drawer-overlay-out {
+  from { opacity: 1; }
+  to { opacity: 0; }
+}
+
+@keyframes drawer-slide-in {
+  from { transform: translateX(-100%); }
+  to { transform: translateX(0); }
+}
+
+@keyframes drawer-slide-out {
+  from { transform: translateX(0); }
+  to { transform: translateX(-100%); }
+}
+
+/* ── Safe area insets（Tauri Mobile / PWA） ── */
+.workspace-shell {
+  padding-top: env(safe-area-inset-top, 0px);
+  padding-bottom: env(safe-area-inset-bottom, 0px);
+  padding-left: env(safe-area-inset-left, 0px);
+  padding-right: env(safe-area-inset-right, 0px);
+}
+
 /* 窗口 resize 期间抑制所有过渡与动画以避免卡顿。 */
 .resize-active *,
 .resize-active *::before,
@@ -182,3 +298,117 @@ button {
   transition-duration: 0s !important;
   animation-duration: 0s !important;
 }
+
+/* ── Native <details>/<summary> 基础样式 ── */
+details > summary {
+  list-style: none;
+  cursor: pointer;
+  user-select: none;
+}
+
+details > summary::-webkit-details-marker {
+  display: none;
+}
+
+details > summary::marker {
+  content: "";
+  display: none;
+}
+
+/* details 展开内容入场动画 */
+details[open] > .details-content {
+  animation: details-reveal 200ms ease-out;
+}
+
+@keyframes details-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 消息卡片入场动画 */
+.message-card {
+  animation: message-enter 280ms ease-out both;
+}
+
+@keyframes message-enter {
+  from {
+    opacity: 0;
+    transform: translateY(6px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+/* 思考过程流式脉冲指示 */
+@keyframes thinking-pulse {
+  0%,
+  100% {
+    opacity: 0.55;
+  }
+  50% {
+    opacity: 1;
+  }
+}
+
+.thinking-indicator {
+  animation: thinking-pulse 1.5s ease-in-out infinite;
+}
+
+/* ── 代码块主题：浅色 / 深色自适应 ── */
+.rich-text-content .code-block-wrapper {
+  background: hsl(220 18% 96%);
+  border-color: hsl(220 14% 88%);
+}
+
+.rich-text-content .code-block-header {
+  background: hsl(220 18% 93%);
+  border-bottom-color: hsl(220 14% 86%);
+}
+
+.rich-text-content .code-lang {
+  color: hsl(215 16% 47%);
+}
+
+.rich-text-content .code-copy-btn {
+  border-color: hsl(215 16% 78%);
+  color: hsl(215 16% 40%);
+}
+
+.rich-text-content .code-copy-btn:hover {
+  background: hsl(215 16% 88%);
+  border-color: hsl(215 16% 65%);
+}
+
+.dark .rich-text-content .code-block-wrapper {
+  background: hsl(220 18% 12%);
+  border-color: hsl(220 14% 18%);
+}
+
+.dark .rich-text-content .code-block-header {
+  background: hsl(220 18% 16%);
+  border-bottom-color: hsl(220 14% 22%);
+}
+
+.dark .rich-text-content .code-lang {
+  color: hsl(215 20% 78%);
+}
+
+.dark .rich-text-content .code-copy-btn {
+  border-color: hsl(215 20% 30%);
+  color: hsl(215 20% 84%);
+}
+
+.dark .rich-text-content .code-copy-btn:hover {
+  background: hsl(215 20% 24%);
+  border-color: hsl(215 20% 42%);
+}
+
+@import "./styles/user-custom.css";

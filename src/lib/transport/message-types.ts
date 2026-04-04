@@ -7,6 +7,8 @@
  * 3. 供 codec / invoke 层共享的最小输入输出类型。
  */
 
+import type { ErrorDetails, RawErrorDetails } from "./common";
+
 /**
  * 前端使用的 prompt 消息结构。
  */
@@ -14,11 +16,41 @@ export type PromptMessage = {
   role: string;
   content: string;
   images: ImageAttachment[];
+  files?: FileAttachment[];
+  toolCalls?: ToolCallRecord[];
+  toolResults?: ToolResultRecord[];
 };
 
 export type ImageAttachment = {
   base64: string;
   mimeType: string;
+  url?: string | null;
+};
+
+export type FileAttachment = {
+  name: string;
+  base64: string;
+  mimeType: string;
+};
+
+export type ToolCallRecord = {
+  id: string;
+  name: string;
+  argumentsJson: string;
+};
+
+export type ToolResultRecord = {
+  toolCallId: string;
+  name: string;
+  content: string;
+  isError: boolean;
+};
+
+export type ToolCallDelta = {
+  id?: string;
+  name?: string;
+  argumentsDelta: string;
+  index: number;
 };
 
 /**
@@ -30,11 +62,19 @@ export type MessageVersion = {
   content: string | null;
   thinkingContent: string | null;
   images: ImageAttachment[];
+  files?: FileAttachment[];
+  toolCalls?: ToolCallRecord[];
+  toolResults?: ToolResultRecord[];
   status: "generating" | "committed" | "failed" | "cancelled";
+  errorCode?: string | null;
+  errorMessage?: string | null;
+  errorDetails?: ErrorDetails | null;
   modelName: string | null;
   promptTokens: number | null;
   completionTokens: number | null;
   finishReason: string | null;
+  receivedAt: number | null;
+  completedAt: number | null;
   createdAt: number;
 };
 
@@ -67,6 +107,8 @@ export type VersionContent = {
 export type SendMessageInput = {
   content: string;
   images?: ImageAttachment[];
+  files?: FileAttachment[];
+  toolResults?: ToolResultRecord[];
   stream?: boolean;
   dryRun?: boolean;
 };
@@ -150,6 +192,7 @@ export type GenerationEvent =
       versionId: string;
       delta: string;
       reasoningDelta?: string;
+      toolCallDeltas?: ToolCallDelta[];
     }
   | {
       type: "completed";
@@ -160,13 +203,17 @@ export type GenerationEvent =
       completionTokens: number;
       finishReason: string;
       model: string;
+      receivedAt: number;
+      completedAt: number;
     }
   | {
       type: "failed";
       conversationId: string;
       nodeId: string;
       versionId: string;
-      error: string;
+      errorCode: string;
+      errorMessage: string;
+      errorDetails?: ErrorDetails | null;
     }
   | {
       type: "cancelled";
@@ -180,6 +227,20 @@ export type GenerationEvent =
       nodeId: string;
       nodeDeleted: boolean;
       fallbackVersionId: string | null;
+    }
+  | {
+      type: "tool_call_start";
+      conversationId: string;
+      nodeId: string;
+      versionId: string;
+      toolCalls: ToolCallRecord[];
+    }
+  | {
+      type: "tool_result";
+      conversationId: string;
+      nodeId: string;
+      versionId: string;
+      results: ToolResultRecord[];
     };
 
 /**
@@ -191,11 +252,19 @@ export type RawMessageVersion = {
   content: string | null;
   thinking_content?: string | null;
   images?: RawImageAttachment[];
+  files?: RawFileAttachment[];
+  tool_calls?: RawToolCallRecord[];
+  tool_results?: RawToolResultRecord[];
   status: "generating" | "committed" | "failed" | "cancelled";
+  error_code?: string | null;
+  error_message?: string | null;
+  error_details?: RawErrorDetails | null;
   model_name: string | null;
   prompt_tokens: number | null;
   completion_tokens: number | null;
   finish_reason: string | null;
+  received_at?: number | null;
+  completed_at?: number | null;
   created_at: number;
 };
 
@@ -229,11 +298,41 @@ export type RawPromptMessage = {
   role: string;
   content: string;
   images?: RawImageAttachment[];
+  files?: RawFileAttachment[];
+  tool_calls?: RawToolCallRecord[];
+  tool_results?: RawToolResultRecord[];
 };
 
 export type RawImageAttachment = {
   base64: string;
   mime_type: string;
+  url?: string | null;
+};
+
+export type RawFileAttachment = {
+  name: string;
+  base64: string;
+  mime_type: string;
+};
+
+export type RawToolCallRecord = {
+  id: string;
+  name: string;
+  arguments_json: string;
+};
+
+export type RawToolResultRecord = {
+  tool_call_id: string;
+  name: string;
+  content: string;
+  is_error: boolean;
+};
+
+export type RawToolCallDelta = {
+  id?: string | null;
+  name?: string | null;
+  arguments_delta: string;
+  index: number;
 };
 
 /**
@@ -292,6 +391,7 @@ export type RawGenerationEvent =
       version_id: string;
       delta: string;
       reasoning_delta?: string | null;
+      tool_call_deltas?: RawToolCallDelta[];
     }
   | {
       type: "completed";
@@ -302,13 +402,17 @@ export type RawGenerationEvent =
       completion_tokens: number;
       finish_reason: string;
       model: string;
+      received_at: number;
+      completed_at: number;
     }
   | {
       type: "failed";
       conversation_id: string;
       node_id: string;
       version_id: string;
-      error: string;
+      error_code: string;
+      error_message: string;
+      error_details?: RawErrorDetails | null;
     }
   | {
       type: "cancelled";
@@ -322,4 +426,18 @@ export type RawGenerationEvent =
       node_id: string;
       node_deleted: boolean;
       fallback_version_id: string | null;
+    }
+  | {
+      type: "tool_call_start";
+      conversation_id: string;
+      node_id: string;
+      version_id: string;
+      tool_calls: RawToolCallRecord[];
+    }
+  | {
+      type: "tool_result";
+      conversation_id: string;
+      node_id: string;
+      version_id: string;
+      results: RawToolResultRecord[];
     };

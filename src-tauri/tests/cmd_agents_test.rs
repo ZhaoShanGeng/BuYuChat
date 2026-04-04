@@ -48,7 +48,9 @@ async fn test_agent_commands_cover_crud_flow() {
 
     delete_agent_impl(&state, created.id.clone()).await.unwrap();
 
-    let error = get_agent_impl(&state, created.id.clone()).await.unwrap_err();
+    let error = get_agent_impl(&state, created.id.clone())
+        .await
+        .unwrap_err();
     assert_eq!(
         error,
         AppError::not_found(format!("agent '{}' not found", created.id))

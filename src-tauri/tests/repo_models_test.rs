@@ -35,6 +35,8 @@ fn sample_new_model(channel_id: &str, model_id: &str) -> NewChannelModel {
         display_name: Some(model_id.to_uppercase()),
         context_window: Some(128_000),
         max_output_tokens: Some(16_384),
+        temperature: None,
+        top_p: None,
     }
 }
 
@@ -154,6 +156,8 @@ async fn test_update_model_only_changes_supplied_fields() {
                 display_name: Some(Some("GPT-4o Latest".to_string())),
                 context_window: None,
                 max_output_tokens: Some(Some(8_192)),
+                temperature: None,
+                top_p: None,
             },
         )
         .await
@@ -197,12 +201,11 @@ async fn test_delete_model_sets_conversation_binding_to_null() {
 
     repo.delete(&channel_id, &created.id).await.unwrap();
 
-    let row =
-        sqlx::query("SELECT channel_model_id FROM conversations WHERE id = ?1")
-            .bind(&conversation_id)
-            .fetch_one(&state.db)
-            .await
-            .unwrap();
+    let row = sqlx::query("SELECT channel_model_id FROM conversations WHERE id = ?1")
+        .bind(&conversation_id)
+        .fetch_one(&state.db)
+        .await
+        .unwrap();
     let channel_model_id: Option<String> = row.try_get("channel_model_id").unwrap();
 
     assert_eq!(channel_model_id, None);

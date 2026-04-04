@@ -1,5 +1,7 @@
 import DOMPurify, { type Config } from "dompurify";
-import { marked } from "marked";
+import MarkdownIt from "markdown-it";
+import markdownItHighlightjs from "markdown-it-highlightjs";
+import markdownItKatex from "./markdown-it-katex";
 import hljs from "highlight.js/lib/core";
 import bash from "highlight.js/lib/languages/bash";
 import cpp from "highlight.js/lib/languages/cpp";
@@ -15,7 +17,6 @@ import sql from "highlight.js/lib/languages/sql";
 import typescript from "highlight.js/lib/languages/typescript";
 import xml from "highlight.js/lib/languages/xml";
 import yaml from "highlight.js/lib/languages/yaml";
-import { markedHighlight } from "marked-highlight";
 
 hljs.registerLanguage("bash", bash);
 hljs.registerLanguage("sh", bash);
@@ -57,59 +58,74 @@ function normalizeLanguage(lang: string | undefined): string {
     return "text";
   }
 
-  if (hljs.getLanguage(normalized)) {
-    return normalized;
-  }
-
   return normalized;
 }
 
-marked.use({
-  gfm: true,
-  breaks: true
+function getFenceLanguage(info: string): string {
+  const [language = ""] = info.trim().split(/\s+/, 1);
+  return language;
+}
+
+function wrapCodeBlock(renderedCode: string, language: string, rawCode: string): string {
+  const languageLabel = escapeHtml(language === "text" ? "code" : language);
+  const encodedCode = encodeURIComponent(rawCode);
+
+  return [
+    '<div class="code-block-wrapper not-prose">',
+    '  <div class="code-block-header">',
+    `    <span class="code-lang">${languageLabel}</span>`,
+    `    <button class="code-copy-btn" data-code="${encodedCode}" type="button">复制</button>`,
+    "  </div>",
+    `  ${renderedCode}`,
+    "</div>"
+  ].join("\n");
+}
+
+const markdownRenderer = new MarkdownIt({
+  breaks: true,
+  html: true,
+  linkify: true
 });
 
-marked.use(
-  markedHighlight({
-    langPrefix: "hljs language-",
-    highlight(code, lang) {
-      if (lang && hljs.getLanguage(lang)) {
-        return hljs.highlight(code, { language: lang }).value;
-      }
-
-      return hljs.highlightAuto(code).value;
-    }
-  })
-);
-
-marked.use({
-  renderer: {
-    code(token) {
-      const language = normalizeLanguage(token.lang);
-      const languageLabel = escapeHtml(language === "text" ? "code" : language);
-      const encodedCode = encodeURIComponent(token.text);
-      const highlighted =
-        language !== "text" && hljs.getLanguage(language)
-          ? hljs.highlight(token.text, { language }).value
-          : hljs.highlightAuto(token.text).value;
-
-      return [
-        '<div class="code-block-wrapper">',
-        '  <div class="code-block-header">',
-        `    <span class="code-lang">${languageLabel}</span>`,
-        `    <button class="code-copy-btn" data-code="${encodedCode}" type="button">复制</button>`,
-        "  </div>",
-        `  <pre><code class="hljs language-${escapeHtml(language)}">${highlighted}</code></pre>`,
-        "</div>"
-      ].join("");
-    }
-  }
+markdownRenderer.use(markdownItHighlightjs, {
+  auto: true,
+  hljs,
+  ignoreIllegals: true
 });
+
+markdownRenderer.use(markdownItKatex, {
+  strict: "ignore",
+  throwOnError: false
+});
+
+const defaultFenceRenderer = markdownRenderer.renderer.rules.fence;
+if (defaultFenceRenderer) {
+  markdownRenderer.renderer.rules.fence = (...args: Parameters<typeof defaultFenceRenderer>) => {
+    const [tokens, idx, options, env, self] = args;
+    const token = tokens[idx];
+    const language = normalizeLanguage(getFenceLanguage(token.info));
+    const renderedCode = defaultFenceRenderer(tokens, idx, options, env, self).trim();
+    return wrapCodeBlock(renderedCode, language, token.content);
+  };
+}
+
+const defaultCodeBlockRenderer = markdownRenderer.renderer.rules.code_block;
+if (defaultCodeBlockRenderer) {
+  markdownRenderer.renderer.rules.code_block = (
+    ...args: Parameters<typeof defaultCodeBlockRenderer>
+  ) => {
+    const [tokens, idx, options, env, self] = args;
+    const token = tokens[idx];
+    const renderedCode = defaultCodeBlockRenderer(tokens, idx, options, env, self).trim();
+    return wrapCodeBlock(renderedCode, "text", token.content);
+  };
+}
 
 const SANITIZE_OPTIONS: Config = {
-  USE_PROFILES: { html: true },
+  USE_PROFILES: { html: true, mathMl: true },
   FORBID_TAGS: ["script", "style", "iframe", "object", "embed", "form"],
-  ADD_ATTR: ["data-code"]
+  ADD_ATTR: ["data-code", "loading", "referrerpolicy", "srcset"],
+  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto|tel):|[^a-z]|data:image\/)/i
 };
 
 export function renderRichText(content: string | null | undefined): string {
@@ -117,7 +133,7 @@ export function renderRichText(content: string | null | undefined): string {
     return "";
   }
 
-  const dirtyHtml = marked.parse(content) as string;
+  const dirtyHtml = markdownRenderer.render(content);
   const cleanHtml = DOMPurify.sanitize(dirtyHtml, SANITIZE_OPTIONS);
 
   if (typeof window === "undefined") {
@@ -130,6 +146,11 @@ export function renderRichText(content: string | null | undefined): string {
   for (const link of template.content.querySelectorAll("a")) {
     link.setAttribute("target", "_blank");
     link.setAttribute("rel", "noreferrer noopener");
+  }
+
+  for (const image of template.content.querySelectorAll("img")) {
+    image.setAttribute("loading", "lazy");
+    image.setAttribute("referrerpolicy", "no-referrer");
   }
 
   return template.innerHTML;

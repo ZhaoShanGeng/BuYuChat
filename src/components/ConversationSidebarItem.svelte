@@ -10,6 +10,7 @@
   import Trash2Icon from "@lucide/svelte/icons/trash-2";
   import type { ConversationSummary } from "../lib/transport/conversations";
   import { formatRelativeTime } from "./workspace-state";
+  import { cn } from "$lib/utils";
 
   type Props = {
     conversation: ConversationSummary;
@@ -31,15 +32,18 @@
 
 <ContextMenu.Root>
   <ContextMenu.Trigger>
-    <div class="conversation-sidebar__item group relative" data-active={props.isActive} data-ui="conversation-sidebar-item">
+    <div class="conversation-sidebar__item group relative my-0.5" data-active={props.isActive} data-ui="conversation-sidebar-item">
       <button
-        class={`conversation-sidebar__item-button flex w-full items-center rounded-2xl px-3 py-2.5 text-left transition-colors ${
-          props.isActive ? "bg-accent" : "hover:bg-accent/50"
-        }`}
+        class={cn(
+          "conversation-sidebar__item-button group/btn flex w-full items-center rounded-lg px-2.5 py-2 text-left transition-all relative overflow-hidden",
+          props.isActive
+            ? "bg-primary/10 text-primary"
+            : "text-muted-foreground hover:bg-accent/40 hover:text-foreground"
+        )}
         onclick={() => void props.onSelect(props.conversation.id)}
         type="button"
       >
-        <div class="conversation-sidebar__item-main min-w-0 flex-1">
+        <div class="conversation-sidebar__item-main min-w-0 flex-1 ml-1">
           <div class="conversation-sidebar__item-title-row flex items-center gap-1.5">
             {#if props.conversation.pinned}
               <PinIcon class="size-3 shrink-0 text-muted-foreground" />
@@ -58,13 +62,13 @@
                 value={props.renamingTitle}
               />
             {:else}
-              <span class="conversation-sidebar__item-title truncate text-[13px] font-medium">
+              <span class="conversation-sidebar__item-title truncate text-[12px] font-medium {props.isActive ? 'text-primary' : 'text-foreground/90'}">
                 {props.conversation.title}
               </span>
             {/if}
           </div>
 
-          <span class="conversation-sidebar__item-meta text-[11px] text-muted-foreground">
+          <span class="conversation-sidebar__item-meta text-[10px] opacity-70">
             {formatRelativeTime(props.conversation.updatedAt)}
           </span>
         </div>

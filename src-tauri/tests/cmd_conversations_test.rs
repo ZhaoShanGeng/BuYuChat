@@ -37,10 +37,12 @@ async fn create_dependencies(state: &buyu_lib::state::AppState) -> (String, Stri
             base_url: "https://api.openai.com".to_string(),
             channel_type: None,
             api_key: Some("sk-xxx".to_string()),
+            api_keys: None,
             auth_type: None,
             models_endpoint: None,
             chat_endpoint: None,
             stream_endpoint: None,
+            thinking_tags: None,
             enabled: None,
         },
     )
@@ -54,6 +56,8 @@ async fn create_dependencies(state: &buyu_lib::state::AppState) -> (String, Stri
             display_name: Some("GPT-4o".to_string()),
             context_window: Some(128_000),
             max_output_tokens: Some(16_384),
+            temperature: None,
+            top_p: None,
         },
     )
     .await
@@ -75,6 +79,7 @@ async fn test_conversation_commands_cover_crud_flow() {
             agent_id: Some(agent_id.clone()),
             channel_id: Some(channel_id.clone()),
             channel_model_id: Some(model_id.clone()),
+            enabled_tools: None,
         }),
     )
     .await
@@ -84,7 +89,9 @@ async fn test_conversation_commands_cover_crud_flow() {
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, created.id);
 
-    let fetched = get_conversation_impl(&state, created.id.clone()).await.unwrap();
+    let fetched = get_conversation_impl(&state, created.id.clone())
+        .await
+        .unwrap();
     assert_eq!(fetched.title, "Rust 讨论");
 
     let updated = update_conversation_impl(
@@ -151,10 +158,12 @@ async fn test_update_conversation_can_switch_channel_while_clearing_old_model_bi
             base_url: "https://example.com".to_string(),
             channel_type: None,
             api_key: Some("sk-yyy".to_string()),
+            api_keys: None,
             auth_type: None,
             models_endpoint: None,
             chat_endpoint: None,
             stream_endpoint: None,
+            thinking_tags: None,
             enabled: None,
         },
     )
@@ -168,6 +177,7 @@ async fn test_update_conversation_can_switch_channel_while_clearing_old_model_bi
             agent_id: None,
             channel_id: Some(channel_a_id),
             channel_model_id: Some(model_a_id),
+            enabled_tools: None,
         }),
     )
     .await
@@ -177,11 +187,11 @@ async fn test_update_conversation_can_switch_channel_while_clearing_old_model_bi
         &state,
         created.id,
         UpdateConversationInput {
-          channel_id_set: true,
-          channel_id: Some(channel_b.id.clone()),
-          channel_model_id_set: true,
-          channel_model_id: None,
-          ..UpdateConversationInput::default()
+            channel_id_set: true,
+            channel_id: Some(channel_b.id.clone()),
+            channel_model_id_set: true,
+            channel_model_id: None,
+            ..UpdateConversationInput::default()
         },
     )
     .await
