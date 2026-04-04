@@ -11,9 +11,14 @@ node_modules/
 dist/
 .vite/
 
+src-react/
+
 target/
 target-ci/
 src-tauri/target/
+/src-tauri/target-codex-*/
+/target-codex-*/
+/src-tauri/tmp/
 
 *.log
 *.tmp
@@ -21,16 +26,20 @@ src-tauri/target/
 *.db
 *.db-shm
 *.db-wal
+/src-tauri/buyu.db
+/src-tauri/buyu.db-shm
+/src-tauri/buyu.db-wal
 
 .env
 .env.*
+/src-tauri/.env
 
 coverage/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts
 
-Claude.md
+CLAUDE.md
 cherryStudioChat.png
 cherryStudioSetting.png
 lobechat.png

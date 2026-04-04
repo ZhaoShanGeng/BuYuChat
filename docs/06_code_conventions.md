@@ -1,6 +1,6 @@
 # 步语 BuYu — 代码规范
 
-**版本：** 0.2
+**版本：** 0.3
 **适用范围：** Rust 后端 + TypeScript/Svelte 前端
 
 ---
@@ -293,3 +293,29 @@ pnpm test -- -t "test name"  # 单个
 
 - 每个 commit 是一个可编译、可测试的原子变更
 - 一个 feature 可拆成多个 commit：先 repo 层 → service 层 → command 层 → 前端
+
+---
+
+## 7. 工程脚本与版本规范
+
+### 7.1 必须使用的脚本
+
+| 命令 | 用途 |
+|------|------|
+| `pnpm ci:frontend` | 前端类型检查、测试和生产构建 |
+| `pnpm ci:rust` | Rust 测试和 `clippy` |
+| `pnpm verify` | 本地完整门禁，与 Release 工作流对齐 |
+| `pnpm version:check` | 检查 `package.json`、`Cargo.toml`、`tauri.conf.json` 版本一致 |
+| `pnpm version:set -- <version>` | 一次性更新三处版本号 |
+
+### 7.2 版本控制规则
+
+- 发布版本只认 `package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json` 三处。
+- 发布 tag 统一使用 `v<semver>`，例如 `v0.2.0`。
+- tag 与三处 manifest 版本不一致时，CI / Release 必须失败。
+
+### 7.3 不应提交到仓库的内容
+
+- 本地数据库：`src-tauri/buyu.db*`
+- 本地调试目录：`target-codex-*`、`src-tauri/tmp/`
+- 生成型配置产物：`vite.config.js`、`vite.config.d.ts`

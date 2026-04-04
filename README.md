@@ -1,28 +1,61 @@
 # 步语 BuYu
 
-AI 对话桌面客户端。Tauri v2 + Svelte 5 + Rust。
+基于 `Tauri v2 + Svelte 5 + Rust + SQLite` 的 AI 对话桌面客户端。
 
-## 快速开始
+## 本地开发
 
 ```bash
-# 安装依赖
 pnpm install
 
-# 启动开发模式（Vite + Tauri 窗口）
-pnpm tauri dev
-
-# 仅前端（不启动 Tauri，localhost:1420）
+# 前端开发服务器
 pnpm dev
 
-# 类型检查
-pnpm check
-
-# Rust 检查
-cd src-tauri && cargo check
-
-# 生产构建
-pnpm tauri build
+# 桌面开发模式
+pnpm tauri dev
 ```
+
+## 本地校验
+
+```bash
+# 前端类型检查 + 测试 + 构建
+pnpm ci:frontend
+
+# Rust 测试 + clippy
+pnpm ci:rust
+
+# 检查 package.json / Cargo.toml / tauri.conf.json 版本一致
+pnpm version:check
+
+# 全量门禁
+pnpm verify
+```
+
+## 打包与发布
+
+```bash
+# 本地打包 Windows 安装包
+pnpm tauri build
+
+# 统一修改三个版本号文件
+pnpm version:set -- 0.2.0
+```
+
+GitHub Actions 已落地两条主流程：
+
+- `CI`：在 PR 和 `main` push 上执行版本一致性检查、前端测试/构建、Rust 测试与 `clippy`
+- `Release`：在 `v*` tag 上校验版本并发布 Tauri 安装包；也支持手动触发仅打包产物
+
+发布约定：
+
+1. 先执行 `pnpm version:set -- <version>`。
+2. 提交版本变更并打 tag：`git tag v<version>`。
+3. 推送 tag 后由 `Release` 工作流生成 GitHub Release 和 NSIS 安装包。
+
+## 许可证
+
+本项目采用 `GNU AGPL-3.0`，完整文本见 [LICENSE](LICENSE)。
+
+如果你修改本项目并通过网络向用户提供服务，需要按照 AGPL 的要求向这些用户提供对应源码。
 
 ## 技术栈
 
@@ -30,25 +63,17 @@ pnpm tauri build
 |------|------|
 | 前端 | Svelte 5 + TypeScript + Tailwind CSS 4 + bits-ui |
 | 桌面壳 | Tauri v2 |
-| 后端 | Rust + SQLite (sqlx) + aisdk |
+| 后端 | Rust + SQLite (`sqlx`) |
+| AI 接入 | `aisdk` |
 | 包管理 | pnpm 10 |
 
 ## 文档
 
-所有设计文档在 [`docs/`](docs/00_index.md) 目录下：
+文档入口见 [docs/00_index.md](docs/00_index.md)。
 
-- [文档体系](docs/00_index.md) — 目录总览
-- [前端设计](docs/01_frontend_design.md) — UI 布局、组件、主题
-- [架构设计](docs/02_architecture.md) — 分层、生成流水线
-- [数据库设计](docs/03_database.md) — DDL、索引、迁移
-- [OpenAPI 规范](docs/04_api_openapi.yaml) — 接口定义
-- [API 参考](docs/05_api_reference.md) — 调用示例、错误码
-- [代码规范](docs/06_code_conventions.md) — 命名、复杂度
-- [设计评审](docs/07_design_review.md) — 已知问题与改进
-- [协作指南](docs/08_collaboration.md) — Git 工作流、PR 流程
-- [测试与 CI](docs/09_testing_ci.md) — 测试策略、覆盖率
-- [进度追踪](docs/10_progress.md) — MVP 功能状态
+重点文档：
 
-## 当前状态
-
-最小骨架已搭建（一个页面 + 一个 Rust greet 命令），设计文档完成，准备进入实现阶段。
+- [docs/02_architecture.md](docs/02_architecture.md)
+- [docs/08_collaboration.md](docs/08_collaboration.md)
+- [docs/09_testing_ci.md](docs/09_testing_ci.md)
+- [docs/10_progress.md](docs/10_progress.md)

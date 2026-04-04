@@ -2,24 +2,37 @@
   "name": "buyu",
   "private": true,
   "version": "0.1.0",
+  "license": "AGPL-3.0-only",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "check": "svelte-check --tsconfig ./tsconfig.app.json && tsc -p tsconfig.node.json",
     "build": "pnpm check && vite build",
+    "build:web": "pnpm build",
+    "build:desktop": "pnpm tauri build",
     "preview": "vite preview",
     "test": "vitest run",
+    "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --locked -j 1",
+    "lint:rust": "cargo clippy --manifest-path src-tauri/Cargo.toml --locked --all-targets -j 1 -- -A clippy::result_large_err -A clippy::too_many_arguments -D warnings",
+    "ci:version": "node scripts/version.mjs check",
+    "ci:frontend": "pnpm check && pnpm test && vite build",
+    "ci:rust": "pnpm test:rust && pnpm lint:rust",
+    "verify": "pnpm ci:version && pnpm ci:frontend && pnpm ci:rust",
+    "version:check": "node scripts/version.mjs check",
+    "version:set": "node scripts/version.mjs set",
     "tauri": "tauri"
   },
   "dependencies": {
+    "@tailwindcss/typography": "^0.5.19",
     "@tauri-apps/api": "^2.8.0",
     "bits-ui": "^2.16.3",
     "clsx": "^2.1.1",
     "dompurify": "^3.3.3",
     "highlight.js": "^11.11.1",
+    "katex": "^0.16.43",
     "lucide-svelte": "^0.577.0",
-    "marked": "^17.0.5",
-    "marked-highlight": "^2.2.2",
+    "markdown-it": "^14.1.1",
+    "markdown-it-highlightjs": "^4.3.0",
     "svelte": "^5.53.12",
     "tailwind-merge": "^3.5.0"
   },
@@ -31,6 +44,7 @@
     "@tauri-apps/cli": "^2.8.0",
     "@testing-library/svelte": "^5.2.8",
     "@tsconfig/svelte": "^5.0.8",
+    "@types/markdown-it": "^14.1.2",
     "@types/node": "^24.12.0",
     "jsdom": "^26.1.0",
     "svelte-check": "^4.4.5",
@@ -41,5 +55,5 @@
     "vite": "^8.0.1",
     "vitest": "^3.2.4"
   },
-  "packageManager": "pnpm@10.17.1"
+  "packageManager": "pnpm@10.17.1+sha512.17c560fca4867ae9473a3899ad84a88334914f379be46d455cbf92e5cf4b39d34985d452d2583baf19967fa76cb5c17bc9e245529d0b98745721aa7200ecaf7a"
 }

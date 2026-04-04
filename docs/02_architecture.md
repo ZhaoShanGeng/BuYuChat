@@ -1,7 +1,7 @@
 # 步语 BuYu — 架构设计
 
-**版本：** 0.1
-**阶段：** MVP（P0）
+**版本：** 0.2
+**阶段：** MVP（P0，已接入 CI / Release）
 
 ---
 
@@ -288,6 +288,15 @@ src/
 └── views/                     // 页面级组件
     ├── ChatPage.svelte
     └── SettingsPage.svelte
+
+.github/
+└── workflows/
+    ├── ci.yml                 // PR / main 自动校验
+    └── release.yml            // 手动打包 + tag 发布
+
+scripts/
+├── ensure-dev-server.mjs      // dev 模式复用现有 Vite 服务
+└── version.mjs                // 统一校验 / 修改三处版本号
 ```
 
 ---
@@ -363,3 +372,28 @@ async fn send_message(pool: &SqlitePool, id: &str, input: SendMessageInput) -> R
 ### 8.6 前端日志
 
 MVP 使用 `console.log` / `console.error`，P1 考虑 `tauri-plugin-log` 将前端日志写入同一日志文件。
+
+---
+
+## 9. 工程治理与发布
+
+### 9.1 版本事实来源
+
+- `package.json`
+- `src-tauri/Cargo.toml`
+- `src-tauri/tauri.conf.json`
+
+这三处版本号必须保持一致，统一由 `scripts/version.mjs` 校验或修改。
+
+### 9.2 GitHub Actions 分工
+
+| 工作流 | 触发时机 | 责任 |
+|--------|----------|------|
+| `CI` | PR、推送到 `main` | 校验版本一致性、前端类型检查/测试/构建、Rust 测试与 `clippy` |
+| `Release` | 手动触发、推送 `v*` tag | 在完整门禁通过后打包 NSIS 安装包；tag 触发时创建 GitHub Release |
+
+### 9.3 本地与 CI 对齐原则
+
+- 本地默认命令与 CI 命令保持一致，不额外维护第二套“发布专用脚本”。
+- `pnpm verify` 是发布前的最小完整门禁。
+- `pnpm tauri build` 是本地和 CI 共用的桌面打包入口。
