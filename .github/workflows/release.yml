@@ -2,6 +2,41 @@ name: Release
 
 on:
   workflow_dispatch:
+    inputs:
+      release_tag:
+        description: Release tag to create or update, for example v0.1.0
+        required: false
+        type: string
+      publish_release:
+        description: Publish artifacts to GitHub Releases
+        required: true
+        default: true
+        type: boolean
+      build_windows:
+        description: Build Windows bundles
+        required: true
+        default: true
+        type: boolean
+      build_linux:
+        description: Build Linux bundles
+        required: true
+        default: true
+        type: boolean
+      build_macos:
+        description: Build macOS bundles
+        required: true
+        default: true
+        type: boolean
+      build_android:
+        description: Build Android APKs
+        required: true
+        default: true
+        type: boolean
+      build_ios:
+        description: Build iOS artifacts
+        required: true
+        default: false
+        type: boolean
   push:
     tags:
       - "v*"
@@ -11,25 +46,141 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  build-frontend:
-    name: Build Frontend
+  plan:
+    name: Plan Release
     runs-on: ubuntu-latest
     outputs:
-      has_apple: ${{ steps.detect.outputs.has_apple }}
+      any_builds: ${{ steps.plan.outputs.any_builds }}
+      build_android: ${{ steps.plan.outputs.build_android }}
+      build_ios: ${{ steps.plan.outputs.build_ios }}
+      desktop_matrix: ${{ steps.plan.outputs.desktop_matrix }}
+      android_matrix: ${{ steps.plan.outputs.android_matrix }}
+      has_desktop: ${{ steps.plan.outputs.has_desktop }}
+      has_apple: ${{ steps.plan.outputs.has_apple }}
+      publish_release: ${{ steps.plan.outputs.publish_release }}
+      release_tag: ${{ steps.plan.outputs.release_tag }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Detect committed Apple mobile project
-        id: detect
+      - name: Resolve release plan
+        id: plan
         shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          REF_NAME: ${{ github.ref_name }}
+          INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
+          INPUT_PUBLISH_RELEASE: ${{ inputs.publish_release }}
+          INPUT_BUILD_WINDOWS: ${{ inputs.build_windows }}
+          INPUT_BUILD_LINUX: ${{ inputs.build_linux }}
+          INPUT_BUILD_MACOS: ${{ inputs.build_macos }}
+          INPUT_BUILD_ANDROID: ${{ inputs.build_android }}
+          INPUT_BUILD_IOS: ${{ inputs.build_ios }}
         run: |
           if [ -d "src-tauri/gen/apple" ]; then
-            echo "has_apple=true" >> "$GITHUB_OUTPUT"
+            has_apple=true
           else
-            echo "has_apple=false" >> "$GITHUB_OUTPUT"
+            has_apple=false
           fi
+
+          if [ "$EVENT_NAME" = "push" ]; then
+            release_tag="$REF_NAME"
+            publish_release=true
+            build_windows=true
+            build_linux=true
+            build_macos=true
+            build_android=true
+            build_ios="$has_apple"
+          else
+            release_tag="${INPUT_RELEASE_TAG:-}"
+            publish_release="${INPUT_PUBLISH_RELEASE:-false}"
+            build_windows="${INPUT_BUILD_WINDOWS:-false}"
+            build_linux="${INPUT_BUILD_LINUX:-false}"
+            build_macos="${INPUT_BUILD_MACOS:-false}"
+            build_android="${INPUT_BUILD_ANDROID:-false}"
+            build_ios="${INPUT_BUILD_IOS:-false}"
+          fi
+
+          if [ "$publish_release" = "true" ] && [ -z "$release_tag" ]; then
+            echo "workflow_dispatch with publish_release=true requires release_tag" >&2
+            exit 1
+          fi
+
+          if [ "$build_ios" = "true" ] && [ "$has_apple" != "true" ]; then
+            echo "iOS build selected but src-tauri/gen/apple is not committed" >&2
+            exit 1
+          fi
+
+          desktop_items=()
+          if [ "$build_windows" = "true" ]; then
+            desktop_items+=('{"label":"windows-x64","runner":"windows-latest","rust_target":"x86_64-pc-windows-msvc","bundles":"nsis","artifact_name":"buyu-windows-x64","artifact_paths":"src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe"}')
+            desktop_items+=('{"label":"windows-arm64","runner":"windows-11-arm","rust_target":"aarch64-pc-windows-msvc","bundles":"nsis","artifact_name":"buyu-windows-arm64","artifact_paths":"src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe"}')
+          fi
+          if [ "$build_linux" = "true" ]; then
+            desktop_items+=('{"label":"linux-x64","runner":"ubuntu-22.04","rust_target":"x86_64-unknown-linux-gnu","bundles":"appimage,deb","artifact_name":"buyu-linux-x64","artifact_paths":"src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage\nsrc-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb"}')
+            desktop_items+=('{"label":"linux-arm64","runner":"ubuntu-22.04-arm","rust_target":"aarch64-unknown-linux-gnu","bundles":"appimage,deb","artifact_name":"buyu-linux-arm64","artifact_paths":"src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage\nsrc-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb"}')
+          fi
+          if [ "$build_macos" = "true" ]; then
+            desktop_items+=('{"label":"macos-x64","runner":"macos-15-intel","rust_target":"x86_64-apple-darwin","bundles":"dmg","artifact_name":"buyu-macos-x64","artifact_paths":"src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"}')
+            desktop_items+=('{"label":"macos-arm64","runner":"macos-latest","rust_target":"aarch64-apple-darwin","bundles":"dmg","artifact_name":"buyu-macos-arm64","artifact_paths":"src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"}')
+          fi
+
+          android_items=()
+          if [ "$build_android" = "true" ]; then
+            android_items+=('{"label":"arm64","tauri_target":"aarch64","rust_target":"aarch64-linux-android","artifact_name":"buyu-android-arm64"}')
+            android_items+=('{"label":"armv7","tauri_target":"armv7","rust_target":"armv7-linux-androideabi","artifact_name":"buyu-android-armv7"}')
+            android_items+=('{"label":"x86_64","tauri_target":"x86_64","rust_target":"x86_64-linux-android","artifact_name":"buyu-android-x86_64"}')
+            android_items+=('{"label":"x86","tauri_target":"i686","rust_target":"i686-linux-android","artifact_name":"buyu-android-x86"}')
+          fi
+
+          desktop_joined=""
+          if [ "${#desktop_items[@]}" -gt 0 ]; then
+            desktop_joined=$(printf ',%s' "${desktop_items[@]}")
+            desktop_joined="[${desktop_joined:1}]"
+            has_desktop=true
+          else
+            desktop_joined="[]"
+            has_desktop=false
+          fi
+
+          android_joined=""
+          if [ "${#android_items[@]}" -gt 0 ]; then
+            android_joined=$(printf ',%s' "${android_items[@]}")
+            android_joined="[${android_joined:1}]"
+          else
+            android_joined="[]"
+          fi
+
+          any_builds=false
+          if [ "$has_desktop" = "true" ] || [ "$build_android" = "true" ] || [ "$build_ios" = "true" ]; then
+            any_builds=true
+          fi
+
+          if [ "$any_builds" != "true" ]; then
+            echo "At least one platform must be selected" >&2
+            exit 1
+          fi
+
+          printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
+          printf 'publish_release=%s\n' "$publish_release" >> "$GITHUB_OUTPUT"
+          printf 'has_apple=%s\n' "$has_apple" >> "$GITHUB_OUTPUT"
+          printf 'build_android=%s\n' "$build_android" >> "$GITHUB_OUTPUT"
+          printf 'build_ios=%s\n' "$build_ios" >> "$GITHUB_OUTPUT"
+          printf 'has_desktop=%s\n' "$has_desktop" >> "$GITHUB_OUTPUT"
+          printf 'any_builds=%s\n' "$any_builds" >> "$GITHUB_OUTPUT"
+          printf 'desktop_matrix={"include":%s}\n' "$desktop_joined" >> "$GITHUB_OUTPUT"
+          printf 'android_matrix={"include":%s}\n' "$android_joined" >> "$GITHUB_OUTPUT"
+
+  build-frontend:
+    name: Build Frontend
+    needs: plan
+    if: ${{ needs.plan.outputs.any_builds == 'true' }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -41,8 +192,8 @@ jobs:
           cache: pnpm
 
       - name: Verify tag and manifest version
-        if: github.event_name == 'push'
-        run: node scripts/version.mjs check --tag "${{ github.ref_name }}"
+        if: ${{ needs.plan.outputs.publish_release == 'true' }}
+        run: node scripts/version.mjs check --tag "${{ needs.plan.outputs.release_tag }}"
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
@@ -66,7 +217,8 @@ jobs:
 
   build-desktop:
     name: Build bundle (${{ matrix.label }})
-    needs: build-frontend
+    needs: [plan, build-frontend]
+    if: ${{ needs.plan.outputs.has_desktop == 'true' }}
     runs-on: ${{ matrix.runner }}
     env:
       SCCACHE_GHA_ENABLED: "true"
@@ -74,52 +226,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 6
-      matrix:
-        include:
-          - label: windows-x64
-            runner: windows-latest
-            rust_target: x86_64-pc-windows-msvc
-            bundles: nsis
-            artifact_name: buyu-windows-x64
-            artifact_paths: |
-              src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
-          - label: windows-arm64
-            runner: windows-11-arm
-            rust_target: aarch64-pc-windows-msvc
-            bundles: nsis
-            artifact_name: buyu-windows-arm64
-            artifact_paths: |
-              src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
-          - label: linux-x64
-            runner: ubuntu-22.04
-            rust_target: x86_64-unknown-linux-gnu
-            bundles: appimage,deb
-            artifact_name: buyu-linux-x64
-            artifact_paths: |
-              src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
-              src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
-          - label: linux-arm64
-            runner: ubuntu-22.04-arm
-            rust_target: aarch64-unknown-linux-gnu
-            bundles: appimage,deb
-            artifact_name: buyu-linux-arm64
-            artifact_paths: |
-              src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
-              src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb
-          - label: macos-x64
-            runner: macos-15-intel
-            rust_target: x86_64-apple-darwin
-            bundles: dmg
-            artifact_name: buyu-macos-x64
-            artifact_paths: |
-              src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
-          - label: macos-arm64
-            runner: macos-latest
-            rust_target: aarch64-apple-darwin
-            bundles: dmg
-            artifact_name: buyu-macos-arm64
-            artifact_paths: |
-              src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
+      matrix: ${{ fromJSON(needs.plan.outputs.desktop_matrix) }}
 
     steps:
       - name: Checkout
@@ -191,7 +298,8 @@ jobs:
 
   prepare-android:
     name: Prepare Android project
-    needs: build-frontend
+    needs: [plan, build-frontend]
+    if: ${{ needs.plan.outputs.build_android == 'true' }}
     runs-on: ubuntu-22.04
 
     steps:
@@ -243,7 +351,8 @@ jobs:
 
   build-android:
     name: Build bundle (android-${{ matrix.label }})
-    needs: [build-frontend, prepare-android]
+    needs: [plan, build-frontend, prepare-android]
+    if: ${{ needs.plan.outputs.build_android == 'true' }}
     runs-on: ubuntu-22.04
     env:
       ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
@@ -255,24 +364,7 @@ jobs:
     strategy:
       fail-fast: false
       max-parallel: 4
-      matrix:
-        include:
-          - label: arm64
-            tauri_target: aarch64
-            rust_target: aarch64-linux-android
-            artifact_name: buyu-android-arm64
-          - label: armv7
-            tauri_target: armv7
-            rust_target: armv7-linux-androideabi
-            artifact_name: buyu-android-armv7
-          - label: x86_64
-            tauri_target: x86_64
-            rust_target: x86_64-linux-android
-            artifact_name: buyu-android-x86_64
-          - label: x86
-            tauri_target: i686
-            rust_target: i686-linux-android
-            artifact_name: buyu-android-x86
+      matrix: ${{ fromJSON(needs.plan.outputs.android_matrix) }}
 
     steps:
       - name: Checkout
@@ -399,8 +491,8 @@ jobs:
 
   ios:
     name: Build bundle (ios)
-    if: ${{ needs.build-frontend.outputs.has_apple == 'true' }}
-    needs: build-frontend
+    if: ${{ needs.plan.outputs.build_ios == 'true' && needs.plan.outputs.has_apple == 'true' }}
+    needs: [plan, build-frontend]
     runs-on: macos-latest
     env:
       SCCACHE_GHA_ENABLED: "true"
@@ -458,8 +550,8 @@ jobs:
 
   release:
     name: Create Release
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.build-desktop.result == 'success' && needs.prepare-android.result == 'success' && needs.build-android.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
-    needs: [build-desktop, prepare-android, build-android, ios]
+    if: ${{ needs.plan.outputs.publish_release == 'true' && (needs.build-desktop.result == 'success' || needs.build-desktop.result == 'skipped') && (needs.prepare-android.result == 'success' || needs.prepare-android.result == 'skipped') && (needs.build-android.result == 'success' || needs.build-android.result == 'skipped') && (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
+    needs: [plan, build-desktop, prepare-android, build-android, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -496,9 +588,11 @@ jobs:
         uses: softprops/action-gh-release@v2
         with:
           files: ${{ steps.collect.outputs.files }}
-          name: BuYu ${{ github.ref_name }}
+          name: BuYu ${{ needs.plan.outputs.release_tag }}
+          tag_name: ${{ needs.plan.outputs.release_tag }}
+          target_commitish: ${{ github.sha }}
           draft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
+          prerelease: ${{ contains(needs.plan.outputs.release_tag, '-') }}
           generate_release_notes: true
           fail_on_unmatched_files: true
         env:

@@ -46,6 +46,11 @@ GitHub Actions 已落地两条主流程：
 - `CI`：在 PR 和 `main` push 上执行版本一致性检查、前端测试/构建、Rust 测试与 `clippy`
 - `Release`：先执行 `Build Frontend`，然后按平台与架构展开独立 job：`windows-x64`、`windows-arm64`、`linux-x64`、`linux-arm64`、`macos-x64`、`macos-arm64`、`android-arm64`、`android-armv7`、`android-x86_64`、`android-x86`；桌面端与移动端都启用了 `sccache`，Android 额外先做一次 `Prepare Android project` 再复用到各 ABI 构建；最后由 `Create Release` 统一上传 Release 资产，`iOS` 仅在 Apple mobile 工程存在时启用
 
+`Release` 工作流支持两种入口：
+
+- 推送 `v*` tag：自动全平台全架构构建并发布到 GitHub Releases
+- 手动 `workflow_dispatch`：可以勾选 `Windows / Linux / macOS / Android / iOS`，自定义 `release_tag`，并选择是否直接发布到 GitHub Releases
+
 移动端说明：
 
 - `Android` job 现在会在 GitHub Actions 里自动执行 `pnpm tauri android init --ci` 后再打包 APK
