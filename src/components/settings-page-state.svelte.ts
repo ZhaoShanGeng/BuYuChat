@@ -6,6 +6,16 @@
  */
 
 import {
+  buildSettingsBackup,
+  openDataDirectory,
+  openLogDirectory,
+  pickImportFile,
+  readSettingsBackupFromFile,
+  toChannelInput,
+  toModelInput,
+  writeSettingsBackupToFile
+} from "../lib/system-tools";
+import {
   parseThinkingTagsConfig,
   serializeThinkingTagsInput
 } from "../lib/thinking-tags";
@@ -24,7 +34,8 @@ import {
   createModel,
   deleteModel,
   fetchRemoteModels,
-  listModels
+  listModels,
+  updateModel
 } from "../lib/transport/models";
 import type {
   ChannelFormState,
@@ -68,6 +79,7 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
     saving: false,
     testingId: null as string | null,
     notice: null as Notice | null,
+    utilitiesBusy: false,
     channels: [] as Channel[],
     selectedChannelId: null as string | null,
     form: { ...EMPTY_FORM } as ChannelFormState,
@@ -376,6 +388,128 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
     }
   }
 
+  async function handleExportSettings() {
+    state.utilitiesBusy = true;
+    state.notice = null;
+    try {
+      const channels = await listChannels(true);
+      const modelsByChannel = new Map<string, ChannelModel[]>();
+      for (const channel of channels) {
+        modelsByChannel.set(channel.id, await listModels(channel.id));
+      }
+
+      const backup = buildSettingsBackup(channels, modelsByChannel);
+      const path = await writeSettingsBackupToFile(backup);
+      if (!path) {
+        setNotice("info", "已取消导出");
+        return;
+      }
+
+      setNotice("success", `配置已导出到 ${path}`);
+    } catch (error) {
+      const message =
+        error && typeof error === "object" && "error_code" in error
+          ? humanizeError(toAppError(error))
+          : error instanceof Error
+            ? error.message
+            : "导出配置失败";
+      setNotice("error", message);
+    } finally {
+      state.utilitiesBusy = false;
+    }
+  }
+
+  async function handleImportSettings() {
+    state.utilitiesBusy = true;
+    state.notice = null;
+    try {
+      const path = await pickImportFile();
+      if (!path) {
+        setNotice("info", "已取消导入");
+        return;
+      }
+
+      const backup = await readSettingsBackupFromFile(path);
+      const existingChannels = await listChannels(true);
+
+      let importedChannels = 0;
+      let importedModels = 0;
+
+      for (const backupChannel of backup.channels) {
+        const matchedChannel = existingChannels.find(
+          (channel) =>
+            channel.name.trim().toLowerCase() === backupChannel.name.trim().toLowerCase() &&
+            channel.baseUrl.trim().toLowerCase() === backupChannel.baseUrl.trim().toLowerCase()
+        );
+
+        const channel = matchedChannel
+          ? await updateChannel(matchedChannel.id, toChannelInput(backupChannel))
+          : await createChannel(toChannelInput(backupChannel));
+
+        if (!matchedChannel) {
+          existingChannels.push(channel);
+        }
+
+        importedChannels += 1;
+
+        const existingModels = await listModels(channel.id);
+        for (const backupModel of backupChannel.models) {
+          const matchedModel = existingModels.find(
+            (model) => model.modelId.trim().toLowerCase() === backupModel.modelId.trim().toLowerCase()
+          );
+
+          if (matchedModel) {
+            await updateModel(channel.id, matchedModel.id, {
+              displayName: backupModel.displayName ?? null,
+              contextWindow: backupModel.contextWindow ?? null,
+              maxOutputTokens: backupModel.maxOutputTokens ?? null,
+              temperature: backupModel.temperature ?? null,
+              topP: backupModel.topP ?? null
+            });
+          } else {
+            await createModel(channel.id, toModelInput(backupModel));
+          }
+
+          importedModels += 1;
+        }
+      }
+
+      await loadChannels(state.selectedChannelId);
+      await deps.onChanged();
+      setNotice("success", `已导入 ${importedChannels} 个渠道和 ${importedModels} 个模型`);
+    } catch (error) {
+      setNotice("error", error instanceof Error ? error.message : "导入配置失败");
+    } finally {
+      state.utilitiesBusy = false;
+    }
+  }
+
+  async function handleOpenDataDirectory() {
+    state.utilitiesBusy = true;
+    state.notice = null;
+    try {
+      await openDataDirectory();
+      setNotice("info", "已打开数据目录");
+    } catch (error) {
+      setNotice("error", error instanceof Error ? error.message : "打开数据目录失败");
+    } finally {
+      state.utilitiesBusy = false;
+    }
+  }
+
+  async function handleOpenLogDirectory() {
+    state.utilitiesBusy = true;
+    state.notice = null;
+    try {
+      await openLogDirectory();
+      setNotice("info", "已打开日志目录");
+    } catch (error) {
+      setNotice("error", error instanceof Error ? error.message : "打开日志目录失败");
+    } finally {
+      state.utilitiesBusy = false;
+    }
+  }
+
   function init() {
     if (initialized) return;
     initialized = true;
@@ -403,7 +537,11 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
     handleCreateModel,
     handleDeleteModel,
     handleFetchRemoteModels,
-    handleImportRemoteModel
+    handleImportRemoteModel,
+    handleImportSettings,
+    handleExportSettings,
+    handleOpenDataDirectory,
+    handleOpenLogDirectory
   };
 }
 

@@ -6,6 +6,7 @@
   import SettingsChannelEditor from "./SettingsChannelEditor.svelte";
   import SettingsModelManager from "./SettingsModelManager.svelte";
   import SettingsNoticeBanner from "./SettingsNoticeBanner.svelte";
+  import SettingsUtilityPanel from "./SettingsUtilityPanel.svelte";
   import {
     AUTH_TYPE_OPTIONS,
     CHANNEL_TYPE_OPTIONS,
@@ -27,6 +28,14 @@
   {/if}
 
   <div class="settings-page__content-inner mx-auto flex flex-col gap-6 p-4 sm:p-6">
+    <SettingsUtilityPanel
+      busy={settings.state.utilitiesBusy}
+      onExport={settings.handleExportSettings}
+      onImport={settings.handleImportSettings}
+      onOpenDataDir={settings.handleOpenDataDirectory}
+      onOpenLogDir={settings.handleOpenLogDirectory}
+    />
+
     <SettingsChannelEditor
       authTypeOptions={AUTH_TYPE_OPTIONS}
       channelTypeOptions={CHANNEL_TYPE_OPTIONS}
