@@ -19,7 +19,7 @@ import {
   parseThinkingTagsConfig,
   serializeThinkingTagsInput
 } from "../lib/thinking-tags";
-import type { AppError } from "../lib/transport/common";
+import type { AppError, ErrorDetails } from "../lib/transport/common";
 import { toAppError } from "../lib/transport/common";
 import type { Channel, ChannelInput } from "../lib/transport/channels";
 import {
@@ -129,8 +129,8 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
       ] as const);
   });
 
-  function setNotice(kind: Notice["kind"], text: string) {
-    state.notice = { kind, text };
+  function setNotice(kind: Notice["kind"], text: string, detail?: string) {
+    state.notice = detail ? { kind, text, detail } : { kind, text };
   }
 
   function humanizeError(error: AppError): string {
@@ -209,12 +209,31 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
         return;
       }
       state.models = [];
-      setNotice("error", humanizeError(toAppError(error)));
+      showErrorNotice(error);
     } finally {
       if (requestId === modelsRequestId && state.selectedChannelId === channelId) {
         state.loadingModels = false;
       }
     }
+  }
+
+  function formatErrorDetail(details?: ErrorDetails | null): string | undefined {
+    if (!details) {
+      return undefined;
+    }
+
+    const parts = [
+      details.responseStatus ? `HTTP ${details.responseStatus}` : null,
+      details.rawMessage?.trim() || null,
+      details.requestUrl?.trim() ? `URL: ${details.requestUrl.trim()}` : null
+    ].filter((value): value is string => !!value);
+
+    return parts.length > 0 ? parts.join("\n") : undefined;
+  }
+
+  function showErrorNotice(error: unknown) {
+    const appError = toAppError(error);
+    setNotice("error", humanizeError(appError), formatErrorDetail(appError.details));
   }
 
   async function loadChannels(nextSelectedChannelId?: string | null) {
@@ -249,7 +268,7 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
       clearModelDraft();
       await loadModels(channel.id);
     } catch (error) {
-      setNotice("error", humanizeError(toAppError(error)));
+      showErrorNotice(error);
     } finally {
       state.loading = false;
     }
@@ -304,7 +323,7 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
       setNotice("success", state.selectedChannelId ? "渠道已更新" : "渠道已创建");
       await deps.onChanged();
     } catch (error) {
-      setNotice("error", humanizeError(toAppError(error)));
+      showErrorNotice(error);
     } finally {
       state.saving = false;
     }
@@ -320,7 +339,7 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
       setNotice("success", "渠道已删除");
       await deps.onChanged();
     } catch (error) {
-      setNotice("error", humanizeError(toAppError(error)));
+      showErrorNotice(error);
     }
   }
 
@@ -332,7 +351,7 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
       const result = await testChannel(state.selectedChannelId);
       setNotice("success", result.message ?? "渠道连通性验证成功");
     } catch (error) {
-      setNotice("error", humanizeError(toAppError(error)));
+      showErrorNotice(error);
     } finally {
       state.testingId = null;
     }
@@ -354,7 +373,7 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
       setNotice("success", "模型已创建");
       await deps.onChanged();
     } catch (error) {
-      setNotice("error", humanizeError(toAppError(error)));
+      showErrorNotice(error);
     }
   }
 
@@ -367,7 +386,7 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
       setNotice("success", "模型已删除");
       await deps.onChanged();
     } catch (error) {
-      setNotice("error", humanizeError(toAppError(error)));
+      showErrorNotice(error);
     }
   }
 
@@ -388,7 +407,7 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
       if (requestId !== remoteModelsRequestId || state.selectedChannelId !== channelId) {
         return;
       }
-      setNotice("error", humanizeError(toAppError(error)));
+      showErrorNotice(error);
     } finally {
       if (requestId === remoteModelsRequestId && state.selectedChannelId === channelId) {
         state.loadingRemoteModels = false;
@@ -409,7 +428,7 @@ export function createSettingsPageState(deps: SettingsPageDeps) {
       setNotice("success", `已导入模型 ${model.displayName ?? model.modelId}`);
       await deps.onChanged();
     } catch (error) {
-      setNotice("error", humanizeError(toAppError(error)));
+      showErrorNotice(error);
     }
   }
 

@@ -1,6 +1,7 @@
 export type Notice = {
   kind: "success" | "error" | "info";
   text: string;
+  detail?: string;
 };
 
 export type ChannelFormState = {

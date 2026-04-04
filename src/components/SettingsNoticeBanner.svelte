@@ -25,5 +25,8 @@
   data-kind={props.notice.kind}
   data-ui="settings-notice-banner"
 >
-  {props.notice.text}
+  <div>{props.notice.text}</div>
+  {#if props.notice.detail}
+    <div class="mt-1 whitespace-pre-wrap break-all text-xs opacity-80">{props.notice.detail}</div>
+  {/if}
 </div>
