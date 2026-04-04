@@ -70,11 +70,9 @@ jobs:
         run: pnpm verify
 
   desktop:
-    name: Desktop Bundle (${{ matrix.label }})
+    name: Desktop Build (${{ matrix.label }})
     needs: gates
     runs-on: ${{ matrix.os }}
-    permissions:
-      contents: write
     strategy:
       fail-fast: false
       max-parallel: 3
@@ -82,13 +80,23 @@ jobs:
         include:
           - label: windows
             os: windows-latest
-            args: --bundles nsis
+            bundle_args: --bundles nsis
+            artifact_name: buyu-windows-installer
+            artifact_paths: |
+              src-tauri/target/release/bundle/nsis/*-setup.exe
           - label: linux
             os: ubuntu-22.04
-            args: --bundles appimage,deb
+            bundle_args: --bundles appimage,deb
+            artifact_name: buyu-linux-bundles
+            artifact_paths: |
+              src-tauri/target/release/bundle/appimage/*.AppImage
+              src-tauri/target/release/bundle/deb/*.deb
           - label: macos
             os: macos-latest
-            args: --bundles app,dmg
+            bundle_args: --bundles dmg
+            artifact_name: buyu-macos-bundles
+            artifact_paths: |
+              src-tauri/target/release/bundle/dmg/*.dmg
 
     steps:
       - name: Checkout
@@ -132,31 +140,20 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build desktop bundles
-        if: github.event_name == 'workflow_dispatch'
-        uses: tauri-apps/tauri-action@v1
-        with:
-          args: ${{ matrix.args }}
-          uploadWorkflowArtifacts: true
+        run: pnpm tauri build -- ${{ matrix.bundle_args }}
 
-      - name: Publish desktop release assets
-        if: github.event_name == 'push'
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload desktop artifacts
+        uses: actions/upload-artifact@v4
         with:
-          args: ${{ matrix.args }}
-          tagName: ${{ github.ref_name }}
-          releaseName: BuYu ${{ github.ref_name }}
-          releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generateReleaseNotes: true
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_paths }}
+          if-no-files-found: error
+          retention-days: 7
 
   android:
-    name: Android Bundle
+    name: Android Build
     needs: gates
     runs-on: ubuntu-22.04
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
@@ -197,35 +194,22 @@ jobs:
       - name: Initialize Android target
         run: pnpm tauri android init --ci
 
-      - name: Build Android artifact
-        if: github.event_name == 'workflow_dispatch'
-        uses: tauri-apps/tauri-action@v1
-        with:
-          mobile: android
-          args: --apk
-          uploadWorkflowArtifacts: true
+      - name: Build Android APK
+        run: pnpm tauri android build --apk
 
-      - name: Publish Android release asset
-        if: github.event_name == 'push'
-        uses: tauri-apps/tauri-action@v1
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload Android artifacts
+        uses: actions/upload-artifact@v4
         with:
-          mobile: android
-          args: --apk
-          tagName: ${{ github.ref_name }}
-          releaseName: BuYu ${{ github.ref_name }}
-          releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generateReleaseNotes: true
+          name: buyu-android-apk
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
+          retention-days: 7
 
   ios:
-    name: iOS Bundle
+    name: iOS Build
     if: needs.detect-mobile.outputs.has_apple == 'true'
     needs: [detect-mobile, gates]
     runs-on: macos-latest
-    permissions:
-      contents: write
 
     steps:
       - name: Checkout
@@ -252,22 +236,61 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build iOS artifact
-        if: github.event_name == 'workflow_dispatch'
-        uses: tauri-apps/tauri-action@v1
-        with:
-          mobile: ios
-          uploadWorkflowArtifacts: true
+      - name: Build iOS bundle
+        run: pnpm tauri ios build
 
-      - name: Publish iOS release asset
-        if: github.event_name == 'push'
-        uses: tauri-apps/tauri-action@v1
+      - name: Upload iOS artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: buyu-ios-ipa
+          path: src-tauri/gen/apple/build/**/*.ipa
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Publish Release Assets
+    if: github.event_name == 'push' && needs.desktop.result == 'success' && needs.android.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped')
+    needs: [desktop, android, ios]
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+
+    steps:
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: Collect release files
+        id: collect
+        shell: bash
+        run: |
+          mapfile -t files < <(find artifacts -type f \( \
+            -name "*.exe" -o \
+            -name "*.AppImage" -o \
+            -name "*.deb" -o \
+            -name "*.dmg" -o \
+            -name "*.apk" -o \
+            -name "*.ipa" \
+          \) | sort)
+
+          if [ "${#files[@]}" -eq 0 ]; then
+            echo "No release files were produced."
+            exit 1
+          fi
+
+          printf 'files<<EOF\n' >> "$GITHUB_OUTPUT"
+          printf '%s\n' "${files[@]}" >> "$GITHUB_OUTPUT"
+          printf 'EOF\n' >> "$GITHUB_OUTPUT"
+
+      - name: Publish GitHub release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: ${{ steps.collect.outputs.files }}
+          name: BuYu ${{ github.ref_name }}
+          draft: false
+          prerelease: ${{ contains(github.ref_name, '-') }}
+          generate_release_notes: true
+          fail_on_unmatched_files: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        with:
-          mobile: ios
-          tagName: ${{ github.ref_name }}
-          releaseName: BuYu ${{ github.ref_name }}
-          releaseDraft: false
-          prerelease: ${{ contains(github.ref_name, '-') }}
-          generateReleaseNotes: true

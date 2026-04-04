@@ -10,7 +10,7 @@
 | Rust 后端 | ✅ 可用 | 渠道、模型、Agent、会话、消息、生成与 Reroll 已接通 |
 | 测试基线 | ✅ 可用 | `pnpm test`、`cargo test`、`cargo clippy` 已纳入统一脚本 |
 | CI | ✅ 已落地 | GitHub Actions 已覆盖版本校验、前端门禁、Rust 门禁 |
-| 发布 | ✅ 已落地 | 发布链路已收敛为统一门禁 + 并行多平台打包；Android 已接入 CI 内自动初始化与打包 |
+| 发布 | ✅ 已落地 | 发布链路已收敛为统一门禁 + 并行多平台构建 + 单独发布收口；Android 已接入 CI 内自动初始化与打包 |
 | 版本治理 | ✅ 已落地 | 三处 manifest 版本统一由脚本校验/修改 |
 
 ## 当前已完成的基础设施
@@ -20,7 +20,7 @@
 | `scripts/version.mjs` | ✅ | 统一检查/更新版本号 |
 | `pnpm verify` | ✅ | 本地与 CI 共享一套门禁入口 |
 | `.github/workflows/ci.yml` | ✅ | PR 与 `main` 常规校验 |
-| `.github/workflows/release.yml` | ✅ | 统一门禁后并行打包桌面端；Android 独立并行；iOS 由检测 job 按 Apple 工程存在与否启用 |
+| `.github/workflows/release.yml` | ✅ | 统一门禁后并行构建多平台产物，再由单独发布 job 上传 Release；iOS 继续按 Apple 工程条件启用 |
 | 仓库清理规则 | ✅ | 移除/忽略生成型配置与本地调试残留 |
 
 ## 仍在推进的功能面

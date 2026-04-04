@@ -69,7 +69,7 @@ node scripts/version.mjs check
   在门禁通过后，并行打包桌面端矩阵 artifact：
   `Windows (NSIS)`、`Linux (AppImage + DEB)`、`macOS (app + DMG)`
 - tag 触发时：
-  门禁通过后，并行构建各平台产物，再把桌面端多平台安装包发布到 GitHub Release
+  门禁通过后，并行构建各平台产物，最后由单独的发布 job 统一把安装包上传到 GitHub Release
 - 移动端：
   `Android` job 独立并行，会在 CI 内自动执行 `pnpm tauri android init --ci` 后构建 APK；`iOS` 通过单独的检测 job 判断仓库中是否已提交 Apple mobile 工程，满足条件时才在 macOS runner 上启用
 
