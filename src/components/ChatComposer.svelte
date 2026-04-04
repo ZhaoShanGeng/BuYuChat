@@ -15,6 +15,7 @@
     pickComposerAttachments,
     readComposerAttachmentsFromFiles
   } from "../lib/composer-attachments";
+  import { isTauriWindowAvailable } from "../lib/tauri-window";
   import type { Conversation } from "../lib/transport/conversations";
   import type { PendingComposerFile, PendingComposerImage } from "./workspace-shell.svelte.js";
 
@@ -123,15 +124,17 @@
       return;
     }
 
-    try {
-      const selection = await pickComposerAttachments();
-      if (selection.images.length > 0 || selection.files.length > 0) {
-        onPendingImagesChange(mergeComposerImages(pendingImages, selection.images));
-        onPendingFilesChange(mergeComposerFiles(pendingFiles, selection.files));
+    if (isTauriWindowAvailable()) {
+      try {
+        const selection = await pickComposerAttachments();
+        if (selection.images.length > 0 || selection.files.length > 0) {
+          onPendingImagesChange(mergeComposerImages(pendingImages, selection.images));
+          onPendingFilesChange(mergeComposerFiles(pendingFiles, selection.files));
+        }
+        return;
+      } catch {
         return;
       }
-    } catch {
-      // Fallback to the hidden input when the platform dialog is unavailable.
     }
 
     fileInput?.click();
