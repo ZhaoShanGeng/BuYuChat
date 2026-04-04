@@ -169,7 +169,7 @@ jobs:
 
       - name: Build desktop bundle
         if: matrix.kind == 'desktop'
-        run: pnpm tauri build --ci -c src-tauri/tauri.github-release.conf.json -- ${{ matrix.bundle_args }}
+        run: pnpm tauri build --ci -c src-tauri/tauri.github-release.conf.json ${{ matrix.bundle_args }}
 
       - name: Initialize Android target
         if: matrix.kind == 'android'
