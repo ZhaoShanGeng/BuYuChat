@@ -16,13 +16,21 @@ pub fn run() {
     let state =
         tauri::async_runtime::block_on(state::AppState::initialize()).expect("初始化应用状态失败");
 
-    tauri::Builder::default()
-        .plugin(tauri_plugin_window_state::Builder::new().build())
-        .manage(state)
+    let builder = tauri::Builder::default();
+
+    #[cfg(desktop)]
+    let builder = builder
+        .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             setup_initial_window(app)?;
             Ok(())
-        })
+        });
+
+    #[cfg(not(desktop))]
+    let builder = builder;
+
+    builder
+        .manage(state)
         .invoke_handler(tauri::generate_handler![
             commands::agents::list_agents,
             commands::agents::get_agent,
@@ -63,6 +71,7 @@ pub fn run() {
 ///
 /// 规则：上下共保留 10%（高 = 屏幕 90%），左右共保留 25%（宽 = 屏幕 75%）。
 /// `tauri-plugin-window-state` 有记忆数据时会覆盖此设置。
+#[cfg(desktop)]
 fn setup_initial_window(app: &tauri::App) -> Result<(), Box<dyn std::error::Error>> {
     use tauri::Manager;
 
