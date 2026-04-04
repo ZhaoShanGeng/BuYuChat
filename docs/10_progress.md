@@ -20,7 +20,7 @@
 | `scripts/version.mjs` | ✅ | 统一检查/更新版本号 |
 | `pnpm verify` | ✅ | 本地与 CI 共享一套门禁入口 |
 | `.github/workflows/ci.yml` | ✅ | PR 与 `main` 常规校验 |
-| `.github/workflows/release.yml` | ✅ | 桌面端多平台自动打包；Android 在 CI 内自动初始化；iOS 继续按 Apple 工程条件启用 |
+| `.github/workflows/release.yml` | ✅ | 桌面端多平台自动打包；Android 在 CI 内自动初始化；iOS 由检测 job 按 Apple 工程存在与否启用 |
 | 仓库清理规则 | ✅ | 移除/忽略生成型配置与本地调试残留 |
 
 ## 仍在推进的功能面

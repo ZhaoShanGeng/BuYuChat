@@ -70,7 +70,7 @@ node scripts/version.mjs check
 - tag 触发时：
   先校验 `v<version>` 与 manifest 版本一致，再运行完整门禁，然后发布桌面端多平台安装包到 GitHub Release
 - 移动端：
-  `Android` job 会在 CI 内自动执行 `pnpm tauri android init --ci` 后构建 APK；`iOS` 仍需 macOS 环境下的 Apple mobile 工程和签名条件，因此继续按 Apple 工程是否存在启用
+  `Android` job 会在 CI 内自动执行 `pnpm tauri android init --ci` 后构建 APK；`iOS` 通过单独的检测 job 判断仓库中是否已提交 Apple mobile 工程，满足条件时才在 macOS runner 上启用
 
 ## 4. 版本控制规则
 
