@@ -64,43 +64,59 @@ jobs:
           if-no-files-found: error
           retention-days: 1
 
-  build:
+  build-desktop:
     name: Build bundle (${{ matrix.label }})
     needs: build-frontend
     runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      max-parallel: 4
+      max-parallel: 6
       matrix:
         include:
-          - label: windows
+          - label: windows-x64
             runner: windows-latest
-            kind: desktop
-            bundle_args: --bundles nsis
-            artifact_name: buyu-windows-installer
+            rust_target: x86_64-pc-windows-msvc
+            bundles: nsis
+            artifact_name: buyu-windows-x64
             artifact_paths: |
-              src-tauri/target/release/bundle/nsis/*-setup.exe
-          - label: linux
+              src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          - label: windows-arm64
+            runner: windows-11-arm
+            rust_target: aarch64-pc-windows-msvc
+            bundles: nsis
+            artifact_name: buyu-windows-arm64
+            artifact_paths: |
+              src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe
+          - label: linux-x64
             runner: ubuntu-22.04
-            kind: desktop
-            bundle_args: --bundles appimage,deb
-            artifact_name: buyu-linux-bundles
+            rust_target: x86_64-unknown-linux-gnu
+            bundles: appimage,deb
+            artifact_name: buyu-linux-x64
             artifact_paths: |
-              src-tauri/target/release/bundle/appimage/*.AppImage
-              src-tauri/target/release/bundle/deb/*.deb
-          - label: macos
+              src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+              src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb
+          - label: linux-arm64
+            runner: ubuntu-22.04-arm
+            rust_target: aarch64-unknown-linux-gnu
+            bundles: appimage,deb
+            artifact_name: buyu-linux-arm64
+            artifact_paths: |
+              src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage
+              src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb
+          - label: macos-x64
+            runner: macos-15-intel
+            rust_target: x86_64-apple-darwin
+            bundles: dmg
+            artifact_name: buyu-macos-x64
+            artifact_paths: |
+              src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg
+          - label: macos-arm64
             runner: macos-latest
-            kind: desktop
-            bundle_args: --bundles dmg
-            artifact_name: buyu-macos-bundles
+            rust_target: aarch64-apple-darwin
+            bundles: dmg
+            artifact_name: buyu-macos-arm64
             artifact_paths: |
-              src-tauri/target/release/bundle/dmg/*.dmg
-          - label: android
-            runner: ubuntu-22.04
-            kind: android
-            artifact_name: buyu-android-apk
-            artifact_paths: |
-              src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+              src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg
 
     steps:
       - name: Checkout
@@ -122,28 +138,12 @@ jobs:
           cache: pnpm
 
       - name: Setup Rust toolchain
-        if: matrix.kind != 'android'
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Setup Rust toolchain for Android
-        if: matrix.kind == 'android'
         uses: dtolnay/rust-toolchain@stable
         with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
-
-      - name: Setup Java
-        if: matrix.kind == 'android'
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Setup Android SDK
-        if: matrix.kind == 'android'
-        uses: android-actions/setup-android@v3
+          targets: ${{ matrix.rust_target }}
 
       - name: Install Linux dependencies
-        if: matrix.runner == 'ubuntu-22.04' && matrix.kind == 'desktop'
+        if: startsWith(matrix.runner, 'ubuntu-')
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -161,6 +161,7 @@ jobs:
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@v2
         with:
+          key: ${{ matrix.label }}
           workspaces: |
             src-tauri -> target
 
@@ -168,22 +169,96 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Build desktop bundle
-        if: matrix.kind == 'desktop'
-        run: pnpm tauri build --ci -c src-tauri/tauri.github-release.conf.json ${{ matrix.bundle_args }}
-
-      - name: Initialize Android target
-        if: matrix.kind == 'android'
-        run: pnpm tauri android init --ci
-
-      - name: Build Android APK
-        if: matrix.kind == 'android'
-        run: pnpm tauri android build --ci --apk -c src-tauri/tauri.github-release.conf.json
+        run: pnpm tauri build --ci -c src-tauri/tauri.github-release.conf.json --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundles }}
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
           path: ${{ matrix.artifact_paths }}
+          if-no-files-found: error
+          retention-days: 7
+
+  build-android:
+    name: Build bundle (android-${{ matrix.label }})
+    needs: build-frontend
+    runs-on: ubuntu-22.04
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        include:
+          - label: arm64
+            tauri_target: aarch64
+            rust_target: aarch64-linux-android
+            artifact_name: buyu-android-arm64
+          - label: armv7
+            tauri_target: armv7
+            rust_target: armv7-linux-androideabi
+            artifact_name: buyu-android-armv7
+          - label: x86_64
+            tauri_target: x86_64
+            rust_target: x86_64-linux-android
+            artifact_name: buyu-android-x86_64
+          - label: x86
+            tauri_target: i686
+            rust_target: i686-linux-android
+            artifact_name: buyu-android-x86
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: buyu-web-dist
+          path: dist
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.rust_target }}
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Cache Rust artifacts
+        uses: swatinem/rust-cache@v2
+        with:
+          key: android-${{ matrix.label }}
+          workspaces: |
+            src-tauri -> target
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Initialize Android target
+        run: pnpm tauri android init --ci
+
+      - name: Build Android APK
+        run: pnpm tauri android build --ci --apk -c src-tauri/tauri.github-release.conf.json --target ${{ matrix.tauri_target }}
+
+      - name: Upload build artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
           if-no-files-found: error
           retention-days: 7
 
@@ -218,6 +293,7 @@ jobs:
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@v2
         with:
+          key: ios
           workspaces: |
             src-tauri -> target
 
@@ -237,8 +313,8 @@ jobs:
 
   release:
     name: Create Release
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.build.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
-    needs: [build, ios]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.build-desktop.result == 'success' && needs.build-android.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
+    needs: [build-desktop, build-android, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -44,7 +44,7 @@ pnpm version:set -- 0.2.0
 GitHub Actions 已落地两条主流程：
 
 - `CI`：在 PR 和 `main` push 上执行版本一致性检查、前端测试/构建、Rust 测试与 `clippy`
-- `Release`：先执行 `Build Frontend`，再进入单一 `build` 矩阵并行构建各平台产物，最后由 `Create Release` 统一上传 Release 资产；`iOS` 仅在 Apple mobile 工程存在时启用
+- `Release`：先执行 `Build Frontend`，然后按平台与架构展开独立 job：`windows-x64`、`windows-arm64`、`linux-x64`、`linux-arm64`、`macos-x64`、`macos-arm64`、`android-arm64`、`android-armv7`、`android-x86_64`、`android-x86`；最后由 `Create Release` 统一上传 Release 资产，`iOS` 仅在 Apple mobile 工程存在时启用
 
 移动端说明：
 

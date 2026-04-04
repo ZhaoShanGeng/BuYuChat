@@ -10,7 +10,7 @@
 | Rust 后端 | ✅ 可用 | 渠道、模型、Agent、会话、消息、生成与 Reroll 已接通 |
 | 测试基线 | ✅ 可用 | `pnpm test`、`cargo test`、`cargo clippy` 已纳入统一脚本 |
 | CI | ✅ 已落地 | GitHub Actions 已覆盖版本校验、前端门禁、Rust 门禁 |
-| 发布 | ✅ 已落地 | 发布链路已收敛为 `Build Frontend -> Matrix Build -> Create Release`；Android 已接入矩阵内自动初始化与打包 |
+| 发布 | ✅ 已落地 | 发布链路已收敛为 `Build Frontend -> Per-Arch Build Jobs -> Create Release`；桌面端与 Android 均按架构拆分为独立 job |
 | 版本治理 | ✅ 已落地 | 三处 manifest 版本统一由脚本校验/修改 |
 
 ## 当前已完成的基础设施
@@ -20,7 +20,7 @@
 | `scripts/version.mjs` | ✅ | 统一检查/更新版本号 |
 | `pnpm verify` | ✅ | 本地与 CI 共享一套门禁入口 |
 | `.github/workflows/ci.yml` | ✅ | PR 与 `main` 常规校验 |
-| `.github/workflows/release.yml` | ✅ | `Build Frontend` 产出前端构建物，矩阵并行打包各平台，再由 `Create Release` 统一上传；iOS 继续按 Apple 工程条件启用 |
+| `.github/workflows/release.yml` | ✅ | `Build Frontend` 产出前端构建物，随后按 `windows/linux/macos/android` 的具体架构拆分独立 job，并由 `Create Release` 统一收口；iOS 继续按 Apple 工程条件启用 |
 | 仓库清理规则 | ✅ | 移除/忽略生成型配置与本地调试残留 |
 
 ## 仍在推进的功能面

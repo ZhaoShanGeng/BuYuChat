@@ -66,12 +66,12 @@ node scripts/version.mjs check
 
 - 先执行 `Build Frontend`，同时完成 tag 版本校验、前端检查、测试和 `dist` 产物上传
 - 手动触发时：
-  进入单一 `build` 矩阵，并行构建：
-  `Windows (NSIS)`、`Linux (AppImage + DEB)`、`macOS (DMG)`、`Android (APK)`；`iOS` 仅在 Apple mobile 工程存在时启用
+  进入按平台和架构展开的独立 job，并行构建：
+  `windows-x64`、`windows-arm64`、`linux-x64`、`linux-arm64`、`macos-x64`、`macos-arm64`、`android-arm64`、`android-armv7`、`android-x86_64`、`android-x86`；`iOS` 仅在 Apple mobile 工程存在时启用
 - tag 触发时：
-  `Create Release` job 会统一下载矩阵产物并上传到 GitHub Release
+  `Create Release` job 会统一下载各架构产物并上传到 GitHub Release
 - 移动端：
-  `Android` 在矩阵内执行 `pnpm tauri android init --ci` 后构建 APK；`iOS` 通过前置检测决定是否进入矩阵
+  `Android` 为每个 ABI 单独执行 `pnpm tauri android init --ci` 与 APK 构建；`iOS` 通过前置检测决定是否进入发布链路
 
 ## 4. 版本控制规则
 
@@ -96,4 +96,4 @@ pnpm tauri build
 - 覆盖率门槛阻断
 - 已签名的 iOS 安装包发布
 
-说明：发布工作流现在采用 `Build Frontend -> Matrix Build -> Create Release` 结构；`iOS` 仍取决于 Apple 工程初始化与签名材料。
+说明：发布工作流现在采用 `Build Frontend -> Per-Arch Build Jobs -> Create Release` 结构；`iOS` 仍取决于 Apple 工程初始化与签名材料。
