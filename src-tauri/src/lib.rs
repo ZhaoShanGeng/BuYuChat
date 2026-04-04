@@ -19,6 +19,9 @@ pub fn run() {
 
     #[cfg(desktop)]
     let builder = builder
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_window_state::Builder::default().build())
         .setup(|app| {
             let state = tauri::async_runtime::block_on(state::AppState::initialize_for_app(app))
@@ -29,12 +32,16 @@ pub fn run() {
         });
 
     #[cfg(not(desktop))]
-    let builder = builder.setup(|app| {
-        let state = tauri::async_runtime::block_on(state::AppState::initialize_for_app(app))
-            .expect("初始化应用状态失败");
-        app.manage(state);
-        Ok(())
-    });
+    let builder = builder
+        .plugin(tauri_plugin_dialog::init())
+        .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_opener::init())
+        .setup(|app| {
+            let state = tauri::async_runtime::block_on(state::AppState::initialize_for_app(app))
+                .expect("初始化应用状态失败");
+            app.manage(state);
+            Ok(())
+        });
 
     builder
         .invoke_handler(tauri::generate_handler![
