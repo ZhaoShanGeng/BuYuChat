@@ -11,8 +11,8 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
-  detect-mobile:
-    name: Detect Mobile Targets
+  build-frontend:
+    name: Build Frontend
     runs-on: ubuntu-latest
     outputs:
       has_apple: ${{ steps.detect.outputs.has_apple }}
@@ -31,14 +31,6 @@ jobs:
             echo "has_apple=false" >> "$GITHUB_OUTPUT"
           fi
 
-  gates:
-    name: Release Gates
-    runs-on: windows-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
 
@@ -48,59 +40,85 @@ jobs:
           node-version: 22
           cache: pnpm
 
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          components: clippy
-
-      - name: Cache Rust artifacts
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
       - name: Verify tag and manifest version
         if: github.event_name == 'push'
         run: node scripts/version.mjs check --tag "${{ github.ref_name }}"
 
-      - name: Run release gates
-        run: pnpm verify
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
 
-  desktop:
-    name: Desktop Build (${{ matrix.label }})
-    needs: gates
-    runs-on: ${{ matrix.os }}
+      - name: Frontend checks
+        run: pnpm check
+
+      - name: Frontend tests
+        run: pnpm test
+
+      - name: Build frontend
+        run: pnpm build
+
+      - name: Upload frontend dist
+        uses: actions/upload-artifact@v4
+        with:
+          name: buyu-web-dist
+          path: dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  build:
+    name: Build bundle (${{ matrix.label }})
+    needs: build-frontend
+    if: ${{ matrix.requires_apple != 'true' || needs.build-frontend.outputs.has_apple == 'true' }}
+    runs-on: ${{ matrix.runner }}
     strategy:
       fail-fast: false
-      max-parallel: 3
+      max-parallel: 5
       matrix:
         include:
           - label: windows
-            os: windows-latest
+            runner: windows-latest
+            kind: desktop
             bundle_args: --bundles nsis
             artifact_name: buyu-windows-installer
             artifact_paths: |
               src-tauri/target/release/bundle/nsis/*-setup.exe
           - label: linux
-            os: ubuntu-22.04
+            runner: ubuntu-22.04
+            kind: desktop
             bundle_args: --bundles appimage,deb
             artifact_name: buyu-linux-bundles
             artifact_paths: |
               src-tauri/target/release/bundle/appimage/*.AppImage
               src-tauri/target/release/bundle/deb/*.deb
           - label: macos
-            os: macos-latest
+            runner: macos-latest
+            kind: desktop
             bundle_args: --bundles dmg
             artifact_name: buyu-macos-bundles
             artifact_paths: |
               src-tauri/target/release/bundle/dmg/*.dmg
+          - label: android
+            runner: ubuntu-22.04
+            kind: android
+            artifact_name: buyu-android-apk
+            artifact_paths: |
+              src-tauri/gen/android/app/build/outputs/apk/**/*.apk
+          - label: ios
+            runner: macos-latest
+            kind: ios
+            requires_apple: "true"
+            artifact_name: buyu-ios-ipa
+            artifact_paths: |
+              src-tauri/gen/apple/build/**/*.ipa
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: buyu-web-dist
+          path: dist
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
@@ -112,10 +130,28 @@ jobs:
           cache: pnpm
 
       - name: Setup Rust toolchain
+        if: matrix.kind != 'android'
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup Rust toolchain for Android
+        if: matrix.kind == 'android'
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
+
+      - name: Setup Java
+        if: matrix.kind == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Setup Android SDK
+        if: matrix.kind == 'android'
+        uses: android-actions/setup-android@v3
+
       - name: Install Linux dependencies
-        if: matrix.os == 'ubuntu-22.04'
+        if: matrix.runner == 'ubuntu-22.04' && matrix.kind == 'desktop'
         run: |
           sudo apt-get update
           sudo apt-get install -y \
@@ -139,10 +175,23 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Build desktop bundles
-        run: pnpm tauri build -- ${{ matrix.bundle_args }}
+      - name: Build desktop bundle
+        if: matrix.kind == 'desktop'
+        run: pnpm tauri build --ci -c src-tauri/tauri.github-release.conf.json -- ${{ matrix.bundle_args }}
 
-      - name: Upload desktop artifacts
+      - name: Initialize Android target
+        if: matrix.kind == 'android'
+        run: pnpm tauri android init --ci
+
+      - name: Build Android APK
+        if: matrix.kind == 'android'
+        run: pnpm tauri android build --ci --apk -c src-tauri/tauri.github-release.conf.json
+
+      - name: Build iOS bundle
+        if: matrix.kind == 'ios'
+        run: pnpm tauri ios build --ci -c src-tauri/tauri.github-release.conf.json
+
+      - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
@@ -150,107 +199,10 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  android:
-    name: Android Build
-    needs: gates
-    runs-on: ubuntu-22.04
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Setup Java
-        uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: 17
-
-      - name: Setup Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-        with:
-          targets: aarch64-linux-android,armv7-linux-androideabi,i686-linux-android,x86_64-linux-android
-
-      - name: Cache Rust artifacts
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Initialize Android target
-        run: pnpm tauri android init --ci
-
-      - name: Build Android APK
-        run: pnpm tauri android build --apk
-
-      - name: Upload Android artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: buyu-android-apk
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*.apk
-          if-no-files-found: error
-          retention-days: 7
-
-  ios:
-    name: iOS Build
-    if: needs.detect-mobile.outputs.has_apple == 'true'
-    needs: [detect-mobile, gates]
-    runs-on: macos-latest
-
-    steps:
-      - name: Checkout
-        uses: actions/checkout@v4
-
-      - name: Setup pnpm
-        uses: pnpm/action-setup@v4
-
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: pnpm
-
-      - name: Setup Rust toolchain
-        uses: dtolnay/rust-toolchain@stable
-
-      - name: Cache Rust artifacts
-        uses: swatinem/rust-cache@v2
-        with:
-          workspaces: |
-            src-tauri -> target
-
-      - name: Install dependencies
-        run: pnpm install --frozen-lockfile
-
-      - name: Build iOS bundle
-        run: pnpm tauri ios build
-
-      - name: Upload iOS artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: buyu-ios-ipa
-          path: src-tauri/gen/apple/build/**/*.ipa
-          if-no-files-found: error
-          retention-days: 7
-
   release:
-    name: Publish Release Assets
-    if: github.event_name == 'push' && needs.desktop.result == 'success' && needs.android.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped')
-    needs: [desktop, android, ios]
+    name: Create Release
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') }}
+    needs: build
     runs-on: ubuntu-latest
     permissions:
       contents: write

@@ -64,14 +64,14 @@ node scripts/version.mjs check
 
 职责：
 
-- 先执行一个统一 `Release Gates` job，确保版本与完整门禁先过
+- 先执行 `Build Frontend`，同时完成 tag 版本校验、前端检查、测试和 `dist` 产物上传
 - 手动触发时：
-  在门禁通过后，并行打包桌面端矩阵 artifact：
-  `Windows (NSIS)`、`Linux (AppImage + DEB)`、`macOS (app + DMG)`
+  进入单一 `build` 矩阵，并行构建：
+  `Windows (NSIS)`、`Linux (AppImage + DEB)`、`macOS (DMG)`、`Android (APK)`；`iOS` 仅在 Apple mobile 工程存在时启用
 - tag 触发时：
-  门禁通过后，并行构建各平台产物，最后由单独的发布 job 统一把安装包上传到 GitHub Release
+  `Create Release` job 会统一下载矩阵产物并上传到 GitHub Release
 - 移动端：
-  `Android` job 独立并行，会在 CI 内自动执行 `pnpm tauri android init --ci` 后构建 APK；`iOS` 通过单独的检测 job 判断仓库中是否已提交 Apple mobile 工程，满足条件时才在 macOS runner 上启用
+  `Android` 在矩阵内执行 `pnpm tauri android init --ci` 后构建 APK；`iOS` 通过前置检测决定是否进入矩阵
 
 ## 4. 版本控制规则
 
@@ -96,4 +96,4 @@ pnpm tauri build
 - 覆盖率门槛阻断
 - 已签名的 iOS 安装包发布
 
-说明：桌面端多平台矩阵已经接入；`Android` 已改为 CI 内自动初始化后构建，`iOS` 仍取决于 Apple 工程初始化与签名材料。
+说明：发布工作流现在采用 `Build Frontend -> Matrix Build -> Create Release` 结构；`iOS` 仍取决于 Apple 工程初始化与签名材料。
