@@ -10,7 +10,7 @@
 | Rust 后端 | ✅ 可用 | 渠道、模型、Agent、会话、消息、生成与 Reroll 已接通 |
 | 测试基线 | ✅ 可用 | `pnpm test`、`cargo test`、`cargo clippy` 已纳入统一脚本 |
 | CI | ✅ 已落地 | GitHub Actions 已覆盖版本校验、前端门禁、Rust 门禁 |
-| 发布 | ✅ 已落地 | 发布链路已收敛为 `Build Frontend -> Per-Arch Build Jobs -> Create Release`；桌面端与 Android 均按架构拆分为独立 job |
+| 发布 | ✅ 已落地 | 发布链路已收敛为 `Build Frontend -> Prepare Android project -> Per-Arch Build Jobs -> Create Release`；桌面端与 Android 均按架构拆分为独立 job，并启用构建缓存 |
 | 版本治理 | ✅ 已落地 | 三处 manifest 版本统一由脚本校验/修改 |
 
 ## 当前已完成的基础设施

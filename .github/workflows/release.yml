@@ -68,6 +68,9 @@ jobs:
     name: Build bundle (${{ matrix.label }})
     needs: build-frontend
     runs-on: ${{ matrix.runner }}
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
     strategy:
       fail-fast: false
       max-parallel: 6
@@ -142,6 +145,9 @@ jobs:
         with:
           targets: ${{ matrix.rust_target }}
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Install Linux dependencies
         if: startsWith(matrix.runner, 'ubuntu-')
         run: |
@@ -171,6 +177,10 @@ jobs:
       - name: Build desktop bundle
         run: pnpm tauri build --ci -c src-tauri/tauri.github-release.conf.json --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundles }}
 
+      - name: Show sccache stats
+        shell: bash
+        run: sccache --show-stats || true
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
@@ -179,10 +189,65 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  build-android:
-    name: Build bundle (android-${{ matrix.label }})
+  prepare-android:
+    name: Prepare Android project
     needs: build-frontend
     runs-on: ubuntu-22.04
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download frontend dist
+        uses: actions/download-artifact@v4
+        with:
+          name: buyu-web-dist
+          path: dist
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 17
+          cache: gradle
+
+      - name: Setup Android SDK
+        uses: android-actions/setup-android@v3
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Initialize Android target
+        run: pnpm tauri android init --ci
+
+      - name: Pack Android project
+        shell: bash
+        run: tar -czf android-project.tgz -C src-tauri/gen android
+
+      - name: Upload Android project
+        uses: actions/upload-artifact@v4
+        with:
+          name: buyu-android-project
+          path: android-project.tgz
+          if-no-files-found: error
+          retention-days: 1
+
+  build-android:
+    name: Build bundle (android-${{ matrix.label }})
+    needs: [build-frontend, prepare-android]
+    runs-on: ubuntu-22.04
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
     strategy:
       fail-fast: false
       max-parallel: 4
@@ -229,11 +294,15 @@ jobs:
         with:
           targets: ${{ matrix.rust_target }}
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Setup Java
         uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: 17
+          cache: gradle
 
       - name: Setup Android SDK
         uses: android-actions/setup-android@v3
@@ -248,11 +317,24 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
-      - name: Initialize Android target
-        run: pnpm tauri android init --ci
+      - name: Download Android project
+        uses: actions/download-artifact@v4
+        with:
+          name: buyu-android-project
+          path: .
+
+      - name: Restore Android project
+        shell: bash
+        run: |
+          mkdir -p src-tauri/gen
+          tar -xzf android-project.tgz -C src-tauri/gen
 
       - name: Build Android APK
         run: pnpm tauri android build --ci --apk -c src-tauri/tauri.github-release.conf.json --target ${{ matrix.tauri_target }}
+
+      - name: Show sccache stats
+        shell: bash
+        run: sccache --show-stats || true
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -267,6 +349,9 @@ jobs:
     if: ${{ needs.build-frontend.outputs.has_apple == 'true' }}
     needs: build-frontend
     runs-on: macos-latest
+    env:
+      SCCACHE_GHA_ENABLED: "true"
+      RUSTC_WRAPPER: sccache
 
     steps:
       - name: Checkout
@@ -290,6 +375,9 @@ jobs:
       - name: Setup Rust toolchain
         uses: dtolnay/rust-toolchain@stable
 
+      - name: Setup sccache
+        uses: mozilla-actions/sccache-action@v0.0.9
+
       - name: Cache Rust artifacts
         uses: swatinem/rust-cache@v2
         with:
@@ -303,6 +391,10 @@ jobs:
       - name: Build iOS bundle
         run: pnpm tauri ios build --ci -c src-tauri/tauri.github-release.conf.json
 
+      - name: Show sccache stats
+        shell: bash
+        run: sccache --show-stats || true
+
       - name: Upload iOS artifact
         uses: actions/upload-artifact@v4
         with:
@@ -313,8 +405,8 @@ jobs:
 
   release:
     name: Create Release
-    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.build-desktop.result == 'success' && needs.build-android.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
-    needs: [build-desktop, build-android, ios]
+    if: ${{ github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v') && needs.build-desktop.result == 'success' && needs.prepare-android.result == 'success' && needs.build-android.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
+    needs: [build-desktop, prepare-android, build-android, ios]
     runs-on: ubuntu-latest
     permissions:
       contents: write

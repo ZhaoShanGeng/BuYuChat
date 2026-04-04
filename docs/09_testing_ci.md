@@ -71,7 +71,9 @@ node scripts/version.mjs check
 - tag 触发时：
   `Create Release` job 会统一下载各架构产物并上传到 GitHub Release
 - 移动端：
-  `Android` 为每个 ABI 单独执行 `pnpm tauri android init --ci` 与 APK 构建；`iOS` 通过前置检测决定是否进入发布链路
+  `Android` 会先执行一次 `Prepare Android project`，把初始化后的工程作为 artifact 分发给各 ABI job，避免每个 ABI 重复 `pnpm tauri android init --ci`；`iOS` 通过前置检测决定是否进入发布链路
+- 构建缓存：
+  桌面端、Android 与 iOS job 都启用 `sccache` 和 `rust-cache`；Android 额外复用 `Gradle` 缓存
 
 ## 4. 版本控制规则
 
