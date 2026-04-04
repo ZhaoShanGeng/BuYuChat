@@ -70,7 +70,7 @@ node scripts/version.mjs check
 - tag 触发时：
   先校验 `v<version>` 与 manifest 版本一致，再运行完整门禁，然后发布桌面端多平台安装包到 GitHub Release
 - 移动端：
-  已预留 `Android` / `iOS` job；只有仓库已经提交 `src-tauri/gen/android` 或 `src-tauri/gen/apple` 后才会自动启用，避免在未初始化 mobile 工程时阻断发布
+  `Android` job 会在 CI 内自动执行 `pnpm tauri android init --ci` 后构建 APK；`iOS` 仍需 macOS 环境下的 Apple mobile 工程和签名条件，因此继续按 Apple 工程是否存在启用
 
 ## 4. 版本控制规则
 
@@ -95,4 +95,4 @@ pnpm tauri build
 - 覆盖率门槛阻断
 - 已签名的 iOS 安装包发布
 
-说明：桌面端多平台矩阵已经接入；`Android` / `iOS` 还取决于 mobile 工程初始化与签名材料。
+说明：桌面端多平台矩阵已经接入；`Android` 已改为 CI 内自动初始化后构建，`iOS` 仍取决于 Apple 工程初始化与签名材料。

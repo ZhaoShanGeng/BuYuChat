@@ -10,7 +10,7 @@
 | Rust 后端 | ✅ 可用 | 渠道、模型、Agent、会话、消息、生成与 Reroll 已接通 |
 | 测试基线 | ✅ 可用 | `pnpm test`、`cargo test`、`cargo clippy` 已纳入统一脚本 |
 | CI | ✅ 已落地 | GitHub Actions 已覆盖版本校验、前端门禁、Rust 门禁 |
-| 发布 | ✅ 已落地 | 桌面端已支持 `Windows / Linux / macOS` 自动打包与 `v*` tag 发布 |
+| 发布 | ✅ 已落地 | 桌面端已支持 `Windows / Linux / macOS` 自动打包；Android 已接入 CI 内自动初始化与打包 |
 | 版本治理 | ✅ 已落地 | 三处 manifest 版本统一由脚本校验/修改 |
 
 ## 当前已完成的基础设施
@@ -20,7 +20,7 @@
 | `scripts/version.mjs` | ✅ | 统一检查/更新版本号 |
 | `pnpm verify` | ✅ | 本地与 CI 共享一套门禁入口 |
 | `.github/workflows/ci.yml` | ✅ | PR 与 `main` 常规校验 |
-| `.github/workflows/release.yml` | ✅ | 桌面端多平台自动打包；移动端按 mobile 工程是否存在自动启停 |
+| `.github/workflows/release.yml` | ✅ | 桌面端多平台自动打包；Android 在 CI 内自动初始化；iOS 继续按 Apple 工程条件启用 |
 | 仓库清理规则 | ✅ | 移除/忽略生成型配置与本地调试残留 |
 
 ## 仍在推进的功能面
@@ -35,7 +35,7 @@
 
 1. 继续收口前端联调细节，减少“功能能跑但边界不稳”的状态。
 2. 在 CI 已稳定的前提下，补更细的回归用例，而不是继续依赖人工验证。
-3. 在桌面端多平台发布稳定后，再补 mobile 初始化工程和签名材料，接通 Android / iOS 自动打包。
+3. 补 Apple mobile 工程与签名材料，接通 iOS 自动打包与发布。
 
 ## 状态图例
 

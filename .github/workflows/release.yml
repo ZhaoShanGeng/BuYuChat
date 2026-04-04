@@ -197,7 +197,7 @@ jobs:
 
   android-artifacts:
     name: Android Artifact
-    if: github.event_name == 'workflow_dispatch' && hashFiles('src-tauri/gen/android/**') != ''
+    if: github.event_name == 'workflow_dispatch'
     needs: gates
     runs-on: ubuntu-22.04
 
@@ -239,6 +239,9 @@ jobs:
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
 
+      - name: Initialize Android target
+        run: pnpm tauri android init --ci
+
       - name: Build Android artifact
         uses: tauri-apps/tauri-action@v1
         with:
@@ -248,7 +251,7 @@ jobs:
 
   android-release:
     name: Android Release
-    if: github.event_name == 'push' && hashFiles('src-tauri/gen/android/**') != ''
+    if: github.event_name == 'push'
     needs: gates
     runs-on: ubuntu-22.04
     permissions:
@@ -291,6 +294,9 @@ jobs:
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
+
+      - name: Initialize Android target
+        run: pnpm tauri android init --ci
 
       - name: Publish Android release asset
         uses: tauri-apps/tauri-action@v1
