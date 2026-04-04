@@ -5,11 +5,18 @@
   import GlobeIcon from "@lucide/svelte/icons/globe";
   import ImageIcon from "@lucide/svelte/icons/image";
   import PaperclipIcon from "@lucide/svelte/icons/paperclip";
+  import FileTextIcon from "@lucide/svelte/icons/file-text";
   import SquareIcon from "@lucide/svelte/icons/square";
   import WrenchIcon from "@lucide/svelte/icons/wrench";
   import XIcon from "@lucide/svelte/icons/x";
+  import {
+    mergeComposerFiles,
+    mergeComposerImages,
+    pickComposerAttachments,
+    readComposerAttachmentsFromFiles
+  } from "../lib/composer-attachments";
   import type { Conversation } from "../lib/transport/conversations";
-  import type { PendingComposerImage } from "./workspace-shell.svelte.js";
+  import type { PendingComposerFile, PendingComposerImage } from "./workspace-shell.svelte.js";
 
   const MIN_HEIGHT = 52;
   const MAX_HEIGHT = 280;
@@ -19,10 +26,12 @@
     sending: boolean;
     composer: string;
     pendingImages: PendingComposerImage[];
+    pendingFiles: PendingComposerFile[];
     generatingVersionId: string | null;
     enabledTools: string[];
     onComposerChange: (value: string) => void;
     onPendingImagesChange: (images: PendingComposerImage[]) => void;
+    onPendingFilesChange: (files: PendingComposerFile[]) => void;
     onEnabledToolsChange: (tools: string[]) => void;
     onDryRun: () => void | Promise<void>;
     onSend: () => void | Promise<void>;
@@ -34,10 +43,12 @@
     sending,
     composer,
     pendingImages,
+    pendingFiles,
     generatingVersionId,
     enabledTools,
     onComposerChange,
     onPendingImagesChange,
+    onPendingFilesChange,
     onEnabledToolsChange,
     onSend,
     onCancel
@@ -48,7 +59,9 @@
   let fileInput = $state<HTMLInputElement | null>(null);
   let toolPopoverOpen = $state(false);
   let canSend = $derived(
-    !!conversation && !sending && (composer.trim().length > 0 || pendingImages.length > 0)
+    !!conversation &&
+      !sending &&
+      (composer.trim().length > 0 || pendingImages.length > 0 || pendingFiles.length > 0)
   );
   let isGenerating = $derived(!!generatingVersionId);
   let fetchEnabled = $derived(enabledTools.includes("fetch"));
@@ -78,50 +91,14 @@
     }
   }
 
-  function readFileAsBase64(file: File): Promise<PendingComposerImage | null> {
-    if (!file.type.startsWith("image/")) {
-      return Promise.resolve(null);
-    }
-
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      reader.onerror = () => reject(reader.error);
-      reader.onload = () => {
-        const result = typeof reader.result === "string" ? reader.result : "";
-        const base64 = result.split(",")[1];
-        if (!base64) {
-          resolve(null);
-          return;
-        }
-
-        resolve({
-          name: file.name || "image",
-          base64,
-          mimeType: file.type || "image/png"
-        });
-      };
-      reader.readAsDataURL(file);
-    });
-  }
-
   async function appendFiles(files: File[]) {
-    const nextImages = (await Promise.all(files.map(readFileAsBase64))).filter(
-      (image): image is PendingComposerImage => image !== null
-    );
-    if (nextImages.length === 0) {
+    const selection = await readComposerAttachmentsFromFiles(files);
+    if (selection.images.length === 0 && selection.files.length === 0) {
       return;
     }
 
-    onPendingImagesChange([
-      ...pendingImages,
-      ...nextImages.filter(
-        (nextImage) =>
-          !pendingImages.some(
-            (existing) =>
-              existing.base64 === nextImage.base64 && existing.mimeType === nextImage.mimeType
-          )
-      )
-    ]);
+    onPendingImagesChange(mergeComposerImages(pendingImages, selection.images));
+    onPendingFilesChange(mergeComposerFiles(pendingFiles, selection.files));
   }
 
   async function handleFileSelection(event: Event) {
@@ -132,9 +109,7 @@
   }
 
   async function handlePaste(event: ClipboardEvent) {
-    const files = Array.from(event.clipboardData?.files ?? []).filter((file) =>
-      file.type.startsWith("image/")
-    );
+    const files = Array.from(event.clipboardData?.files ?? []);
     if (files.length === 0) {
       return;
     }
@@ -143,12 +118,31 @@
     await appendFiles(files);
   }
 
-  function openFilePicker() {
+  async function openFilePicker() {
+    if (!conversation || sending) {
+      return;
+    }
+
+    try {
+      const selection = await pickComposerAttachments();
+      if (selection.images.length > 0 || selection.files.length > 0) {
+        onPendingImagesChange(mergeComposerImages(pendingImages, selection.images));
+        onPendingFilesChange(mergeComposerFiles(pendingFiles, selection.files));
+        return;
+      }
+    } catch {
+      // Fallback to the hidden input when the platform dialog is unavailable.
+    }
+
     fileInput?.click();
   }
 
   function removePendingImage(index: number) {
     onPendingImagesChange(pendingImages.filter((_, currentIndex) => currentIndex !== index));
+  }
+
+  function removePendingFile(index: number) {
+    onPendingFilesChange(pendingFiles.filter((_, currentIndex) => currentIndex !== index));
   }
 
   function toggleFetchTool() {
@@ -164,14 +158,13 @@
   <div class="flex flex-col rounded-[var(--buyu-radius-bubble)] border border-border bg-background/95 shadow-sm transition-all focus-within:shadow-md focus-within:border-primary/50">
     <input
       bind:this={fileInput}
-      accept="image/png,image/jpeg,image/jpg,image/gif,image/webp"
       class="hidden"
       multiple
       onchange={handleFileSelection}
       type="file"
     />
 
-    {#if pendingImages.length > 0}
+    {#if pendingImages.length > 0 || pendingFiles.length > 0}
       <div class="flex gap-2 overflow-x-auto px-4 pb-1 pt-3">
         {#each pendingImages as image, index (image.base64)}
           <div class="group relative shrink-0">
@@ -191,6 +184,24 @@
               <ImageIcon class="size-3" />
               <span class="max-w-16 truncate">{image.name}</span>
             </div>
+          </div>
+        {/each}
+        {#each pendingFiles as file, index (`${file.name}-${file.base64.slice(0, 16)}`)}
+          <div class="group relative flex min-w-0 max-w-44 shrink-0 items-start gap-2 rounded-xl border bg-muted/30 px-3 py-2">
+            <div class="mt-0.5 flex size-8 shrink-0 items-center justify-center rounded-lg bg-background">
+              <FileTextIcon class="size-4 text-muted-foreground" />
+            </div>
+            <div class="min-w-0 flex-1">
+              <div class="truncate text-xs font-medium text-foreground">{file.name}</div>
+              <div class="truncate text-[11px] text-muted-foreground">{file.mimeType}</div>
+            </div>
+            <button
+              class="absolute -right-1.5 -top-1.5 flex size-5 items-center justify-center rounded-full border bg-background text-muted-foreground shadow-sm transition-colors hover:text-foreground"
+              onclick={() => removePendingFile(index)}
+              type="button"
+            >
+              <XIcon class="size-3" />
+            </button>
           </div>
         {/each}
       </div>
@@ -216,10 +227,10 @@
         <Button
           class="size-7 rounded-lg"
           disabled={!conversation || sending}
-          onclick={openFilePicker}
+          onclick={() => void openFilePicker()}
           size="icon"
           variant="ghost"
-          title="上传图片"
+          title="上传附件"
         >
           <PaperclipIcon class="size-4 text-muted-foreground" />
         </Button>

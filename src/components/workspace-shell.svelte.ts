@@ -58,6 +58,7 @@ import {
   type SendMessageResponse,
   type VersionContent
 } from "../lib/transport/messages";
+import type { FileAttachment } from "../lib/transport/message-types";
 import { toAppError } from "../lib/transport/common";
 import {
   humanizeWorkspaceError,
@@ -110,6 +111,8 @@ export type MessageHistoryState = {
 export type PendingComposerImage = ImageAttachment & {
   name: string;
 };
+
+export type PendingComposerFile = FileAttachment;
 
 /**
  * 工作台依赖的 transport 能力集合。
@@ -249,6 +252,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     notice: null as Notice | null,
     composer: "",
     pendingImages: [] as PendingComposerImage[],
+    pendingFiles: [] as PendingComposerFile[],
     sending: false,
     dryRunSummary: null as string | null,
     renamingConversationId: null as string | null,
@@ -471,7 +475,8 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     conversationId: string,
     response: Extract<SendMessageResponse, { kind: "started" }>,
     content: string,
-    images: PendingComposerImage[]
+    images: PendingComposerImage[],
+    files: PendingComposerFile[]
   ) {
     const currentNodes = state.messagesByConversation[conversationId] ?? [];
     if (
@@ -499,6 +504,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
             content,
             thinkingContent: null,
             images: images.map(({ name: _, ...image }) => image),
+            files,
             status: "committed",
             errorCode: null,
             errorMessage: null,
@@ -1039,6 +1045,10 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     state.pendingImages = images;
   }
 
+  function setPendingFiles(files: PendingComposerFile[]) {
+    state.pendingFiles = files;
+  }
+
   /**
    * 创建一个新的空会话并自动切换过去。
    */
@@ -1142,7 +1152,11 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   async function handleSendMessage() {
     if (
       !state.activeConversationId ||
-      (state.composer.trim().length === 0 && state.pendingImages.length === 0)
+      (
+        state.composer.trim().length === 0 &&
+        state.pendingImages.length === 0 &&
+        state.pendingFiles.length === 0
+      )
     ) {
       return;
     }
@@ -1151,16 +1165,19 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     state.dryRunSummary = null;
     const content = state.composer;
     const images = state.pendingImages.slice();
+    const files = state.pendingFiles.slice();
 
     try {
       state.composer = "";
       state.pendingImages = [];
+      state.pendingFiles = [];
       const response = await runWithChannelBindingRecovery(() =>
         deps.sendMessage(
           state.activeConversationId!,
           {
             content,
             images: images.map(({ name: _, ...image }) => image),
+            ...(files.length > 0 ? { files } : {}),
             stream: true,
             dryRun: false
           },
@@ -1171,7 +1188,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
       if (response.kind === "dryRun") {
         state.dryRunSummary = `模型 ${response.model}，估算 tokens ${response.totalTokensEstimate}`;
       } else {
-        insertStartedMessageNodes(state.activeConversationId, response, content, images);
+        insertStartedMessageNodes(state.activeConversationId, response, content, images, files);
         setNotice({ kind: "info", text: "消息已发送，正在生成回复" });
       }
     } catch (error) {
@@ -1180,6 +1197,9 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
       }
       if (state.pendingImages.length === 0) {
         state.pendingImages = images;
+      }
+      if (state.pendingFiles.length === 0) {
+        state.pendingFiles = files;
       }
       setErrorNotice(error);
     } finally {
@@ -1193,7 +1213,11 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
   async function handleDryRun() {
     if (
       !state.activeConversationId ||
-      (state.composer.trim().length === 0 && state.pendingImages.length === 0)
+      (
+        state.composer.trim().length === 0 &&
+        state.pendingImages.length === 0 &&
+        state.pendingFiles.length === 0
+      )
     ) {
       return;
     }
@@ -1203,6 +1227,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
         deps.sendMessage(state.activeConversationId!, {
           content: state.composer,
           images: state.pendingImages.map(({ name: _, ...image }) => image),
+          ...(state.pendingFiles.length > 0 ? { files: state.pendingFiles } : {}),
           stream: false,
           dryRun: true
         })
@@ -1961,6 +1986,7 @@ export function createWorkspaceShellState(overrides: Partial<WorkspaceShellDeps>
     handleDeleteConversation,
     setComposer,
     setPendingImages,
+    setPendingFiles,
     handleSendMessage,
     handleDryRun,
     handleCancelGeneration,

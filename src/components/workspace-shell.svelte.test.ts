@@ -223,6 +223,44 @@ describe("workspace shell runes state", () => {
     workspace.destroy();
   });
 
+  it("includes pending files in dry run payloads", async () => {
+    const deps = createWorkspaceDeps();
+    deps.sendMessage.mockResolvedValue({
+      kind: "dryRun",
+      messages: [{ role: "system", content: "你是助手" }],
+      totalTokensEstimate: 18,
+      model: "gpt-4o-mini"
+    });
+
+    const workspace = createWorkspaceShellState(deps);
+    await settleState();
+    workspace.setComposer("带文件试试");
+    workspace.setPendingFiles([
+      {
+        name: "notes.txt",
+        base64: "SGVsbG8=",
+        mimeType: "text/plain"
+      }
+    ]);
+
+    await workspace.handleDryRun();
+
+    expect(deps.sendMessage).toHaveBeenCalledWith("conv-1", {
+      content: "带文件试试",
+      images: [],
+      files: [
+        {
+          name: "notes.txt",
+          base64: "SGVsbG8=",
+          mimeType: "text/plain"
+        }
+      ],
+      stream: false,
+      dryRun: true
+    });
+    workspace.destroy();
+  });
+
   it("applies streaming chunks immediately to the current version", async () => {
     const deps = createWorkspaceDeps();
     const workspace = createWorkspaceShellState(deps);
@@ -586,6 +624,47 @@ describe("workspace shell runes state", () => {
     expect(workspace.activeMessages.at(-1)?.id).toBe("node-assistant-2");
     expect(workspace.activeMessages.at(-1)?.versions[0]?.status).toBe("generating");
 
+    workspace.destroy();
+  });
+
+  it("keeps pending files on the optimistic user message after send starts", async () => {
+    const deps = createWorkspaceDeps();
+    deps.sendMessage.mockResolvedValue({
+      kind: "started",
+      userNodeId: "node-user-3",
+      userVersionId: "ver-user-3",
+      assistantNodeId: "node-assistant-3",
+      assistantVersionId: "ver-assistant-3"
+    });
+
+    const workspace = createWorkspaceShellState(deps);
+    await settleState();
+    workspace.setComposer("带附件发送");
+    workspace.setPendingFiles([
+      {
+        name: "report.txt",
+        base64: "UkVQT1JU",
+        mimeType: "text/plain"
+      }
+    ]);
+
+    await workspace.handleSendMessage();
+
+    expect(deps.sendMessage).toHaveBeenCalledWith(
+      "conv-1",
+      expect.objectContaining({
+        content: "带附件发送",
+        files: [
+          {
+            name: "report.txt",
+            base64: "UkVQT1JU",
+            mimeType: "text/plain"
+          }
+        ]
+      }),
+      expect.any(Function)
+    );
+    expect(workspace.activeMessages.at(-2)?.versions[0]?.files?.[0]?.name).toBe("report.txt");
     workspace.destroy();
   });
 

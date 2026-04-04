@@ -10,6 +10,7 @@
   import { parseThinkingTagsConfig } from "../lib/thinking-tags";
   import type {
     MessageHistoryState,
+    PendingComposerFile,
     PendingComposerImage
   } from "./workspace-shell.svelte.js";
   import type { Notice } from "./workspace-state";
@@ -29,6 +30,7 @@
     sending: boolean;
     composer: string;
     pendingImages: PendingComposerImage[];
+    pendingFiles: PendingComposerFile[];
     notice: Notice | null;
     dryRunSummary: string | null;
     agentName: string;
@@ -36,6 +38,7 @@
     modelName: string;
     onComposerChange: (value: string) => void;
     onPendingImagesChange: (images: PendingComposerImage[]) => void;
+    onPendingFilesChange: (files: PendingComposerFile[]) => void;
     onSend: () => void | Promise<void>;
     onDryRun: () => void | Promise<void>;
     onCancel: (versionId: string) => void | Promise<void>;
@@ -124,9 +127,11 @@
     onComposerChange={props.onComposerChange}
     onEnabledToolsChange={props.onEnabledToolsChange}
     onPendingImagesChange={props.onPendingImagesChange}
+    onPendingFilesChange={props.onPendingFilesChange}
     onDryRun={props.onDryRun}
     onSend={props.onSend}
     pendingImages={props.pendingImages}
+    pendingFiles={props.pendingFiles}
     sending={props.sending}
   />
 </section>

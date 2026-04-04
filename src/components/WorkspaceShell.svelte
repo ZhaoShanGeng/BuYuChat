@@ -314,6 +314,7 @@
         }
         onLoadVersionContent={ws.ensureMessageVersionContent}
         onMenuToggle={openDrawer}
+        onPendingFilesChange={ws.setPendingFiles}
         onPendingImagesChange={ws.setPendingImages}
         onQuickAgentChange={ws.handleQuickAgentChange}
         onQuickChannelChange={ws.handleQuickChannelChange}
@@ -324,6 +325,7 @@
         onSend={ws.handleSendMessage}
         onSwitchVersion={ws.handleSwitchVersion}
         pendingImages={ws.state.pendingImages}
+        pendingFiles={ws.state.pendingFiles}
         sending={ws.state.sending}
       />
     </div>
