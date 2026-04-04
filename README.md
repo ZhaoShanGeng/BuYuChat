@@ -37,6 +37,9 @@ pnpm verify
 # 本地打包 Windows 安装包
 pnpm tauri build
 
+# 初始化 Android 工程后同步移动端网络配置（支持 http / https 渠道）
+pnpm mobile:sync-network
+
 # 统一修改三个版本号文件
 pnpm version:set -- 0.2.0
 ```
@@ -54,6 +57,8 @@ GitHub Actions 已落地两条主流程：
 移动端说明：
 
 - `Android` job 现在会在 GitHub Actions 里自动执行 `pnpm tauri android init --ci` 后再打包 APK
+- Android 初始化后会自动补 `INTERNET`、`usesCleartextTraffic` 和 `network_security_config`，用于同时支持 `http` 与 `https` 渠道
+- `src-tauri/Info.ios.plist` 已加入 `NSAppTransportSecurity` 配置，iOS 构建时会合并进去，用于放开 `http` 渠道访问
 - `iOS` 通过工作流里的检测 job 判断仓库是否已提交 `src-tauri/gen/apple`；只有存在 Apple mobile 工程时才启用，因为该链路必须在 macOS 上运行，并且正式分发还依赖 Apple 签名材料
 - `Android` 发布签名依赖 4 个 GitHub Secrets：`ANDROID_KEYSTORE_BASE64`、`ANDROID_KEYSTORE_PASSWORD`、`ANDROID_KEY_ALIAS`、`ANDROID_KEY_PASSWORD`
 

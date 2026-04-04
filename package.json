@@ -10,6 +10,7 @@
     "build": "pnpm check && vite build",
     "build:web": "pnpm build",
     "build:desktop": "pnpm tauri build",
+    "mobile:sync-network": "node scripts/sync-mobile-network.mjs",
     "preview": "vite preview",
     "test": "vitest run",
     "test:rust": "cargo test --manifest-path src-tauri/Cargo.toml --locked -j 1",

@@ -74,6 +74,8 @@ node scripts/version.mjs check
   `Create Release` job 会统一下载各架构产物并上传到 GitHub Release
 - 移动端：
   `Android` 会先执行一次 `Prepare Android project`，把初始化后的工程作为 artifact 分发给各 ABI job，避免每个 ABI 重复 `pnpm tauri android init --ci`；`iOS` 通过前置检测决定是否进入发布链路
+- 移动端网络：
+  Android 初始化与恢复工程后都会执行 `pnpm mobile:sync-network`，自动补 `INTERNET`、`usesCleartextTraffic` 和 `network_security_config`；iOS 通过 `src-tauri/Info.ios.plist` 合并 `NSAppTransportSecurity`，以支持 `http / https` 渠道
 - 构建缓存：
   桌面端、Android 与 iOS job 都启用 `sccache` 和 `rust-cache`；Android 额外复用 `Gradle` 缓存
 - Android 签名：

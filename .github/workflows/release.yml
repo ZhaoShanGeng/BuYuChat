@@ -345,6 +345,9 @@ jobs:
       - name: Initialize Android target
         run: pnpm tauri android init --ci
 
+      - name: Sync mobile network configuration
+        run: pnpm mobile:sync-network
+
       - name: Pack Android project
         shell: bash
         run: tar -czf android-project.tgz -C src-tauri/gen android
@@ -441,6 +444,9 @@ jobs:
         run: |
           mkdir -p src-tauri/gen
           tar -xzf android-project.tgz -C src-tauri/gen
+
+      - name: Sync mobile network configuration
+        run: pnpm mobile:sync-network
 
       - name: Restore Gradle cache
         uses: actions/setup-java@v4
