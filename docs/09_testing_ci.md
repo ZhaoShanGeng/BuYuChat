@@ -60,18 +60,23 @@ node scripts/version.mjs check
 触发：
 
 - `workflow_dispatch`
+- push 到 `main`
 - push `v*` tag
 
 职责：
 
 - 手动触发时可以通过输入项勾选 `Windows / Linux / macOS / Android / iOS`，并提供自定义 `release_tag`；若留空则默认取 `package.json` 当前版本生成 `v<version>`
+- push 到 `main` 时：
+  会自动全平台全架构构建，并把最新产物发布到滚动预发布 `edge-main`
 - 当 `publish_release=true` 时，工作流会自动创建或更新对应的 GitHub Release
 - 先执行 `Build Frontend`，同时完成 tag 版本校验、前端检查、测试和 `dist` 产物上传
 - 手动触发时：
   进入按平台和架构展开的独立 job，并行构建：
   `windows-x64`、`windows-arm64`、`linux-x64`、`linux-arm64`、`macos-x64`、`macos-arm64`、`android-arm64`、`android-armv7`、`android-x86_64`、`android-x86`；`iOS` 仅在 Apple mobile 工程存在时启用
+- `main` 触发时：
+  `Create Release` job 会先把 `edge-main` tag 强制移动到当前提交，再统一上传最新产物，保持首页 Releases 始终有一份滚动预发布包
 - tag 触发时：
-  `Create Release` job 会统一下载各架构产物并上传到 GitHub Release
+  `Create Release` job 会统一下载各架构产物并上传到正式 GitHub Release
 - 移动端：
   `Android` 会先执行一次 `Prepare Android project`，把初始化后的工程作为 artifact 分发给各 ABI job，避免每个 ABI 重复 `pnpm tauri android init --ci`；`iOS` 通过前置检测决定是否进入发布链路
 - 移动端网络：

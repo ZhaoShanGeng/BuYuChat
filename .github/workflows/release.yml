@@ -38,6 +38,8 @@ on:
         default: false
         type: boolean
   push:
+    branches:
+      - main
     tags:
       - "v*"
 
@@ -59,6 +61,8 @@ jobs:
       has_apple: ${{ steps.plan.outputs.has_apple }}
       publish_release: ${{ steps.plan.outputs.publish_release }}
       release_tag: ${{ steps.plan.outputs.release_tag }}
+      verify_version_tag: ${{ steps.plan.outputs.verify_version_tag }}
+      force_move_tag: ${{ steps.plan.outputs.force_move_tag }}
 
     steps:
       - name: Checkout
@@ -70,6 +74,8 @@ jobs:
         env:
           EVENT_NAME: ${{ github.event_name }}
           REF_NAME: ${{ github.ref_name }}
+          REF_TYPE: ${{ github.ref_type }}
+          SHA: ${{ github.sha }}
           INPUT_RELEASE_TAG: ${{ inputs.release_tag }}
           INPUT_PUBLISH_RELEASE: ${{ inputs.publish_release }}
           INPUT_BUILD_WINDOWS: ${{ inputs.build_windows }}
@@ -92,9 +98,22 @@ jobs:
             has_apple=false
           fi
 
-          if [ "$EVENT_NAME" = "push" ]; then
+          verify_version_tag=false
+          force_move_tag=false
+
+          if [ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "tag" ]; then
             release_tag="$REF_NAME"
             publish_release=true
+            verify_version_tag=true
+            build_windows=true
+            build_linux=true
+            build_macos=true
+            build_android=true
+            build_ios="$has_apple"
+          elif [ "$EVENT_NAME" = "push" ] && [ "$REF_TYPE" = "branch" ]; then
+            release_tag="edge-main"
+            publish_release=true
+            force_move_tag=true
             build_windows=true
             build_linux=true
             build_macos=true
@@ -108,6 +127,10 @@ jobs:
             build_macos="${INPUT_BUILD_MACOS:-false}"
             build_android="${INPUT_BUILD_ANDROID:-false}"
             build_ios="${INPUT_BUILD_IOS:-false}"
+
+            if [[ "$release_tag" =~ ^v[0-9]+\.[0-9]+\.[0-9]+([-.][0-9A-Za-z.-]+)?$ ]]; then
+              verify_version_tag=true
+            fi
           fi
 
           if [ "$publish_release" = "true" ] && [ -z "$release_tag" ]; then
@@ -172,6 +195,8 @@ jobs:
 
           printf 'release_tag=%s\n' "$release_tag" >> "$GITHUB_OUTPUT"
           printf 'publish_release=%s\n' "$publish_release" >> "$GITHUB_OUTPUT"
+          printf 'verify_version_tag=%s\n' "$verify_version_tag" >> "$GITHUB_OUTPUT"
+          printf 'force_move_tag=%s\n' "$force_move_tag" >> "$GITHUB_OUTPUT"
           printf 'has_apple=%s\n' "$has_apple" >> "$GITHUB_OUTPUT"
           printf 'build_android=%s\n' "$build_android" >> "$GITHUB_OUTPUT"
           printf 'build_ios=%s\n' "$build_ios" >> "$GITHUB_OUTPUT"
@@ -200,7 +225,7 @@ jobs:
           cache: pnpm
 
       - name: Verify tag and manifest version
-        if: ${{ needs.plan.outputs.publish_release == 'true' }}
+        if: ${{ needs.plan.outputs.verify_version_tag == 'true' }}
         run: node scripts/version.mjs check --tag "${{ needs.plan.outputs.release_tag }}"
 
       - name: Install dependencies
@@ -577,6 +602,21 @@ jobs:
       contents: write
 
     steps:
+      - name: Checkout
+        if: ${{ needs.plan.outputs.force_move_tag == 'true' }}
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Move rolling prerelease tag
+        if: ${{ needs.plan.outputs.force_move_tag == 'true' }}
+        shell: bash
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -fa "${{ needs.plan.outputs.release_tag }}" -m "Rolling prerelease for main" "${{ github.sha }}"
+          git push origin "refs/tags/${{ needs.plan.outputs.release_tag }}" --force
+
       - name: Download all artifacts
         uses: actions/download-artifact@v4
         with:

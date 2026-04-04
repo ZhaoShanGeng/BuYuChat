@@ -52,7 +52,8 @@ GitHub Actions 已落地两条主流程：
 
 `Release` 工作流支持两种入口：
 
-- 推送 `v*` tag：自动全平台全架构构建并发布到 GitHub Releases
+- 推送到 `main`：自动全平台全架构构建，并把最新产物发布到滚动预发布 `edge-main`
+- 推送 `v*` tag：自动全平台全架构构建并发布到正式 GitHub Releases
 - 手动 `workflow_dispatch`：可以勾选 `Windows / Linux / macOS / Android / iOS`，自定义 `release_tag`，并选择是否直接发布到 GitHub Releases；如果不填写 `release_tag`，默认使用当前 `package.json` 版本生成的 `v<version>`
 
 移动端说明：
@@ -67,7 +68,8 @@ GitHub Actions 已落地两条主流程：
 
 1. 先执行 `pnpm version:set -- <version>`。
 2. 提交版本变更并打 tag：`git tag v<version>`。
-3. 推送 tag 后由 `Release` 工作流生成 GitHub Release，并自动附带 `Windows / Linux / macOS` 安装包。
+3. 日常推送到 `main` 会自动更新滚动预发布 `edge-main`。
+4. 推送正式 tag 后由 `Release` 工作流生成 GitHub Release，并自动附带 `Windows / Linux / macOS` 安装包。
 
 ## 许可证
 
