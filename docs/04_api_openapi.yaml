@@ -1,32 +1,22 @@
 openapi: "3.0.3"
 info:
-  title: BuYu Internal API
-  version: "0.2.0"
+  title: BuYu Internal IPC API
+  version: "0.3.0"
   description: |
-    BuYu 桌面客户端内部接口。底层为 Tauri IPC 命令。
-    前端 Transport 层将 REST 路径映射为 invoke() 调用。
-    无鉴权（本地单用户桌面应用）。
+    BuYu 桌面客户端内部接口。
+    实际调用方式为 Tauri IPC `invoke()` + `Channel<GenerationEvent>`，本文使用 REST 风格路径表达语义。
+    当前文档描述的是现在代码真实使用的字段。
 
 tags:
   - name: channels
-    description: 渠道管理（AI 服务商接入配置）
   - name: models
-    description: 模型管理（渠道下的模型列表）
   - name: agents
-    description: Agent 管理（含系统提示词）
   - name: conversations
-    description: 会话管理
   - name: messages
-    description: 消息查询与版本管理
   - name: generation
-    description: AI 生成控制（发送、Reroll、取消）
+  - name: tools
 
 paths:
-
-  # ═══════════════════════════════════════════════
-  # 渠道管理
-  # ═══════════════════════════════════════════════
-
   /channels:
     get:
       operationId: list_channels
@@ -35,20 +25,16 @@ paths:
       parameters:
         - name: include_disabled
           in: query
-          schema:
-            type: boolean
-            default: true
-          description: 是否包含禁用渠道
+          required: false
+          schema: { type: boolean, default: true }
       responses:
         "200":
-          description: 渠道列表（按 created_at 降序）
+          description: 渠道列表
           content:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/Channel"
-
+                items: { $ref: "#/components/schemas/Channel" }
     post:
       operationId: create_channel
       tags: [channels]
@@ -57,22 +43,17 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/CreateChannelInput"
+            schema: { $ref: "#/components/schemas/CreateChannelInput" }
       responses:
         "201":
           description: 创建成功
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/Channel"
-        "400":
-          $ref: "#/components/responses/BadRequest"
+              schema: { $ref: "#/components/schemas/Channel" }
 
   /channels/{id}:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
-
     get:
       operationId: get_channel
       tags: [channels]
@@ -82,45 +63,29 @@ paths:
           description: 渠道详情
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/Channel"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
+              schema: { $ref: "#/components/schemas/Channel" }
+        "404": { $ref: "#/components/responses/ApiErrorResponse" }
     patch:
       operationId: update_channel
       tags: [channels]
-      summary: 部分更新渠道（只发送需要修改的字段）
+      summary: 更新渠道
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateChannelInput"
+            schema: { $ref: "#/components/schemas/UpdateChannelInput" }
       responses:
         "200":
           description: 更新后的渠道
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/Channel"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
+              schema: { $ref: "#/components/schemas/Channel" }
     delete:
       operationId: delete_channel
       tags: [channels]
       summary: 删除渠道
-      description: |
-        级联删除渠道下所有模型。
-        引用该渠道的 conversations.channel_id 和 channel_model_id 置为 NULL。
       responses:
-        "204":
-          description: 删除成功
-        "404":
-          $ref: "#/components/responses/NotFound"
+        "204": { description: 删除成功 }
 
   /channels/{id}/test:
     parameters:
@@ -129,35 +94,22 @@ paths:
       operationId: test_channel
       tags: [channels]
       summary: 测试渠道连通性
-      description: 向渠道的 models_endpoint 发送请求，验证 API Key 和网络是否正常
       responses:
         "200":
-          description: 连通性测试结果
+          description: 测试结果
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/ChannelTestResult"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "502":
-          $ref: "#/components/responses/ChannelUnreachable"
+              schema: { $ref: "#/components/schemas/ChannelTestResult" }
+        "404": { $ref: "#/components/responses/ApiErrorResponse" }
+        "502": { $ref: "#/components/responses/ApiErrorResponse" }
 
-  # ═══════════════════════════════════════════════
-  # 模型管理
-  # ═══════════════════════════════════════════════
-
-  /channels/{channelId}/models:
+  /channels/{channel_id}/models:
     parameters:
-      - name: channelId
-        in: path
-        required: true
-        schema:
-          type: string
-
+      - $ref: "#/components/parameters/ChannelId"
     get:
       operationId: list_models
       tags: [models]
-      summary: 获取渠道下的模型列表
+      summary: 获取某个渠道下的模型列表
       responses:
         "200":
           description: 模型列表
@@ -165,85 +117,57 @@ paths:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/ChannelModel"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
+                items: { $ref: "#/components/schemas/ChannelModel" }
     post:
       operationId: create_model
       tags: [models]
-      summary: 在渠道下添加模型
+      summary: 创建模型
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/CreateModelInput"
+            schema: { $ref: "#/components/schemas/CreateModelInput" }
       responses:
         "201":
           description: 创建成功
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/ChannelModel"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "409":
-          $ref: "#/components/responses/Conflict"
+              schema: { $ref: "#/components/schemas/ChannelModel" }
+        "409": { $ref: "#/components/responses/ApiErrorResponse" }
 
-  /channels/{channelId}/models/{id}:
+  /channels/{channel_id}/models/{id}:
     parameters:
-      - name: channelId
-        in: path
-        required: true
-        schema:
-          type: string
+      - $ref: "#/components/parameters/ChannelId"
       - $ref: "#/components/parameters/ResourceId"
-
     patch:
       operationId: update_model
       tags: [models]
-      summary: 更新模型信息
+      summary: 更新模型
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateModelInput"
+            schema: { $ref: "#/components/schemas/UpdateModelInput" }
       responses:
         "200":
           description: 更新后的模型
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/ChannelModel"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
+              schema: { $ref: "#/components/schemas/ChannelModel" }
     delete:
       operationId: delete_model
       tags: [models]
-      summary: 删除模型（引用该模型的会话 channel_model_id 置 NULL）
+      summary: 删除模型
       responses:
-        "204":
-          description: 删除成功
-        "404":
-          $ref: "#/components/responses/NotFound"
+        "204": { description: 删除成功 }
 
-  /channels/{channelId}/models/fetch:
+  /channels/{channel_id}/models/fetch:
     parameters:
-      - name: channelId
-        in: path
-        required: true
-        schema:
-          type: string
+      - $ref: "#/components/parameters/ChannelId"
     post:
       operationId: fetch_remote_models
       tags: [models]
-      summary: 从渠道 API 拉取可用模型列表（不写库）
+      summary: 从远程渠道拉取模型列表
       responses:
         "200":
           description: 远程模型列表
@@ -251,22 +175,8 @@ paths:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/RemoteModelInfo"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "502":
-          description: 远程渠道访问失败（`error_code` 可能为 `CHANNEL_UNREACHABLE` 或 `AI_REQUEST_FAILED`）
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-
-  # ═══════════════════════════════════════════════
-  # Agent 管理
-  # ═══════════════════════════════════════════════
+                items: { $ref: "#/components/schemas/RemoteModelInfo" }
+        "502": { $ref: "#/components/responses/ApiErrorResponse" }
 
   /agents:
     get:
@@ -276,19 +186,16 @@ paths:
       parameters:
         - name: include_disabled
           in: query
-          schema:
-            type: boolean
-            default: true
+          required: false
+          schema: { type: boolean, default: true }
       responses:
         "200":
-          description: Agent 列表（按 created_at 降序）
+          description: Agent 列表
           content:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/Agent"
-
+                items: { $ref: "#/components/schemas/Agent" }
     post:
       operationId: create_agent
       tags: [agents]
@@ -297,22 +204,17 @@ paths:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/CreateAgentInput"
+            schema: { $ref: "#/components/schemas/CreateAgentInput" }
       responses:
         "201":
           description: 创建成功
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/Agent"
-        "400":
-          $ref: "#/components/responses/BadRequest"
+              schema: { $ref: "#/components/schemas/Agent" }
 
   /agents/{id}:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
-
     get:
       operationId: get_agent
       tags: [agents]
@@ -322,46 +224,28 @@ paths:
           description: Agent 详情
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/Agent"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
+              schema: { $ref: "#/components/schemas/Agent" }
     patch:
       operationId: update_agent
       tags: [agents]
-      summary: 部分更新 Agent
+      summary: 更新 Agent
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateAgentInput"
+            schema: { $ref: "#/components/schemas/UpdateAgentInput" }
       responses:
         "200":
           description: 更新后的 Agent
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/Agent"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
+              schema: { $ref: "#/components/schemas/Agent" }
     delete:
       operationId: delete_agent
       tags: [agents]
-      summary: 删除 Agent（引用该 Agent 的会话 agent_id 置 NULL）
+      summary: 删除 Agent
       responses:
-        "204":
-          description: 删除成功
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  # ═══════════════════════════════════════════════
-  # 会话管理
-  # ═══════════════════════════════════════════════
+        "204": { description: 删除成功 }
 
   /conversations:
     get:
@@ -371,20 +255,16 @@ paths:
       parameters:
         - name: archived
           in: query
-          schema:
-            type: boolean
-            default: false
-          description: true=归档列表，false=活跃列表
+          required: false
+          schema: { type: boolean, default: false }
       responses:
         "200":
-          description: 会话列表（置顶优先，再按 updated_at 降序）
+          description: 会话列表
           content:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/ConversationSummary"
-
+                items: { $ref: "#/components/schemas/ConversationSummary" }
     post:
       operationId: create_conversation
       tags: [conversations]
@@ -393,117 +273,100 @@ paths:
         required: false
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/CreateConversationInput"
+            schema: { $ref: "#/components/schemas/CreateConversationInput" }
       responses:
         "201":
           description: 创建成功
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/Conversation"
+              schema: { $ref: "#/components/schemas/Conversation" }
 
   /conversations/{id}:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
-
     get:
       operationId: get_conversation
       tags: [conversations]
-      summary: 获取会话详情（含绑定配置）
+      summary: 获取会话详情
       responses:
         "200":
           description: 会话详情
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/Conversation"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
+              schema: { $ref: "#/components/schemas/Conversation" }
     patch:
       operationId: update_conversation
       tags: [conversations]
-      summary: 部分更新会话（标题/绑定/归档/置顶）
+      summary: 更新会话
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/UpdateConversationInput"
+            schema: { $ref: "#/components/schemas/UpdateConversationInput" }
       responses:
         "200":
           description: 更新后的会话
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/Conversation"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
+              schema: { $ref: "#/components/schemas/Conversation" }
     delete:
       operationId: delete_conversation
       tags: [conversations]
-      summary: 删除会话（级联删除所有消息）
+      summary: 删除会话
       responses:
-        "204":
-          description: 删除成功
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  # ═══════════════════════════════════════════════
-  # 消息查询与版本管理
-  # ═══════════════════════════════════════════════
+        "204": { description: 删除成功 }
 
   /conversations/{id}/messages:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
-
     get:
       operationId: list_messages
       tags: [messages]
       summary: 获取会话消息列表
-      description: |
-        返回所有 node 及其全部 versions，按 order_key 升序。
-        前端用 activeVersionId 决定展示哪一个。
-        MVP 不分页；预留 before_order_key 参数供后续扩展。
       parameters:
         - name: before_order_key
           in: query
           required: false
-          schema:
-            type: string
-          description: 游标分页（P1），返回 order_key 小于此值的消息
+          schema: { type: string }
         - name: limit
           in: query
           required: false
-          schema:
-            type: integer
-            default: 200
-          description: 最大返回 node 数量（P1）
+          schema: { type: integer, default: 200 }
+        - name: from_latest
+          in: query
+          required: false
+          schema: { type: boolean, default: false }
       responses:
         "200":
-          description: 消息节点列表
+          description: 消息列表
           content:
             application/json:
               schema:
                 type: array
-                items:
-                  $ref: "#/components/schemas/MessageNode"
-        "404":
-          $ref: "#/components/responses/NotFound"
+                items: { $ref: "#/components/schemas/MessageNode" }
 
-  /conversations/{id}/nodes/{nodeId}/active-version:
+  /versions/{version_id}/content:
+    parameters:
+      - $ref: "#/components/parameters/VersionId"
+    get:
+      operationId: get_version_content
+      tags: [messages]
+      summary: 按需加载版本正文
+      responses:
+        "200":
+          description: 版本正文
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/VersionContent" }
+
+  /conversations/{id}/nodes/{node_id}/active-version:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
       - $ref: "#/components/parameters/NodeId"
-
     put:
       operationId: set_active_version
       tags: [messages]
-      summary: 切换楼层的当前展示版本（立即写库）
+      summary: 切换 active version
       requestBody:
         required: true
         content:
@@ -512,578 +375,639 @@ paths:
               type: object
               required: [version_id]
               properties:
-                version_id:
-                  type: string
+                version_id: { type: string }
       responses:
-        "200":
-          description: 切换成功
-        "400":
-          description: version_id 不属于该 node
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
-        "404":
-          $ref: "#/components/responses/NotFound"
+        "200": { description: 切换成功 }
 
-  /conversations/{id}/nodes/{nodeId}/versions/{versionId}:
+  /conversations/{id}/nodes/{node_id}/versions/{version_id}:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
       - $ref: "#/components/parameters/NodeId"
       - $ref: "#/components/parameters/VersionId"
-
     delete:
       operationId: delete_version
       tags: [messages]
-      summary: 删除指定版本
-      description: |
-        generating 版本会先自动取消再删除。
-        唯一版本则连同 node 一起删除。
-        若为 active version，自动切换到同 node 最新的其他版本。
+      summary: 删除某个版本
       responses:
         "200":
           description: 删除结果
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/DeleteVersionResult"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  # ═══════════════════════════════════════════════
-  # 版本内容按需加载
-  # ═══════════════════════════════════════════════
-
-  /versions/{versionId}/content:
-    parameters:
-      - $ref: "#/components/parameters/VersionId"
-
-    get:
-      operationId: get_version_content
-      tags: [messages]
-      summary: 按需加载指定版本的完整内容
-      description: |
-        拼接该版本的所有 content chunks 返回。
-        用于版本切换时加载非 active 版本的内容。
-      responses:
-        "200":
-          description: 版本内容
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/VersionContent"
-        "404":
-          $ref: "#/components/responses/NotFound"
-
-  # ═══════════════════════════════════════════════
-  # AI 生成控制
-  # ═══════════════════════════════════════════════
+              schema: { $ref: "#/components/schemas/DeleteVersionResult" }
 
   /conversations/{id}/send:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
-
     post:
       operationId: send_message
       tags: [generation]
-      summary: 发送用户消息并触发 AI 生成
-      description: |
-        立即返回创建好的 node/version ID。
-        生成过程通过 Tauri Channel 事件推送。
-        通过 stream 参数控制流式/非流式。
-        通过 dry_run 参数仅返回 prompt 调试信息。
+      summary: 发送消息
       requestBody:
         required: true
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/SendMessageInput"
+            schema: { $ref: "#/components/schemas/SendMessageInput" }
       responses:
         "200":
-          description: 消息已创建，生成已启动（或 dry_run 返回调试信息）
+          description: 已启动生成，或 dry run 返回调试信息
           content:
             application/json:
               schema:
                 oneOf:
-                  - $ref: "#/components/schemas/SendMessageResult"
-                  - $ref: "#/components/schemas/DryRunResult"
-        "400":
-          $ref: "#/components/responses/BadRequest"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "422":
-          description: 业务规则不满足
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
+                  - { $ref: "#/components/schemas/SendMessageResult" }
+                  - { $ref: "#/components/schemas/DryRunResult" }
 
-  /conversations/{id}/nodes/{nodeId}/reroll:
+  /conversations/{id}/nodes/{node_id}/reroll:
     parameters:
       - $ref: "#/components/parameters/ResourceId"
       - $ref: "#/components/parameters/NodeId"
-
     post:
       operationId: reroll
       tags: [generation]
-      summary: 对指定楼层执行 Reroll
-      description: |
-        assistant node: 新建版本重新生成。
-        user node（任意楼层均可）: 复制当前 active version 内容为新 user version，
-        然后创建新 assistant node 开始生成。
+      summary: 对指定楼层执行 reroll
       requestBody:
         required: false
         content:
           application/json:
-            schema:
-              $ref: "#/components/schemas/RerollInput"
+            schema: { $ref: "#/components/schemas/RerollInput" }
       responses:
         "200":
-          description: Reroll 已触发
+          description: reroll 结果
           content:
             application/json:
-              schema:
-                $ref: "#/components/schemas/RerollResult"
-        "404":
-          $ref: "#/components/responses/NotFound"
-        "422":
-          description: 业务规则不满足
-          content:
-            application/json:
-              schema:
-                $ref: "#/components/schemas/ApiError"
+              schema: { $ref: "#/components/schemas/RerollResult" }
 
-  /generations/{versionId}/cancel:
+  /conversations/{id}/nodes/{node_id}/edit:
+    parameters:
+      - $ref: "#/components/parameters/ResourceId"
+      - $ref: "#/components/parameters/NodeId"
+    post:
+      operationId: edit_message
+      tags: [generation]
+      summary: 编辑当前楼层的 active version，并可选重新发送
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/EditMessageInput" }
+      responses:
+        "200":
+          description: 编辑结果
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/EditMessageResult" }
+
+  /generations/{version_id}/cancel:
     parameters:
       - $ref: "#/components/parameters/VersionId"
-
     post:
       operationId: cancel_generation
       tags: [generation]
-      summary: 取消生成（幂等）
-      description: version 不存在或已终结时同样返回 200
+      summary: 取消生成
+      responses:
+        "200": { description: 已取消或已是终态 }
+
+  /tools/builtin:
+    get:
+      operationId: list_builtin_tools
+      tags: [tools]
+      summary: 获取内置工具列表
       responses:
         "200":
-          description: 取消成功或已终结
+          description: 工具列表
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/BuiltinToolInfo" }
 
 components:
-
   parameters:
     ResourceId:
       name: id
       in: path
       required: true
-      schema:
-        type: string
-      description: 资源 UUID v7
-
+      schema: { type: string }
+    ChannelId:
+      name: channel_id
+      in: path
+      required: true
+      schema: { type: string }
     NodeId:
-      name: nodeId
+      name: node_id
       in: path
       required: true
-      schema:
-        type: string
-
+      schema: { type: string }
     VersionId:
-      name: versionId
+      name: version_id
       in: path
       required: true
-      schema:
-        type: string
+      schema: { type: string }
 
   responses:
-    BadRequest:
-      description: 入参校验失败
+    ApiErrorResponse:
+      description: 失败响应
       content:
         application/json:
-          schema:
-            $ref: "#/components/schemas/ApiError"
-    NotFound:
-      description: 资源不存在
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ApiError"
-    Conflict:
-      description: 唯一约束冲突
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ApiError"
-    ChannelUnreachable:
-      description: 渠道连通性测试失败
-      content:
-        application/json:
-          schema:
-            $ref: "#/components/schemas/ApiError"
+          schema: { $ref: "#/components/schemas/ApiError" }
 
   schemas:
-
-    # ─── 错误 ───
-
     ApiError:
       type: object
       required: [error_code, message]
       properties:
-        error_code:
-          type: string
-          description: 机器可读错误码，前端用于 i18n
-        message:
-          type: string
-          description: 英文调试信息
+        error_code: { type: string }
+        message: { type: string }
+        details:
+          $ref: "#/components/schemas/AppErrorDetails"
+          nullable: true
 
-    # ─── 渠道 ───
+    AppErrorDetails:
+      type: object
+      properties:
+        request_url: { type: string, nullable: true }
+        request_method: { type: string, nullable: true }
+        request_body: { type: string, nullable: true }
+        response_status: { type: integer, nullable: true }
+        response_body: { type: string, nullable: true }
+        raw_message: { type: string, nullable: true }
 
     Channel:
       type: object
       required: [id, name, channel_type, base_url, enabled, created_at, updated_at]
       properties:
-        id:               { type: string }
-        name:             { type: string }
-        channel_type:     { type: string, example: openai_compatible }
-        base_url:         { type: string, example: "https://api.openai.com" }
-        api_key:          { type: string, nullable: true }
-        auth_type:        { type: string, nullable: true, enum: [bearer, x_api_key, none] }
-        models_endpoint:  { type: string, nullable: true }
-        chat_endpoint:    { type: string, nullable: true }
-        stream_endpoint:  { type: string, nullable: true }
-        enabled:          { type: boolean }
-        created_at:       { type: integer, description: "Unix ms" }
-        updated_at:       { type: integer }
+        id: { type: string }
+        name: { type: string }
+        channel_type: { type: string }
+        base_url: { type: string }
+        api_key: { type: string, nullable: true }
+        api_keys: { type: string, nullable: true }
+        auth_type: { type: string, nullable: true }
+        models_endpoint: { type: string, nullable: true }
+        chat_endpoint: { type: string, nullable: true }
+        stream_endpoint: { type: string, nullable: true }
+        thinking_tags: { type: string, nullable: true }
+        enabled: { type: boolean }
+        created_at: { type: integer }
+        updated_at: { type: integer }
 
     CreateChannelInput:
       type: object
       required: [name, base_url]
       properties:
-        name:             { type: string, minLength: 1 }
-        channel_type:     { type: string, default: openai_compatible }
-        base_url:         { type: string, pattern: "^https?://" }
-        api_key:          { type: string, nullable: true }
-        auth_type:        { type: string, nullable: true }
-        models_endpoint:  { type: string, nullable: true }
-        chat_endpoint:    { type: string, nullable: true }
-        stream_endpoint:  { type: string, nullable: true }
+        name: { type: string, minLength: 1 }
+        base_url: { type: string, pattern: "^https?://" }
+        channel_type: { type: string, nullable: true }
+        api_key: { type: string, nullable: true }
+        api_keys: { type: string, nullable: true }
+        auth_type: { type: string, nullable: true }
+        models_endpoint: { type: string, nullable: true }
+        chat_endpoint: { type: string, nullable: true }
+        stream_endpoint: { type: string, nullable: true }
+        thinking_tags: { type: string, nullable: true }
+        enabled: { type: boolean, nullable: true }
 
     UpdateChannelInput:
       type: object
-      description: 所有字段可选，只发送需要修改的
       properties:
-        name:             { type: string, minLength: 1 }
-        base_url:         { type: string, pattern: "^https?://" }
-        api_key:          { type: string, nullable: true }
-        auth_type:        { type: string, nullable: true }
-        models_endpoint:  { type: string, nullable: true }
-        chat_endpoint:    { type: string, nullable: true }
-        stream_endpoint:  { type: string, nullable: true }
-        enabled:          { type: boolean }
+        name: { type: string, minLength: 1 }
+        base_url: { type: string, pattern: "^https?://" }
+        channel_type: { type: string, nullable: true }
+        api_key: { type: string, nullable: true }
+        api_keys: { type: string, nullable: true }
+        auth_type: { type: string, nullable: true }
+        models_endpoint: { type: string, nullable: true }
+        chat_endpoint: { type: string, nullable: true }
+        stream_endpoint: { type: string, nullable: true }
+        thinking_tags: { type: string, nullable: true }
+        enabled: { type: boolean, nullable: true }
 
     ChannelTestResult:
       type: object
       required: [success]
       properties:
-        success:          { type: boolean }
-        message:          { type: string, nullable: true, description: "成功时的状态消息" }
-
-    # ─── 模型 ───
+        success: { type: boolean }
+        message: { type: string, nullable: true }
 
     ChannelModel:
       type: object
       required: [id, channel_id, model_id]
       properties:
-        id:               { type: string }
-        channel_id:       { type: string }
-        model_id:         { type: string }
-        display_name:     { type: string, nullable: true }
-        context_window:   { type: integer, nullable: true }
+        id: { type: string }
+        channel_id: { type: string }
+        model_id: { type: string }
+        display_name: { type: string, nullable: true }
+        context_window: { type: integer, nullable: true }
         max_output_tokens: { type: integer, nullable: true }
+        temperature: { type: string, nullable: true }
+        top_p: { type: string, nullable: true }
 
     CreateModelInput:
       type: object
       required: [model_id]
       properties:
-        model_id:         { type: string, minLength: 1 }
-        display_name:     { type: string, nullable: true }
-        context_window:   { type: integer, nullable: true }
+        model_id: { type: string, minLength: 1 }
+        display_name: { type: string, nullable: true }
+        context_window: { type: integer, nullable: true }
         max_output_tokens: { type: integer, nullable: true }
+        temperature: { type: string, nullable: true }
+        top_p: { type: string, nullable: true }
 
     UpdateModelInput:
       type: object
       properties:
-        display_name:     { type: string, nullable: true }
-        context_window:   { type: integer, nullable: true }
+        display_name: { type: string, nullable: true }
+        context_window: { type: integer, nullable: true }
         max_output_tokens: { type: integer, nullable: true }
+        temperature: { type: string, nullable: true }
+        top_p: { type: string, nullable: true }
 
     RemoteModelInfo:
       type: object
       required: [model_id]
       properties:
-        model_id:         { type: string }
-        display_name:     { type: string, nullable: true }
-        context_window:   { type: integer, nullable: true }
-
-    # ─── Agent ───
+        model_id: { type: string }
+        display_name: { type: string, nullable: true }
+        context_window: { type: integer, nullable: true }
 
     Agent:
       type: object
       required: [id, name, enabled, created_at, updated_at]
       properties:
-        id:               { type: string }
-        name:             { type: string }
-        system_prompt:    { type: string, nullable: true }
-        avatar_uri:       { type: string, nullable: true }
-        enabled:          { type: boolean }
-        created_at:       { type: integer }
-        updated_at:       { type: integer }
+        id: { type: string }
+        name: { type: string }
+        system_prompt: { type: string, nullable: true }
+        avatar_uri: { type: string, nullable: true }
+        enabled: { type: boolean }
+        created_at: { type: integer }
+        updated_at: { type: integer }
 
     CreateAgentInput:
       type: object
       required: [name]
       properties:
-        name:             { type: string, minLength: 1 }
-        system_prompt:    { type: string, nullable: true }
+        name: { type: string, minLength: 1 }
+        system_prompt: { type: string, nullable: true }
 
     UpdateAgentInput:
       type: object
       properties:
-        name:             { type: string, minLength: 1 }
-        system_prompt:    { type: string, nullable: true }
-        enabled:          { type: boolean }
-
-    # ─── 会话 ───
+        name: { type: string, minLength: 1 }
+        system_prompt: { type: string, nullable: true }
+        enabled: { type: boolean, nullable: true }
 
     Conversation:
       type: object
       required: [id, title, archived, pinned, created_at, updated_at]
       properties:
-        id:               { type: string }
-        title:            { type: string }
-        agent_id:         { type: string, nullable: true }
-        channel_id:       { type: string, nullable: true }
+        id: { type: string }
+        title: { type: string }
+        agent_id: { type: string, nullable: true }
+        channel_id: { type: string, nullable: true }
         channel_model_id: { type: string, nullable: true }
-        archived:         { type: boolean }
-        pinned:           { type: boolean }
-        created_at:       { type: integer }
-        updated_at:       { type: integer }
+        archived: { type: boolean }
+        pinned: { type: boolean }
+        enabled_tools: { type: string, nullable: true }
+        created_at: { type: integer }
+        updated_at: { type: integer }
 
     ConversationSummary:
       type: object
       required: [id, title, archived, pinned, updated_at]
-      description: 会话列表项，不含全部消息
       properties:
-        id:               { type: string }
-        title:            { type: string }
-        agent_id:         { type: string, nullable: true }
-        channel_id:       { type: string, nullable: true }
+        id: { type: string }
+        title: { type: string }
+        agent_id: { type: string, nullable: true }
+        channel_id: { type: string, nullable: true }
         channel_model_id: { type: string, nullable: true }
-        archived:         { type: boolean }
-        pinned:           { type: boolean }
-        updated_at:       { type: integer }
+        archived: { type: boolean }
+        pinned: { type: boolean }
+        enabled_tools: { type: string, nullable: true }
+        updated_at: { type: integer }
 
     CreateConversationInput:
       type: object
       properties:
-        title:            { type: string, default: "新会话" }
-        agent_id:         { type: string, nullable: true }
-        channel_id:       { type: string, nullable: true }
+        title: { type: string, nullable: true }
+        agent_id: { type: string, nullable: true }
+        channel_id: { type: string, nullable: true }
         channel_model_id: { type: string, nullable: true }
+        enabled_tools:
+          type: array
+          nullable: true
+          items: { type: string }
 
     UpdateConversationInput:
       type: object
       properties:
-        title:            { type: string, minLength: 1 }
-        agent_id:         { type: string, nullable: true }
-        channel_id:       { type: string, nullable: true }
+        title: { type: string, nullable: true }
+        agent_id_set: { type: boolean, default: false }
+        agent_id: { type: string, nullable: true }
+        channel_id_set: { type: boolean, default: false }
+        channel_id: { type: string, nullable: true }
+        channel_model_id_set: { type: boolean, default: false }
         channel_model_id: { type: string, nullable: true }
-        archived:         { type: boolean }
-        pinned:           { type: boolean }
+        archived: { type: boolean, nullable: true }
+        pinned: { type: boolean, nullable: true }
+        enabled_tools_set: { type: boolean, default: false }
+        enabled_tools:
+          type: array
+          nullable: true
+          items: { type: string }
 
-    # ─── 消息 ───
+    ImageAttachment:
+      type: object
+      required: [base64, mime_type]
+      properties:
+        base64: { type: string }
+        mime_type: { type: string }
+        url: { type: string, nullable: true }
+
+    FileAttachment:
+      type: object
+      required: [name, base64, mime_type]
+      properties:
+        name: { type: string }
+        base64: { type: string }
+        mime_type: { type: string }
+
+    ToolCallRecord:
+      type: object
+      required: [id, name, arguments_json]
+      properties:
+        id: { type: string }
+        name: { type: string }
+        arguments_json: { type: string }
+
+    ToolResultRecord:
+      type: object
+      required: [tool_call_id, name, content, is_error]
+      properties:
+        tool_call_id: { type: string }
+        name: { type: string }
+        content: { type: string }
+        is_error: { type: boolean }
+
+    ToolCallDelta:
+      type: object
+      required: [arguments_delta, index]
+      properties:
+        id: { type: string, nullable: true }
+        name: { type: string, nullable: true }
+        arguments_delta: { type: string }
+        index: { type: integer }
 
     MessageNode:
       type: object
       required: [id, conversation_id, role, order_key, versions, created_at]
       properties:
-        id:               { type: string }
-        conversation_id:  { type: string }
-        author_agent_id:  { type: string, nullable: true }
+        id: { type: string }
+        conversation_id: { type: string }
+        author_agent_id: { type: string, nullable: true }
         role:
           type: string
           enum: [user, assistant]
-        order_key:        { type: string }
+        order_key: { type: string }
         active_version_id: { type: string, nullable: true }
         versions:
           type: array
-          items:
-            $ref: "#/components/schemas/MessageVersion"
-        created_at:       { type: integer }
+          items: { $ref: "#/components/schemas/MessageVersion" }
+        created_at: { type: integer }
 
     MessageVersion:
       type: object
       required: [id, node_id, status, created_at]
-      description: |
-        版本元数据（不含内容文本）。
-        content 只在 active version 中填充，非 active 为 null。
-        非 active 版本的内容通过 GET /versions/{versionId}/content 按需加载。
       properties:
-        id:               { type: string }
-        node_id:          { type: string }
-        content:
-          type: string
-          nullable: true
-          description: 仅 active version 填充，非 active 为 null
+        id: { type: string }
+        node_id: { type: string }
+        content: { type: string, nullable: true }
+        thinking_content: { type: string, nullable: true }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/ImageAttachment" }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/FileAttachment" }
+        tool_calls:
+          type: array
+          items: { $ref: "#/components/schemas/ToolCallRecord" }
+        tool_results:
+          type: array
+          items: { $ref: "#/components/schemas/ToolResultRecord" }
         status:
           type: string
           enum: [generating, committed, failed, cancelled]
-        model_name:       { type: string, nullable: true }
-        prompt_tokens:    { type: integer, nullable: true }
+        error_code: { type: string, nullable: true }
+        error_message: { type: string, nullable: true }
+        error_details:
+          $ref: "#/components/schemas/AppErrorDetails"
+          nullable: true
+        model_name: { type: string, nullable: true }
+        prompt_tokens: { type: integer, nullable: true }
         completion_tokens: { type: integer, nullable: true }
-        finish_reason:    { type: string, nullable: true }
-        created_at:       { type: integer }
+        finish_reason: { type: string, nullable: true }
+        received_at: { type: integer, nullable: true }
+        completed_at: { type: integer, nullable: true }
+        created_at: { type: integer }
 
     VersionContent:
       type: object
       required: [version_id, content, content_type]
       properties:
-        version_id:       { type: string }
-        content:          { type: string, description: "所有 chunks 拼接后的完整文本" }
-        content_type:     { type: string, example: "text/plain" }
-
-    # ─── 生成控制 ───
+        version_id: { type: string }
+        content: { type: string }
+        content_type: { type: string }
 
     SendMessageInput:
       type: object
       required: [content]
       properties:
-        content:
-          type: string
-          minLength: 1
-          description: 用户消息正文
-        stream:
-          type: boolean
-          default: true
-          description: 是否流式返回（通过 Tauri Channel 推送 chunk）
-        dry_run:
-          type: boolean
-          default: false
-          description: 仅组装 prompt 并返回调试信息，不调用 AI，不创建消息
+        content: { type: string }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/ImageAttachment" }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/FileAttachment" }
+        tool_results:
+          type: array
+          items: { $ref: "#/components/schemas/ToolResultRecord" }
+        stream: { type: boolean, nullable: true }
+        dry_run: { type: boolean, nullable: true }
 
     SendMessageResult:
       type: object
       required: [user_node_id, user_version_id, assistant_node_id, assistant_version_id]
       properties:
-        user_node_id:        { type: string }
-        user_version_id:     { type: string }
-        assistant_node_id:   { type: string }
+        user_node_id: { type: string }
+        user_version_id: { type: string }
+        assistant_node_id: { type: string }
         assistant_version_id: { type: string }
+
+    DryRunPromptMessage:
+      type: object
+      required: [role, content, images, files, tool_calls, tool_results]
+      properties:
+        role: { type: string }
+        content: { type: string }
+        images:
+          type: array
+          items: { $ref: "#/components/schemas/ImageAttachment" }
+        files:
+          type: array
+          items: { $ref: "#/components/schemas/FileAttachment" }
+        tool_calls:
+          type: array
+          items: { $ref: "#/components/schemas/ToolCallRecord" }
+        tool_results:
+          type: array
+          items: { $ref: "#/components/schemas/ToolResultRecord" }
 
     DryRunResult:
       type: object
-      required: [messages, total_tokens_estimate]
+      required: [messages, total_tokens_estimate, model]
       properties:
         messages:
           type: array
-          description: 组装好的完整 prompt messages
-          items:
-            type: object
-            properties:
-              role: { type: string }
-              content: { type: string }
-        total_tokens_estimate:
-          type: integer
-          description: 估算的 token 数量
-        model:
-          type: string
-          description: 将要调用的 model_id
+          items: { $ref: "#/components/schemas/DryRunPromptMessage" }
+        total_tokens_estimate: { type: integer }
+        model: { type: string }
 
     RerollInput:
       type: object
       properties:
-        stream:
-          type: boolean
-          default: true
+        stream: { type: boolean, nullable: true }
 
     RerollResult:
       type: object
       required: [assistant_node_id, assistant_version_id]
       properties:
-        new_user_version_id:
-          type: string
-          nullable: true
-          description: user node reroll 时创建的新 user version
-        assistant_node_id:   { type: string }
+        new_user_version_id: { type: string, nullable: true }
+        assistant_node_id: { type: string }
         assistant_version_id: { type: string }
+
+    EditMessageInput:
+      type: object
+      required: [content]
+      properties:
+        content: { type: string }
+        resend: { type: boolean, nullable: true }
+        stream: { type: boolean, nullable: true }
+
+    EditMessageResult:
+      type: object
+      required: [edited_version_id]
+      properties:
+        edited_version_id: { type: string }
+        assistant_node_id: { type: string, nullable: true }
+        assistant_version_id: { type: string, nullable: true }
 
     DeleteVersionResult:
       type: object
       required: [node_deleted]
       properties:
-        node_deleted:
-          type: boolean
-          description: true 表示该版本是最后一个，node 也被删除
-        new_active_version_id:
-          type: string
-          nullable: true
-          description: 切换后的新 active version（node_deleted=true 时为 null）
+        node_deleted: { type: boolean }
+        new_active_version_id: { type: string, nullable: true }
 
-    # ─── Tauri Channel 事件 ───
+    BuiltinToolInfo:
+      type: object
+      required: [name, description]
+      properties:
+        name: { type: string }
+        description: { type: string }
 
     GenerationEvent:
-      description: 通过 Tauri Channel 推送的生成事件（非 HTTP 响应）
       oneOf:
-        - $ref: "#/components/schemas/GenerationChunk"
-        - $ref: "#/components/schemas/GenerationCompleted"
-        - $ref: "#/components/schemas/GenerationFailed"
-        - $ref: "#/components/schemas/GenerationCancelled"
-        - $ref: "#/components/schemas/GenerationEmptyRollback"
+        - { $ref: "#/components/schemas/GenerationChunk" }
+        - { $ref: "#/components/schemas/GenerationCompleted" }
+        - { $ref: "#/components/schemas/GenerationFailed" }
+        - { $ref: "#/components/schemas/GenerationCancelled" }
+        - { $ref: "#/components/schemas/GenerationEmptyRollback" }
+        - { $ref: "#/components/schemas/GenerationToolCallStart" }
+        - { $ref: "#/components/schemas/GenerationToolResult" }
 
     GenerationChunk:
       type: object
-      required: [type, conversation_id, node_id, version_id, delta]
+      required: [type, conversation_id, node_id, version_id, delta, tool_call_deltas]
       properties:
-        type:             { type: string, enum: [chunk] }
-        conversation_id:  { type: string }
-        node_id:          { type: string }
-        version_id:       { type: string }
-        delta:            { type: string }
+        type: { type: string, enum: [chunk] }
+        conversation_id: { type: string }
+        node_id: { type: string }
+        version_id: { type: string }
+        delta: { type: string }
+        reasoning_delta: { type: string, nullable: true }
+        tool_call_deltas:
+          type: array
+          items: { $ref: "#/components/schemas/ToolCallDelta" }
 
     GenerationCompleted:
       type: object
-      required: [type, conversation_id, node_id, version_id]
+      required: [type, conversation_id, node_id, version_id, prompt_tokens, completion_tokens, finish_reason, model, received_at, completed_at]
       properties:
-        type:             { type: string, enum: [completed] }
-        conversation_id:  { type: string }
-        node_id:          { type: string }
-        version_id:       { type: string }
-        prompt_tokens:    { type: integer }
+        type: { type: string, enum: [completed] }
+        conversation_id: { type: string }
+        node_id: { type: string }
+        version_id: { type: string }
+        prompt_tokens: { type: integer }
         completion_tokens: { type: integer }
-        finish_reason:    { type: string }
-        model:            { type: string }
+        finish_reason: { type: string }
+        model: { type: string }
+        received_at: { type: integer }
+        completed_at: { type: integer }
 
     GenerationFailed:
       type: object
-      required: [type, conversation_id, node_id, version_id, error]
+      required: [type, conversation_id, node_id, version_id, error_code, error_message]
       properties:
-        type:             { type: string, enum: [failed] }
-        conversation_id:  { type: string }
-        node_id:          { type: string }
-        version_id:       { type: string }
-        error:            { type: string }
+        type: { type: string, enum: [failed] }
+        conversation_id: { type: string }
+        node_id: { type: string }
+        version_id: { type: string }
+        error_code: { type: string }
+        error_message: { type: string }
+        error_details:
+          $ref: "#/components/schemas/AppErrorDetails"
+          nullable: true
 
     GenerationCancelled:
       type: object
       required: [type, conversation_id, node_id, version_id]
       properties:
-        type:             { type: string, enum: [cancelled] }
-        conversation_id:  { type: string }
-        node_id:          { type: string }
-        version_id:       { type: string }
+        type: { type: string, enum: [cancelled] }
+        conversation_id: { type: string }
+        node_id: { type: string }
+        version_id: { type: string }
 
     GenerationEmptyRollback:
       type: object
       required: [type, conversation_id, node_id, node_deleted]
       properties:
-        type:             { type: string, enum: [empty_rollback] }
-        conversation_id:  { type: string }
-        node_id:          { type: string }
-        node_deleted:     { type: boolean }
+        type: { type: string, enum: [empty_rollback] }
+        conversation_id: { type: string }
+        node_id: { type: string }
+        node_deleted: { type: boolean }
         fallback_version_id: { type: string, nullable: true }
+
+    GenerationToolCallStart:
+      type: object
+      required: [type, conversation_id, node_id, version_id, tool_calls]
+      properties:
+        type: { type: string, enum: [tool_call_start] }
+        conversation_id: { type: string }
+        node_id: { type: string }
+        version_id: { type: string }
+        tool_calls:
+          type: array
+          items: { $ref: "#/components/schemas/ToolCallRecord" }
+
+    GenerationToolResult:
+      type: object
+      required: [type, conversation_id, node_id, version_id, results]
+      properties:
+        type: { type: string, enum: [tool_result] }
+        conversation_id: { type: string }
+        node_id: { type: string }
+        version_id: { type: string }
+        results:
+          type: array
+          items: { $ref: "#/components/schemas/ToolResultRecord" }

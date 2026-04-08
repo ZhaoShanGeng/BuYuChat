@@ -14,7 +14,7 @@
 	import * as Sidebar from "$lib/components/ui/sidebar/index.js";
 	import * as DropdownMenu from "$lib/components/ui/dropdown-menu/index.js";
 	import { Button } from "$lib/components/ui/button/index.js";
-	import { formatRelativeTime } from "../../components/workspace-state";
+	import { formatRelativeTime } from "../../components/chat/workspace-state";
 
 	let {
 		ref = $bindable(null),

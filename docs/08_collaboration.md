@@ -1,7 +1,7 @@
 # 步语 BuYu — 协作指南
 
-**版本：** 0.2  
-**最后更新：** 2026-04-04
+**版本：** 0.2
+**最后更新：** 2026-04-08
 
 ## 1. 开发环境
 
@@ -80,17 +80,19 @@ pnpm verify
 
 发布流程：
 
-1. 在功能已经合入 `main` 后，执行 `pnpm version:set -- <version>`。
-2. 提交版本变更。
-3. 创建并推送 tag：`git tag v<version>`、`git push origin v<version>`。
-4. GitHub `Release` 工作流校验 tag 与 manifest 版本一致后自动打包并发布。
+1. 日常合入 `main` 后，`Release` 工作流会自动产出滚动预发布 `edge-main`。
+2. 正式发版前，执行 `pnpm version:set -- <version>`、`pnpm version:check`、`pnpm verify`。
+3. 提交版本变更。
+4. 创建并推送正式 tag：`git tag v<version>`、`git push origin v<version>`。
+5. GitHub `Release` 工作流在 tag 触发时校验 manifest 版本一致后，自动打包并发布正式产物。
+6. 如需临时打包或只构建部分平台，可手动触发 `workflow_dispatch`。
 
 ## 5. GitHub Actions 约定
 
 | 工作流 | 说明 |
 |--------|------|
 | `CI` | PR 和 `main` push 的常规门禁 |
-| `Release` | 手动打包或 tag 发布 |
+| `Release` | 手动打包、`main` 滚动预发布、`v*` tag 正式发布 |
 
 原则：
 

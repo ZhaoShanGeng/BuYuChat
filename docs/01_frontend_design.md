@@ -1,383 +1,313 @@
 # 步语 BuYu — 前端设计
 
-**版本：** 0.1
-**阶段：** MVP（P0）
+**版本：** 0.2
+**阶段：** 当前实现
+**最后更新：** 2026-04-08
 **技术栈：** Svelte 5 (runes) + TypeScript + Tailwind CSS 4 + bits-ui + lucide-svelte
 
----
+本文只描述仓库当前代码已经落地的前端结构。
 
-## 1. 页面布局
+## 1. 当前页面骨架
 
-MVP 为**单页应用**（无路由），整体采用经典 IM 布局：
+前端仍然是**单页应用**，但主界面已经演进为“工作台壳 + 多 section”结构：
 
-```
-┌──────────────────────────────────────────────────────────┐
-│  Titlebar (Tauri custom titlebar, 可选)                   │
-├────────────┬─────────────────────────────────────────────┤
-│            │  ChatHeader                                  │
-│            │  ┌─────────────────────────────────────────┐│
-│  Sidebar   │  │  会话标题 | Agent/模型标签 | ⚙️ 设置     ││
-│            │  └─────────────────────────────────────────┘│
-│  ┌──────┐  │  ChatMessages (虚拟滚动)                     │
-│  │新建   │  │  ┌─────────────────────────────────────────┐│
-│  │会话   │  │  │  UserBubble                             ││
-│  ├──────┤  │  │  AssistantBubble (流式渲染)               ││
-│  │📌置顶 │  │  │    └─ VersionSwitcher < [1] 2 3 >       ││
-│  │会话A  │  │  │  UserBubble                             ││
-│  │会话B  │  │  │  AssistantBubble (generating...)         ││
-│  │会话C  │  │  │    └─ 取消按钮 / Reroll 按钮             ││
-│  │ ...   │  │  └─────────────────────────────────────────┘│
-│  ├──────┤  │  ChatInput                                   │
-│  │归档 ▸ │  │  ┌─────────────────────────────────────────┐│
-│  │设置 ▸ │  │  │  [输入框 (textarea)]        [发送按钮]   ││
-│  └──────┘  │  └─────────────────────────────────────────┘│
-├────────────┴─────────────────────────────────────────────┤
-│  StatusBar (可选: token 统计, 连接状态)                     │
-└──────────────────────────────────────────────────────────┘
+```text
+WorkspaceShell
+├─ 桌面端
+│  ├─ IconRail                左侧图标栏，切换 chat / agents / settings
+│  ├─ Context Sidebar         随 section 切换的上下文侧边栏
+│  │  ├─ chat      -> ConversationSidebarPanel
+│  │  ├─ agents    -> AgentSidebarPanel
+│  │  └─ settings  -> SettingsChannelSidebar
+│  └─ Main Content
+│     ├─ chat      -> ChatPanel
+│     ├─ agents    -> AgentSettingsPanel
+│     └─ settings  -> SettingsPage
+└─ 移动端
+   ├─ 顶部菜单按钮
+   ├─ Drawer 抽屉承载上下文侧边栏
+   └─ 主内容区沿用桌面端的三个 section
 ```
 
-### 尺寸约定
+当前布局是：
 
-| 区域 | 宽度 | 最小宽度 |
-|------|------|---------|
-| Sidebar | 280px（可拖拽调整） | 200px |
-| ChatArea | 剩余空间 | 480px |
-| 整体窗口 | — | 960×640 (tauri.conf.json) |
+- 左侧先选工作区类型
+- 中间侧边栏展示当前工作区的上下文内容
+- 右侧主区展示聊天、Agent 编辑或设置页
 
----
+## 2. 当前目录组织
 
-## 2. 组件树
+前端组件已经不再全部平铺在一个目录里，而是按功能拆分：
 
+```text
+src/components/
+├─ app-shell/        工作台外壳、窗口控件、工作台总状态
+├─ chat/             聊天主区、消息列表、输入区、聊天状态
+├─ conversations/    会话侧边栏
+├─ agents/           Agent 侧边栏与 Agent 编辑
+├─ settings/         设置页、渠道编辑、模型管理、设置状态
+├─ chat-ui/          复用型聊天 UI 小组件
+└─ legacy/           仍保留在仓库中的旧组件与旧状态实现
 ```
+
+当前主要工作流已经使用 `app-shell / chat / conversations / agents / settings` 这五组目录。
+`legacy/` 目录仅表示“文件还在仓库里”，不代表它仍是当前主界面入口。
+
+## 3. 真实入口文件
+
+### 3.1 启动入口
+
+- `src/main.ts`
+  - 挂载 `App.svelte`
+  - 初始化主题模块
+  - 管理启动 splash 的隐藏时机
+- `src/App.svelte`
+  - 只负责挂载 `WorkspaceShell.svelte`
+
+### 3.2 工作台入口
+
+- `src/components/app-shell/WorkspaceShell.svelte`
+  - 整个前端的主布局
+  - 负责桌面端 / 移动端分支渲染
+  - 负责 section 切换、抽屉开关、窗口拖拽区等
+
+## 4. 当前组件树
+
+```text
 App.svelte
-├── Sidebar.svelte
-│   ├── SidebarHeader.svelte          # 新建会话按钮、搜索框(P1)
-│   ├── ConversationList.svelte       # 会话列表（虚拟滚动）
-│   │   └── ConversationItem.svelte   # 单条会话（标题、右键菜单）
-│   └── SidebarFooter.svelte          # 归档入口、设置入口
-│
-├── ChatArea.svelte
-│   ├── ChatHeader.svelte             # 会话标题、Agent/模型标签、设置按钮
-│   ├── ChatMessages.svelte           # 消息列表容器（虚拟滚动）
-│   │   └── MessageBubble.svelte      # 单条消息楼层
-│   │       ├── BubbleContent.svelte  # Markdown 渲染 + 流式光标
-│   │       ├── BubbleActions.svelte  # Reroll、复制、删除（hover 显示）
-│   │       └── VersionSwitcher.svelte # < [1] 2 3 > （hover 显示）
-│   ├── ChatInput.svelte              # 输入框 + 发送按钮
-│   └── EmptyState.svelte             # 空会话引导（未配置 Agent 时）
-│
-├── SettingsPanel.svelte              # 侧边滑出面板
-│   ├── ChannelSettings.svelte        # 渠道 CRUD
-│   ├── ModelSettings.svelte          # 模型管理
-│   ├── AgentSettings.svelte          # Agent CRUD
-│   └── ConversationSettings.svelte   # 当前会话配置（绑定 Agent/渠道/模型）
-│
-└── shared/                           # 通用组件
-    ├── Dialog.svelte                 # 确认对话框（bits-ui Dialog）
-    ├── Toast.svelte                  # 通知提示
-    ├── Dropdown.svelte               # 下拉菜单（bits-ui）
-    └── Spinner.svelte                # 加载指示器
+└─ WorkspaceShell.svelte
+   ├─ app-shell/IconRail.svelte
+   ├─ conversations/ConversationSidebarPanel.svelte
+   │  └─ conversations/ConversationSidebarItem.svelte
+   ├─ agents/AgentSidebarPanel.svelte
+   │  └─ agents/AgentSidebarItem.svelte
+   ├─ settings/SettingsChannelSidebar.svelte
+   ├─ chat/ChatPanel.svelte
+   │  ├─ chat/ChatHeader.svelte
+   │  ├─ chat/MessageTimeline.svelte
+   │  │  └─ chat/MessageCard.svelte
+   │  └─ chat/ChatComposer.svelte
+   ├─ agents/AgentSettingsPanel.svelte
+   └─ settings/SettingsPage.svelte
+      ├─ settings/SettingsUtilityPanel.svelte
+      ├─ settings/SettingsChannelEditor.svelte
+      ├─ settings/SettingsModelManager.svelte
+      └─ settings/SettingsNoticeBanner.svelte
 ```
 
----
+补充说明：
 
-## 3. 路由规划
+- `ConversationSidebarPanel.svelte`
+  - 当前实现里带有搜索框
+  - 会话按 Agent 分组显示
+- `ChatPanel.svelte`
+  - 由 `ChatHeader + MessageTimeline + ChatComposer` 组成
+- `SettingsPage.svelte`
+  - 主内容区只负责“实用工具面板 + 渠道编辑 + 模型管理”
+  - 设置页左侧的渠道列表由 `WorkspaceShell` 统一渲染
 
-### MVP：无路由
+## 5. 当前状态管理
 
-单页，所有内容在 `App.svelte` 中通过条件渲染切换：
-- 主视图：Sidebar + ChatArea
-- 设置面板：侧边滑出 overlay（不替换主视图）
+### 5.1 页面级状态工厂
 
-### P1：引入路由
+当前以前端状态工厂为核心：
 
-```
-/                       → 重定向到最近会话或空状态
-/chat/:conversationId   → 聊天视图
-/settings               → 全局设置
-/settings/channels      → 渠道管理
-/settings/agents        → Agent 管理
-/archived               → 归档会话列表
-```
+| 文件 | 作用 |
+|------|------|
+| `src/components/app-shell/workspace-shell.svelte.ts` | 聊天工作台总控：启动、会话切换、消息流、Agent 编辑、会话快速绑定 |
+| `src/components/settings/settings-page-state.svelte.ts` | 设置页总控：渠道 CRUD、模型 CRUD、远程模型拉取、配置导入导出 |
 
-P1 路由工具：`svelte-spa-router` 或 Svelte 5 原生 `{#snippet}` 条件路由。
+### 5.2 `workspace-shell.svelte.ts` 负责什么
 
----
+- 首屏 bootstrap
+- 加载 channels / agents / conversations / messages / models
+- 发送消息、reroll、编辑消息、取消生成
+- 会话标题、Agent、渠道、模型的快速切换
+- 消息版本切换和按需加载
+- 流式事件接收和本地即时合并
+- 设置页变更后的工作台刷新
 
-## 4. 状态管理
+### 5.3 `settings-page-state.svelte.ts` 负责什么
 
-### 4.1 Store 结构
+- 渠道列表加载与筛选
+- 渠道创建、更新、删除、连通性测试
+- thinking tags 输入与序列化
+- 模型创建、删除、远程拉取、导入
+- 导出配置、导入配置
+- 打开数据目录、日志目录
 
-所有 store 使用 Svelte 5 runes（`.svelte.ts` 文件），不使用 Svelte 4 stores。
+## 6. 前端与后端的通信层
 
-```typescript
-// stores/app.svelte.ts — 全局应用状态
-let sidebarWidth = $state(280);
-let settingsPanelOpen = $state(false);
-let settingsTab = $state<"channels" | "agents" | "conversation">("channels");
+当前所有 Tauri 调用集中在 `src/lib/transport/`：
 
-// stores/conversations.svelte.ts — 会话状态
-let conversations = $state<Map<string, Conversation>>(new Map());
-let activeConversationId = $state<string | null>(null);
-let activeConversation = $derived(
-  activeConversationId ? conversations.get(activeConversationId) : null
-);
-
-// stores/messages.svelte.ts — 消息状态
-let messagesByConversation = $state<Map<string, MessageNode[]>>(new Map());
-let generatingVersions = $state<Set<string>>(new Set());
-let pendingInput = $state<Map<string, string>>(new Map()); // 失败恢复用
-
-// stores/settings.svelte.ts — 配置数据
-let channels = $state<Channel[]>([]);
-let agents = $state<Agent[]>([]);
-```
-
-### 4.2 Store 依赖关系
-
-```
-app.svelte.ts（UI 状态，无依赖）
-     │
-conversations.svelte.ts ──► messages.svelte.ts
-     │                         │
-     └── settings.svelte.ts ◄──┘  （channels/agents 供选择器使用）
+```text
+transport/
+├─ agents.ts
+├─ channels.ts
+├─ conversations.ts
+├─ messages.ts
+├─ models.ts
+└─ common.ts
 ```
 
-### 4.3 缓存策略
+它们的职责是：
 
-| 数据 | 缓存方式 | 失效时机 |
-|------|---------|---------|
-| 会话列表 | 启动时全量加载，内存保持 | CRUD 操作后局部更新 |
-| 消息列表 | 按会话懒加载，切换会话时加载 | 不主动清空（LRU 淘汰 P1） |
-| 版本 content | active 版本随消息列表加载 | 切换版本时按需加载 |
-| channels/agents | 启动时全量加载 | CRUD 后刷新 |
-| generating 状态 | 纯内存，不持久化 | 启动时清空 |
+1. 调用 `invoke()`
+2. 处理 snake_case / camelCase 转换
+3. 把某些原始字段转换成更好用的前端结构
 
-### 4.4 不持久化到 localStorage
+当前已经存在的转换例子：
 
-MVP 不将任何 store 数据写入 localStorage。所有数据来源为后端 SQLite，前端是纯缓存。
+- `enabled_tools: string | null` -> `enabledTools: string[]`
+- `message` 相关事件 -> 前端联合类型 `GenerationEvent`
+- `send_message` / `dry_run` 原始返回 -> 前端区分为 `kind: "started"` 或 `kind: "dryRun"`
 
----
+## 7. 当前聊天区交互
 
-## 5. 主题与样式系统
+### 7.1 ChatHeader
 
-### 5.1 Tailwind CSS 4 配置
+`ChatHeader.svelte` 当前支持：
 
-CSS-first 配置（无 `tailwind.config.js`），通过 `app.css` 中 `@theme` 定义：
+- 会话标题快速编辑
+- 当前 Agent / 渠道 / 模型状态展示
+- 快速切换 Agent
+- 快速切换渠道
+- 快速切换模型
+- 移动端菜单按钮
 
-```css
-@import "tailwindcss";
+### 7.2 MessageTimeline
 
-@theme {
-  /* 主色 */
-  --color-primary: #0f172a;        /* slate-900 */
-  --color-primary-hover: #1e293b;  /* slate-800 */
-  --color-accent: #0ea5e9;         /* sky-500 */
-  --color-accent-light: #e0f2fe;   /* sky-100 */
+`MessageTimeline.svelte` 当前支持：
 
-  /* 背景 */
-  --color-bg-main: #f8fafc;        /* slate-50 */
-  --color-bg-sidebar: #ffffff;
-  --color-bg-bubble-user: #f1f5f9; /* slate-100 */
-  --color-bg-bubble-ai: #ffffff;
+- 消息列表渲染
+- 继续加载更旧消息
+- dry run 摘要显示
+- 顶部通知展示
+- 版本切换
+- 版本正文按需加载
+- 编辑消息 / 重新发送
+- 删除版本
+- 取消生成
+- reroll
 
-  /* 文字 */
-  --color-text-primary: #0f172a;
-  --color-text-secondary: #64748b; /* slate-500 */
-  --color-text-muted: #94a3b8;     /* slate-400 */
+### 7.3 MessageCard
 
-  /* 边框 */
-  --color-border: #e2e8f0;         /* slate-200 */
-  --color-border-light: #f1f5f9;
+单条消息当前支持：
 
-  /* 圆角 */
-  --radius-sm: 0.5rem;
-  --radius-md: 1rem;
-  --radius-lg: 1.5rem;
-  --radius-xl: 2rem;
+- user / assistant 两种视觉样式
+- Markdown 富文本渲染
+- thinking 内容展示
+- 图片 / 文件 / 工具调用结果展示
+- generating / failed / cancelled 状态显示
+- 版本切换器
 
-  /* 侧边栏 */
-  --sidebar-width: 280px;
-  --sidebar-min-width: 200px;
-  --sidebar-max-width: 400px;
-}
-```
+### 7.4 ChatComposer
 
-### 5.2 暗色模式（P1）
+输入区当前支持：
 
-MVP 仅浅色模式。P1 通过 `@theme dark` 覆盖变量实现暗色模式：
+- 文本输入
+- 图片附件
+- 文件附件
+- `dry run`
+- 发送中显示取消按钮
+- 会话级启用工具列表切换
 
-```css
-@theme dark {
-  --color-bg-main: #0f172a;
-  --color-text-primary: #f8fafc;
-  /* ... */
-}
-```
+## 8. 当前设置页
 
-### 5.3 组件样式原则
+设置页不再是一个纯“全局设置抽屉”，而是完整工作区的一部分。
 
-- 使用 Tailwind utility classes，不写自定义 CSS（特殊动画除外）
-- bits-ui 组件只提供行为，样式完全由 Tailwind 控制
-- 圆角统一使用 theme 变量（`rounded-lg` → `--radius-lg`）
-- 不使用 `!important`
+### 8.1 侧边栏
 
----
+`SettingsChannelSidebar.svelte` 当前负责：
 
-## 6. 核心交互规范
+- 渠道搜索
+- 渠道列表
+- 新建渠道入口
+- 当前选中状态展示
 
-### 6.1 消息气泡
+### 8.2 主内容区
 
-| 角色 | 对齐 | 背景色 | 头像 |
-|------|------|--------|------|
-| user | 右对齐 | `bg-bubble-user` | 无（MVP） |
-| assistant | 左对齐 | `bg-bubble-ai` | Agent 头像 / 默认图标 |
+`SettingsPage.svelte` 当前包含三块：
 
-### 6.2 流式渲染
+- `SettingsUtilityPanel`
+  - 导出配置
+  - 导入配置
+  - 打开数据目录
+  - 打开日志目录
+- `SettingsChannelEditor`
+  - 渠道基础信息编辑
+  - API Key / auth / endpoint / thinking tags
+  - 渠道启用开关
+  - 渠道连通性测试
+- `SettingsModelManager`
+  - 本地模型列表
+  - 新建模型
+  - 删除模型
+  - 从远程拉取候选模型
+  - 导入远程模型
 
-- AI 回复 `status=generating` 时，content 逐步追加
-- 末尾显示闪烁光标 `▊`（CSS animation）
-- 使用 Markdown 渲染（P1 引入 `marked` 或 `mdsvex`）
-- MVP 阶段纯文本渲染（保留换行）
+## 9. 当前样式系统
 
-### 6.3 版本切换器
+### 9.1 主题
 
-```
-┌─────────────────────────────────────┐
-│  AI 回复内容...                      │
-│                                      │
-│  ◄  [1]  2   3  ►     🔄 ✂️ 📋      │
-│     ^^^ active高亮   Reroll 取消 复制  │
-└─────────────────────────────────────┘
-```
+`src/app.css` 已经定义了两套主题：
 
-- 仅 hover 楼层时显示（CSS `group-hover`）
-- 当前 active 版本数字高亮（`bg-primary text-white rounded`）
-- 左右箭头：相邻切换
-- 数字：直接跳转
-- 切换时：立即写库 + 如果目标版本 content 为 null 则按需加载
+- 浅色主题：Notebook 风格纸张色背景
+- 深色主题：暗色纸张风格背景
 
-### 6.4 输入框
+当前代码里已经有：
 
-- `<textarea>` 自动高度（min 1 行，max 8 行）
-- Enter 发送，Shift+Enter 换行
-- 发送中（generating）：发送按钮变为停止按钮
-- 发送失败：输入框恢复之前的内容
+- `.dark` 变量覆盖
+- safe area 适配
+- 抽屉动画
+- 消息入场动画
+- thinking 脉冲动画
+- resize 期间禁用动画
 
-### 6.5 会话列表项
+### 9.2 布局变量
 
-```
-┌──────────────────────────┐
-│ 📌 关于 Rust 的讨论       │  ← 置顶图标
-│    3 分钟前               │
-├──────────────────────────┤
-│ 新会话                    │  ← 普通
-│    1 小时前               │
-└──────────────────────────┘
-```
+当前关键 CSS 变量：
 
-- 当前活跃会话高亮背景
-- 右键菜单：重命名、置顶/取消置顶、归档、删除
-- 双击标题：进入内联编辑模式
+- `--workspace-rail-width`
+- `--workspace-sidebar-width`
+- `--settings-sidebar-width`
+- `--settings-content-max-width`
 
----
+### 9.3 字体与视觉方向
 
-## 7. 错误展示规范
+当前主题使用：
 
-### 7.1 错误类型与展示方式
+- 标题字体：`Playfair Display` / `Noto Serif SC`
+- 正文字体：`Inter` / `Noto Sans SC`
+- 整体视觉：纸张感、笔记本感、暖色强调色
 
-| 错误类型 | 展示方式 | 示例 |
-|----------|---------|------|
-| 配置缺失（前端拦截） | 内联提示 + 引导按钮 | "请先配置 Agent" [去配置] |
-| 业务错误（422） | Toast 通知 | "渠道已禁用" |
-| 发送失败 | Toast + 恢复输入 | "发送失败：未配置渠道" |
-| 生成失败 | 楼层内标签 | 气泡底部红色 "生成失败" 标签 |
-| 生成取消 | 楼层内标签 | 气泡底部灰色 "已取消" 标签 |
-| 网络错误 | Toast 通知 | "网络连接失败" |
-| 内部错误 | Toast 通知 | "系统错误，请重试" |
+## 10. 当前响应式策略
 
-### 7.2 Toast 规范
+### 10.1 桌面端
 
-- 位置：右上角
-- 自动消失：3 秒（错误类 5 秒）
-- 最多同时显示 3 条，超出队列
-- 类型：`success`（绿）、`error`（红）、`warning`（黄）、`info`（蓝）
+- 显示左侧 `IconRail`
+- 显示上下文侧边栏
+- 主内容区占剩余空间
 
-### 7.3 i18n 错误文案表
+### 10.2 移动端
 
-后端返回 `error_code`，前端查表翻译：
+通过 `src/lib/hooks/is-mobile.svelte.ts` 判断后：
 
-```typescript
-const ERROR_MESSAGES: Record<string, string> = {
-  // 配置相关
-  NO_AGENT: "请先为会话配置 Agent",
-  AGENT_DISABLED: "当前 Agent 已禁用，请启用或更换",
-  NO_CHANNEL: "请先配置 AI 服务渠道",
-  CHANNEL_DISABLED: "当前渠道已禁用，请启用或更换",
-  NO_MODEL: "请先选择模型",
+- 隐藏左侧固定栏
+- 使用 Drawer 承载上下文侧边栏
+- 在非聊天页显示统一移动端顶栏
+- 使用 safe-area padding
 
-  // 验证相关
-  VALIDATION_ERROR: "输入不合法，请检查",
-  INVALID_URL: "请输入有效的 URL（以 http:// 或 https:// 开头）",
-  NAME_EMPTY: "名称不能为空",
-  CONTENT_EMPTY: "消息内容不能为空",
+所以当前代码已经**不是“不支持移动端”**，而是有基础移动适配。
 
-  // 冲突
-  MODEL_ID_CONFLICT: "该渠道下已存在此模型 ID",
-  NOT_LAST_USER_NODE: "只能对最后一条用户消息执行此操作",
-  VERSION_NOT_IN_NODE: "版本不属于该消息",
+## 11. 当前前端边界
 
-  // 服务端
-  NOT_FOUND: "资源不存在",
-  CHANNEL_UNREACHABLE: "无法连接到 AI 服务，请检查渠道配置",
-  AI_REQUEST_FAILED: "AI 服务返回错误，请稍后重试",
-  INTERNAL_ERROR: "系统内部错误，请重试",
-};
-```
+以下内容没有在代码里形成稳定事实，不应继续写入设计文档：
 
----
+- 独立路由系统
+- 虚拟滚动消息列表
+- 单独的 Settings 侧滑 overlay
+- 固定宽度可拖拽 Sidebar
+- 仅浅色模式
 
-## 8. 响应式策略
-
-MVP 窗口最小尺寸 960×640，不做移动端适配。
-
-| 窗口宽度 | 行为 |
-|----------|------|
-| ≥ 1280px | Sidebar 280px + ChatArea 填充 |
-| 960-1280px | Sidebar 可折叠（点击按钮收起为图标栏 60px） |
-| < 960px | 不支持（tauri.conf.json 已设 minWidth=960） |
-
-### 折叠 Sidebar
-
-```
-┌────┬───────────────────────────────┐
-│ ☰  │  ChatArea                     │
-│ +  │                               │
-│ 💬 │                               │  ← 图标栏模式
-│ 💬 │                               │
-│ ⚙️ │                               │
-└────┴───────────────────────────────┘
-```
-
----
-
-## 9. 动画与过渡
-
-| 场景 | 效果 | 实现 |
-|------|------|------|
-| 设置面板开关 | 从右侧滑入/滑出 | Svelte `transition:slide` |
-| Toast 出现/消失 | 淡入 + 上滑 / 淡出 | Svelte `transition:fly` |
-| 消息出现 | 淡入 | Svelte `transition:fade` |
-| 流式光标 | 闪烁 | CSS `@keyframes blink` |
-| 版本切换 | 内容淡入 | CSS `transition: opacity 150ms` |
-| Sidebar 折叠 | 宽度过渡 | CSS `transition: width 200ms ease` |
-
----
-
-## 10. 无障碍（基础）
-
-- 所有按钮有 `aria-label`
-- 输入框有 `<label>` 关联
-- 颜色对比度 ≥ 4.5:1（WCAG AA）
-- 键盘导航：Tab 切换焦点、Enter 激活按钮
-- bits-ui 组件自带 ARIA 属性
+这些都不是当前仓库的真实实现。

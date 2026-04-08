@@ -1,7 +1,7 @@
 # 步语 BuYu — 测试与 CI
 
-**版本：** 0.4  
-**最后更新：** 2026-04-04
+**版本：** 0.4
+**最后更新：** 2026-04-08
 
 ## 1. 当前自动化门禁
 
@@ -109,4 +109,4 @@ pnpm tauri build
 - 覆盖率门槛阻断
 - 已签名的 iOS 安装包发布
 
-说明：发布工作流现在采用 `Build Frontend -> Per-Arch Build Jobs -> Create Release` 结构；`iOS` 仍取决于 Apple 工程初始化与签名材料。
+说明：发布工作流现在采用 `Build Frontend -> Prepare Android project / Per-Arch Build Jobs -> Create Release` 结构；`iOS` 仍取决于 Apple 工程初始化与签名材料。

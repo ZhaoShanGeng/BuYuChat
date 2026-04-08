@@ -13,7 +13,7 @@
 |------|------|------|
 | 模块/文件名 | snake_case | `channel_service.rs` |
 | 结构体/枚举/Trait | PascalCase | `ChannelModel`, `AppError` |
-| 枚举变体 | PascalCase | `AppError::NoChannel` |
+| 枚举变体 | PascalCase | `GenerationEvent::EmptyRollback` |
 | 函数/方法 | snake_case | `list_channels()` |
 | 常量 | SCREAMING_SNAKE_CASE | `MAX_RETRY_COUNT` |
 | 类型别名 | PascalCase | `type Result<T> = std::result::Result<T, AppError>` |
@@ -35,7 +35,8 @@
 
 ### 1.3 JSON 序列化
 
-- Rust → 前端：使用 `#[serde(rename_all = "camelCase")]`
+- Rust / Tauri 原始返回：当前以 `snake_case` 为主
+- 前端 transport：负责把原始字段转换为 `camelCase`
 - Rust 内部 / 数据库 / OpenAPI 文档：snake_case
 - 前端 TypeScript 类型定义：camelCase
 
@@ -43,22 +44,24 @@
 
 ## 2. 函数与复杂度限制
 
+说明：下面的长度阈值是当前团队的收敛目标，不是仓库已经完全满足的硬门禁；历史代码里仍有超长模块和组件。
+
 ### 2.1 函数长度
 
-| 层级 | 最大行数 | 超出时处理 |
+| 层级 | 建议目标 | 超出时优先处理 |
 |------|---------|-----------|
-| Tauri command handler | 30 行 | 提取到 service 层 |
-| Service 函数 | 50 行 | 拆分为私有辅助函数 |
-| Repo 函数（SQL 查询） | 40 行 | SQL 超长时考虑拆分查询 |
-| TypeScript 函数 | 40 行 | 提取辅助函数 |
-| Svelte 组件 `<script>` | 80 行 | 提取逻辑到 `.svelte.ts` 或 `$lib/` |
+| Tauri command handler | 30 行左右 | 提取到 service 层 |
+| Service 函数 | 50 行左右 | 拆分为私有辅助函数 |
+| Repo 函数（SQL 查询） | 40 行左右 | SQL 超长时考虑拆分查询 |
+| TypeScript 函数 | 40 行左右 | 提取辅助函数 |
+| Svelte 组件 `<script>` | 80 行左右 | 提取逻辑到 `.svelte.ts` 或 `$lib/` |
 
 ### 2.2 圈复杂度 (Cyclomatic Complexity)
 
 | 语言 | 阈值 | 工具 |
 |------|------|------|
-| Rust | ≤ 10 | `cargo clippy`（`cognitive-complexity` lint） |
-| TypeScript | ≤ 10 | ESLint `complexity` rule |
+| Rust | ≤ 10 | `cargo clippy` + code review |
+| TypeScript | ≤ 10 | 目前主要靠代码评审与手工拆分，仓库当前没有单独启用 ESLint `complexity` 门禁 |
 
 超过阈值时必须重构：提取函数、使用 early return、用 match/map 替代嵌套 if-else。
 
@@ -94,10 +97,10 @@ fn process() {
 
 ### 3.1 错误处理
 
-- 使用统一的 `AppError` 结构化错误，不在业务代码中使用 `unwrap()` / `expect()`
+- 使用统一的 `AppError` 结构化错误；业务层默认避免 `unwrap()` / `expect()`
 - Tauri command handler 返回 `Result<T, AppError>`
-- `AppError` 通过 serde 序列化为前端统一错误格式 `error_code + message`
-- 数据库错误使用 `?` 传播，在 `AppError::Database` 中包装
+- `AppError` 当前是带 `error_code`、`message`、`details` 的结构体，并通过 serde 返回前端
+- 数据库和底层错误会在 repo / service 中转换成 `AppError::validation(...)`、`AppError::internal(...)` 等统一错误
 
 ### 3.2 数据库访问
 
@@ -110,14 +113,14 @@ fn process() {
 ### 3.3 异步
 
 - 所有 Tauri command 使用 `async fn`
-- 长时间运行的任务（AI 生成）使用 `tokio::spawn`
+- 长时间运行的任务（AI 生成）当前主要使用 `tauri::async_runtime::spawn`；局部异步收尾逻辑也会使用 `tokio::spawn`
 - 使用 `tokio_util::sync::CancellationToken` 支持取消
 
 ### 3.4 模块组织
 
-- 每个模块文件 ≤ 300 行（不含测试）
-- 超过时按职责拆分为子模块
-- `mod.rs` 只做 re-export，不含业务逻辑
+- 新增模块优先控制在 300 行左右（不含测试）；当前仓库仍存在历史超长文件
+- 当继续修改超长模块时，优先顺手按职责拆分子模块，而不是继续把逻辑堆大
+- `mod.rs` 只放模块声明、re-export 和测试绑定，不放业务函数实现
 
 ### 3.5 依赖注入
 
@@ -127,10 +130,10 @@ fn process() {
 
 ### 3.6 注释规范
 
-- 每个 Rust 源码文件顶部必须有中文 `//!` 文件说明
-- 每个 Rust 函数/方法都必须有中文 `///` 或紧邻的块注释，测试 helper 也不例外
-- 每个 TypeScript / Svelte 源码文件顶部必须有中文 `/** ... */` 文件说明
-- 每个 TypeScript / Svelte 函数、事件处理器、helper、导出类型都必须写中文 JSDoc
+- 新增 Rust 源码文件应优先补中文 `//!` 文件说明
+- 对外导出的 Rust 函数、复杂 helper 和关键状态流转优先补中文注释；历史代码当前并未做到“每个函数都有注释”
+- 新增 TypeScript / Svelte 源码文件应优先补中文 `/** ... */` 文件说明
+- TypeScript / Svelte 中的导出类型、状态工厂、复杂事件处理器优先补中文注释；历史文件当前并未补齐到每个函数强制 JSDoc
 - 注释应说明职责、约束、边界和非显然原因，不写低价值的逐行翻译
 
 ---
@@ -140,17 +143,19 @@ fn process() {
 ### 4.1 类型安全
 
 - 启用 `strict: true`
-- 禁止 `any`（使用 `unknown` 后做类型收窄）
+- 默认避免 `any`，优先使用 `unknown` 后做类型收窄；第三方解析器和少量类型体操位置当前仍存在受控例外
 - API 响应类型与 OpenAPI schema 一一对应
 - 使用 discriminated union 处理 GenerationEvent
 
 ```typescript
 type GenerationEvent =
-  | { type: "chunk"; delta: string; /* ... */ }
-  | { type: "completed"; promptTokens: number; /* ... */ }
-  | { type: "failed"; error: string; /* ... */ }
-  | { type: "cancelled"; /* ... */ }
-  | { type: "empty_rollback"; nodeDeleted: boolean; /* ... */ };
+  | { type: "chunk"; delta: string; reasoningDelta?: string; /* ... */ }
+  | { type: "completed"; promptTokens: number; finishReason: string; /* ... */ }
+  | { type: "failed"; errorCode: string; errorMessage: string; /* ... */ }
+  | { type: "cancelled"; versionId: string; /* ... */ }
+  | { type: "empty_rollback"; nodeDeleted: boolean; fallbackVersionId: string | null; /* ... */ }
+  | { type: "tool_call_start"; toolCalls: Array<unknown>; /* ... */ }
+  | { type: "tool_result"; results: Array<unknown>; /* ... */ };
 ```
 
 ### 4.2 Svelte 5 Runes
@@ -166,7 +171,7 @@ type GenerationEvent =
 - `const` 继续用于常量、依赖注入对象、纯函数引用
 - 普通 `let` 只允许用于**非响应式哨兵或局部临时变量**，例如 `initialized`、上一次草稿值、循环内中间值
 - 纯函数 helper 保持在普通 `.ts`；只有持有 runes 状态的模块才使用 `*.svelte.ts`
-- 当某个 `.svelte` 文件接近 200 行，或 `<script>` 接近 80 行时，必须把页面级状态和异步逻辑下沉到 `*.svelte.ts`
+- 当某个 `.svelte` 文件接近 200 行，或 `<script>` 接近 80 行时，优先把页面级状态和异步逻辑下沉到 `*.svelte.ts`
 
 ```typescript
 /**
@@ -207,8 +212,8 @@ export function createWorkspaceState() {
 
 ### 4.3 组件设计
 
-- 每个 `.svelte` 文件 ≤ 200 行（含模板）
-- 逻辑超长时提取到 `.svelte.ts` 文件
+- 新增 `.svelte` 文件优先控制在 200 行左右（含模板）；当前仓库已有历史超长组件
+- 逻辑超长时优先提取到 `.svelte.ts` 文件
 - Props 使用 `$props()` 声明
 - 事件使用 callback props（不使用 `createEventDispatcher`）
 

@@ -2,9 +2,9 @@
 
 **版本：** 0.2
 **阶段：** 当前工作树基线
-**最后更新：** 2026-04-04
+**最后更新：** 2026-04-08
 
-本文描述的是仓库当前后端代码已经具备的结构与能力，不绑定某一历史提交。
+本文描述的是仓库当前后端代码已经具备的结构与能力。
 
 ## 1. 基线范围
 
@@ -91,14 +91,14 @@ state.rs
 
 - 元数据写在 `message_versions`
 - 正文、thinking、工具调用、工具结果等内容写在 `message_contents`
-- `list_messages` 只返回 active version 的正文
-- 非 active version 通过 `get_version_content` 按需加载
+- `list_messages` 会把 active version 的正文、thinking、附件和工具相关内容聚合返回
+- 非 active version 仍只返回版本元数据；切换后通过 `get_version_content` 按需补正文
 
 ## 4. AI 与生成基线
 
 ### 4.1 AI 接入方式
 
-当前 AI 接入不是 `aisdk`，而是自建 OpenAI-compatible 适配层：
+当前 AI 接入使用自建 OpenAI-compatible 适配层：
 
 - 模型探测和远程模型拉取走 `GET /models`
 - 聊天生成走 `POST /chat/completions`
@@ -187,4 +187,4 @@ pnpm verify
 - 可取消、可回滚、可切版本的生成链路
 - 内置工具执行与 MCP 扩展入口
 
-后续文档如果再描述后端能力，应以本文和实际代码为准，不再引用历史选型调研结论。
+后续文档如果再描述后端能力，应以本文和实际代码为准。

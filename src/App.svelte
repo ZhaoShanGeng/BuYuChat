@@ -1,5 +1,5 @@
 <script lang="ts">
-  import WorkspaceShell from "./components/WorkspaceShell.svelte";
+  import WorkspaceShell from "./components/app-shell/WorkspaceShell.svelte";
 </script>
 
 <svelte:head>

@@ -2,9 +2,9 @@
 
 **版本：** 0.3
 **阶段：** MVP 迭代中
-**最后更新：** 2026-04-04
+**最后更新：** 2026-04-08
 
-本文只描述仓库当前代码已经存在的结构，不再保留已废弃的 `aisdk` 方案假设。
+本文只描述仓库当前代码已经存在的结构。
 
 ## 1. 系统分层
 
@@ -29,10 +29,15 @@
 
 | 模块 | 位置 | 职责 |
 |------|------|------|
-| 页面与工作台 | `src/components/` | 聊天区、侧边栏、设置页、窗口控件 |
-| 状态层 | `src/components/*.svelte.ts` | 使用 Svelte 5 runes 管理工作台与设置状态 |
-| 传输层 | `src/lib/transport/` | 封装 Tauri `invoke()`，承接 conversations / messages / models / channels |
+| 页面与工作台 | `src/components/app-shell/`、`src/components/chat/`、`src/components/conversations/`、`src/components/agents/`、`src/components/settings/` | 按功能拆分聊天区、侧边栏、设置页与窗口控件 |
+| 状态层 | `src/components/app-shell/*.svelte.ts`、`src/components/settings/*.svelte.ts` | 使用 Svelte 5 runes 管理工作台与设置状态 |
+| 传输层 | `src/lib/transport/` | 封装 Tauri `invoke()`，承接 agents / channels / conversations / messages / models，以及内置工具查询 |
 | 富文本渲染 | `src/lib/rich-text.ts` 等 | Markdown、代码高亮、KaTeX 渲染 |
+
+补充约束：
+
+- `src/components/legacy/` 当前仍保留旧组件和旧状态实现，便于迁移期对照
+- 当前主界面入口和主流程不再直接从 `legacy/` 目录加载
 
 ### 2.2 Tauri 后端
 
@@ -91,7 +96,7 @@ AppState {
 
 ### 3.3 AI 接入
 
-当前实现不是 `aisdk`，而是仓库内自建适配层：
+当前 AI 接入使用仓库内自建适配层：
 
 - 使用 `reqwest` 访问 OpenAI-compatible `models` / `chat/completions`
 - 自行构建兼容的请求体与响应体
@@ -200,7 +205,7 @@ src/
 - 版本事实来源：`package.json`、`src-tauri/Cargo.toml`、`src-tauri/tauri.conf.json`
 - 统一脚本：`scripts/version.mjs`
 - CI：版本一致性、前端检查/测试/构建、Rust 测试与 `clippy`
-- Release：手动触发构建，或在 `v*` tag 上发布安装包
+- Release：支持 `workflow_dispatch` 手动构建、`main` push 触发 `edge-main` 滚动预发布，以及 `v*` tag 正式发布
 
 ## 8. 当前边界
 

@@ -1,615 +1,554 @@
 # 步语 BuYu — API 参考手册
 
-**版本：** 0.2
-**阶段：** MVP（P0）
+**版本：** 0.3
+**阶段：** 当前实现
+**最后更新：** 2026-04-08
 
----
+本文解释当前代码已经落地的 Tauri IPC 接口。
 
-## 1. 通用约定
+## 1. 总体规则
 
-### 1.1 传输层
+### 1.1 调用方式
 
-BuYu 使用 Tauri IPC（非 HTTP）。本文档以 REST 风格描述语义，实际调用方式：
+BuYu 实际使用的是 Tauri IPC，而不是 HTTP。
 
-```typescript
-import { invoke } from "@tauri-apps/api/core";
+语义映射示例：
 
-// REST: GET /channels → Tauri: invoke("list_channels")
-// REST: POST /channels → Tauri: invoke("create_channel", { input })
-// REST: PATCH /channels/{id} → Tauri: invoke("update_channel", { id, input })
-// REST: DELETE /channels/{id} → Tauri: invoke("delete_channel", { id })
+```ts
+invoke("list_channels")
+invoke("create_channel", { input })
+invoke("update_conversation", { id, input })
+invoke("send_message", { id, input, eventChannel })
 ```
 
-**命名映射规则：** `HTTP_METHOD /resource/{id}/action` → `snake_case` 命令名
+OpenAPI 文档中的 REST 路径只用于表达“这个命令在概念上像哪个接口”。
 
-### 1.2 ID 格式
+### 1.2 命名与转换
 
-所有实体使用 **UUID v7**（时间有序），字符串格式：`019587ab-0000-7abc-8def-000000000001`
+当前工程里有三层数据形态：
 
-### 1.3 时间戳
+| 层 | 例子 |
+|------|------|
+| Rust / Tauri 原始字段 | `channel_model_id`, `enabled_tools`, `error_details` |
+| 前端 transport 转换后 | `channelModelId`, `enabledTools`, `errorDetails` |
+| 前端页面最终使用 | 更适合 UI 的对象和联合类型 |
 
-所有 `created_at` / `updated_at` 字段为 **Unix 毫秒时间戳**（integer）。
+当前 transport 做了这些关键转换：
 
-### 1.4 命名风格
+- `snake_case -> camelCase`
+- `enabled_tools: string | null -> string[]`
+- `send_message` 返回值补充 `kind`
+- `GenerationEvent` 转换为前端联合类型
 
-| 层级 | 风格 | 示例 |
-|------|------|------|
-| Rust 结构体 / 字段 | snake_case | `channel_model_id` |
-| Tauri command 名 | snake_case | `create_channel` |
-| TypeScript 类型 / 字段 | camelCase | `channelModelId` |
-| API 文档 (OpenAPI) | snake_case | `channel_model_id` |
-| Tauri serde 序列化 | snake_case → 前端 transport 层转 camelCase | — |
+### 1.3 当前几个容易踩坑的真实约定
 
-**重要：** MVP 当前由前端 transport 层统一完成 `snake_case → camelCase` 转换；OpenAPI 文档继续使用 snake_case 描述字段语义。
+#### `update_conversation` 需要 `*_set`
 
-### 1.5 成功响应
+因为 Rust 侧要区分：
 
-| 操作类型 | 状态码 | 响应体 |
-|----------|--------|--------|
-| 创建 | 201 | 完整资源对象 |
-| 读取 | 200 | 资源对象或数组 |
-| 更新 | 200 | 更新后的完整资源对象 |
-| 删除 | 204 | 无响应体 |
-| 动作（send/reroll/cancel） | 200 | 操作结果对象 |
+- 字段没传
+- 显式清空为 `null`
+- 更新为某个具体值
 
-### 1.6 错误响应格式
+所以当前请求体必须显式传：
 
-所有错误统一格式：
+- `agent_id_set`
+- `channel_id_set`
+- `channel_model_id_set`
+- `enabled_tools_set`
+
+示例：
+
+```json
+{
+  "channel_id_set": true,
+  "channel_id": null
+}
+```
+
+这表示“把当前会话的渠道解绑”。
+
+#### 某些字段在原始返回里是 JSON 字符串
+
+当前后端真实返回中，以下字段仍是字符串：
+
+- `api_keys`
+- `thinking_tags`
+- `enabled_tools`
+
+其中前端当前的真实处理是：
+
+- `enabled_tools` 会解析成 `string[]`
+- `error_details` 在消息与错误返回中已经是结构化对象，不是 IPC 原始字符串
+- `api_keys`、`thinking_tags` 仍按字符串透传
+
+### 1.4 错误格式
+
+统一错误结构：
 
 ```json
 {
   "error_code": "NO_CHANNEL",
-  "message": "conversation has no channel configured"
+  "message": "conversation has no channel configured",
+  "details": null
 }
 ```
 
-- `error_code`：机器可读，前端用于 i18n 查表翻译为中文
-- `message`：英文调试信息，仅用于开发排查
+`details` 只有在部分失败场景下才有值，字段可能包括：
 
-### 1.7 错误码总表
+- `request_url`
+- `request_method`
+- `request_body`
+- `response_status`
+- `response_body`
+- `raw_message`
 
-| 错误码 | HTTP 语义 | 触发场景 |
-|--------|-----------|---------|
-| `VALIDATION_ERROR` | 400 | 入参校验失败（附 field 信息） |
-| `INVALID_URL` | 400 | base_url 格式不合法 |
-| `NAME_EMPTY` | 400 | name 为空字符串 |
-| `CONTENT_EMPTY` | 400 | 消息 content 为空 |
-| `NOT_FOUND` | 404 | 资源不存在 |
-| `MODEL_ID_CONFLICT` | 409 | 同渠道下 model_id 已存在 |
-| `NO_AGENT` | 422 | 会话未绑定 Agent |
-| `AGENT_DISABLED` | 422 | Agent 已禁用 |
-| `NO_CHANNEL` | 422 | 会话未绑定渠道 |
-| `CHANNEL_DISABLED` | 422 | 渠道已禁用 |
-| `NO_MODEL` | 422 | 会话未绑定模型 |
-| `NOT_LAST_USER_NODE` | 422 | user node 不是末尾楼层（不允许 reroll） |
-| `VERSION_NOT_IN_NODE` | 400 | version_id 不属于指定 node |
-| `CHANNEL_UNREACHABLE` | 502 | 渠道连通性测试失败 |
-| `AI_REQUEST_FAILED` | 502 | AI 服务商返回错误 |
-| `INTERNAL_ERROR` | 500 | 未预期的内部错误 |
+## 2. 资源与命令对照
 
----
+| 语义资源 | Tauri 命令 |
+|------|------|
+| 渠道 | `list_channels`, `get_channel`, `create_channel`, `update_channel`, `delete_channel`, `test_channel` |
+| 模型 | `list_models`, `create_model`, `update_model`, `delete_model`, `fetch_remote_models` |
+| Agent | `list_agents`, `get_agent`, `create_agent`, `update_agent`, `delete_agent` |
+| 会话 | `list_conversations`, `get_conversation`, `create_conversation`, `update_conversation`, `delete_conversation` |
+| 消息 | `list_messages`, `get_version_content`, `set_active_version`, `delete_version` |
+| 生成 | `send_message`, `reroll`, `edit_message`, `cancel_generation` |
+| 工具 | `list_builtin_tools` |
 
-## 2. 渠道资源 (Channels)
+## 3. 渠道与模型
 
-### POST /channels — 创建渠道
+### 3.1 渠道字段
 
-**Tauri command:** `create_channel`
+当前渠道对象包含这些重要字段：
 
-**请求体：**
 ```json
 {
-  "name": "My OpenAI",
-  "base_url": "https://api.openai.com",
-  "api_key": "sk-xxxx",
-  "channel_type": "openai_compatible",
-  "auth_type": null,
-  "models_endpoint": null,
-  "chat_endpoint": null,
-  "stream_endpoint": null
-}
-```
-
-必填：`name`（非空）、`base_url`（http/https 开头）。其余选填。
-
-**成功响应 (201)：**
-```json
-{
-  "id": "019587ab-0000-7abc-8def-000000000001",
-  "name": "My OpenAI",
+  "id": "0195...",
+  "name": "OpenAI",
   "channel_type": "openai_compatible",
   "base_url": "https://api.openai.com",
-  "api_key": "sk-xxxx",
-  "auth_type": null,
-  "models_endpoint": null,
-  "chat_endpoint": null,
-  "stream_endpoint": null,
+  "api_key": "sk-...",
+  "api_keys": "[\"sk-a\",\"sk-b\"]",
+  "auth_type": "bearer",
+  "models_endpoint": "/v1/models",
+  "chat_endpoint": "/v1/chat/completions",
+  "stream_endpoint": "/v1/chat/completions",
+  "thinking_tags": "[\"think\",\"reasoning\"]",
   "enabled": true,
   "created_at": 1735000000000,
   "updated_at": 1735000000000
 }
 ```
 
-**错误响应：**
-```json
-// 400
-{ "error_code": "INVALID_URL", "message": "base_url must start with http:// or https://" }
-```
+当前真实代码已经包含：
 
----
+- `api_keys`
+- `thinking_tags`
+- `enabled` 在创建时也可传
 
-### GET /channels — 渠道列表
+### 3.2 模型字段
 
-**Tauri command:** `list_channels`
+当前模型对象除了基础字段外，还包括：
 
-**参数：** `include_disabled: bool`（默认 true）
+- `temperature`
+- `top_p`
 
-**成功响应 (200)：** `Channel[]`，按 `created_at` 降序
-
----
-
-### GET /channels/{id} — 渠道详情
-
-**Tauri command:** `get_channel`
-
----
-
-### PATCH /channels/{id} — 更新渠道
-
-**Tauri command:** `update_channel`
-
-只发送需要修改的字段。
+示例：
 
 ```json
-// 请求：仅修改名称和启用状态
-{ "name": "OpenAI Pro", "enabled": false }
-
-// 响应 200：返回完整的更新后对象
-```
-
----
-
-### DELETE /channels/{id} — 删除渠道
-
-**Tauri command:** `delete_channel`
-
-**响应：** 204（无响应体）
-
-**副作用：**
-1. 级联删除 `api_channel_models`
-2. `conversations.channel_id` → NULL
-3. `conversations.channel_model_id` → NULL
-
----
-
-### POST /channels/{id}/test — 测试渠道连通性
-
-**Tauri command:** `test_channel`
-
-```json
-// 成功响应
-{ "success": true, "message": "channel is reachable" }
-
-// 失败响应 502
-{ "error_code": "CHANNEL_UNREACHABLE", "message": "failed to reach channel: connection timeout" }
-```
-
----
-
-## 3. 模型资源 (Models)
-
-### POST /channels/{channelId}/models — 添加模型
-
-**Tauri command:** `create_model`
-
-```json
-// 请求
-{ "model_id": "gpt-4o", "display_name": "GPT-4o" }
-
-// 成功响应 201
 {
-  "id": "019587ab-0001-7abc-8def-000000000002",
-  "channel_id": "019587ab-0000-7abc-8def-000000000001",
+  "id": "0195...",
+  "channel_id": "0195...",
   "model_id": "gpt-4o",
   "display_name": "GPT-4o",
-  "context_window": null,
-  "max_output_tokens": null
-}
-
-// 冲突响应 409
-{ "error_code": "MODEL_ID_CONFLICT", "message": "model_id 'gpt-4o' already exists in this channel" }
-```
-
----
-
-### GET /channels/{channelId}/models — 模型列表
-
-**Tauri command:** `list_models`
-
----
-
-### PATCH /channels/{channelId}/models/{id} — 更新模型
-
-**Tauri command:** `update_model`
-
----
-
-### DELETE /channels/{channelId}/models/{id} — 删除模型
-
-**Tauri command:** `delete_model`
-
-**副作用：** `conversations.channel_model_id` → NULL
-
----
-
-### POST /channels/{channelId}/models/fetch — 从远程拉取模型列表
-
-**Tauri command:** `fetch_remote_models`
-
-不写库，仅返回供用户勾选。
-
-```json
-// 成功响应 200
-[
-  { "model_id": "gpt-4o", "display_name": "GPT-4o", "context_window": 128000 },
-  { "model_id": "gpt-4o-mini", "display_name": null, "context_window": null }
-]
-```
-
-```json
-// 远程不可达 / 连接失败（502）
-{ "error_code": "CHANNEL_UNREACHABLE", "message": "failed to reach channel: connection refused" }
-
-// 远程返回非 2xx（502）
-{ "error_code": "AI_REQUEST_FAILED", "message": "remote endpoint returned 503 Service Unavailable: upstream unavailable" }
-```
-
----
-
-## 4. Agent 资源 (Agents)
-
-### POST /agents — 创建 Agent
-
-**Tauri command:** `create_agent`
-
-```json
-// 请求
-{ "name": "助手", "system_prompt": "你是一个有帮助的助手" }
-
-// 成功响应 201
-{
-  "id": "019587ab-0003-...",
-  "name": "助手",
-  "system_prompt": "你是一个有帮助的助手",
-  "avatar_uri": null,
-  "enabled": true,
-  "created_at": 1735000000000,
-  "updated_at": 1735000000000
+  "context_window": 128000,
+  "max_output_tokens": 16384,
+  "temperature": "0.7",
+  "top_p": "0.95"
 }
 ```
 
----
+## 4. 会话接口
 
-### GET /agents — Agent 列表
+### 4.1 会话详情真实字段
 
-**Tauri command:** `list_agents`
-
-**参数：** `include_disabled: bool`（默认 true）
-
----
-
-### PATCH /agents/{id} — 更新 Agent
-
-**Tauri command:** `update_agent`
-
-system_prompt 修改后对所有绑定会话的**下一条消息**立即生效（实时读取，不做快照）。
-
----
-
-### DELETE /agents/{id} — 删除 Agent
-
-**Tauri command:** `delete_agent`
-
-**副作用：** `conversations.agent_id` → NULL
-
----
-
-## 5. 会话资源 (Conversations)
-
-### POST /conversations — 创建会话
-
-**Tauri command:** `create_conversation`
+当前会话对象已经包含 `enabled_tools`：
 
 ```json
-// 请求（可选）
-{ "title": "关于 Rust 的讨论", "agent_id": "...", "channel_id": "...", "channel_model_id": "..." }
-
-// 最小请求（全部使用默认值）
-{}
-
-// 成功响应 201
 {
-  "id": "019587ab-0004-...",
+  "id": "0195...",
   "title": "新会话",
   "agent_id": null,
   "channel_id": null,
   "channel_model_id": null,
   "archived": false,
   "pinned": false,
+  "enabled_tools": "[\"fetch\"]",
   "created_at": 1735000000000,
   "updated_at": 1735000000000
 }
 ```
 
----
+前端 transport 会把它转成：
 
-### GET /conversations — 会话列表
-
-**Tauri command:** `list_conversations`
-
-**参数：** `archived: bool`（默认 false）
-
-**排序：** 置顶优先（`pinned DESC`），再按 `updated_at DESC`
-
----
-
-### PATCH /conversations/{id} — 更新会话
-
-**Tauri command:** `update_conversation`
-
-用于：重命名、绑定 Agent/渠道/模型、归档、置顶。
-
-```json
-// 绑定配置
-{ "agent_id": "...", "channel_id": "...", "channel_model_id": "..." }
-
-// 归档
-{ "archived": true }
-
-// 置顶
-{ "pinned": true }
+```ts
+enabledTools: ["fetch"]
 ```
 
----
+### 4.2 更新会话示例
 
-### DELETE /conversations/{id} — 删除会话
-
-**Tauri command:** `delete_conversation`
-
-级联删除所有 `message_nodes` 和 `message_versions`。
-
----
-
-## 6. 消息资源 (Messages)
-
-### GET /conversations/{id}/messages — 消息列表
-
-**Tauri command:** `list_messages`
-
-返回所有 node 及其**全部 version 的元数据**。**只有 active version 包含 content**，非 active version 的 `content` 字段为 `null`。切换版本时通过 `GET /versions/{versionId}/content` 按需加载。
+绑定渠道和模型：
 
 ```json
-// 成功响应 200
-[
-  {
-    "id": "node-001",
-    "conversation_id": "conv-001",
-    "role": "user",
-    "order_key": "0000001735000000000-0-a3f9",
-    "active_version_id": "ver-001",
-    "versions": [
-      {
-        "id": "ver-001",
-        "node_id": "node-001",
-        "content": "用 Rust 写一个快速排序",
-        "status": "committed",
-        "model_name": null,
-        "prompt_tokens": null,
-        "completion_tokens": null,
-        "finish_reason": null,
-        "created_at": 1735000001000
-      }
-    ],
-    "created_at": 1735000001000
-  },
-  {
-    "id": "node-002",
-    "role": "assistant",
-    "order_key": "0000001735000000000-1-a3f9",
-    "active_version_id": "ver-002",
-    "versions": [
-      {
-        "id": "ver-002",
-        "node_id": "node-002",
-        "content": "当然，这是 Rust 快速排序的实现...",
-        "status": "committed",
-        "model_name": "gpt-4o",
-        "prompt_tokens": 23,
-        "completion_tokens": 312,
-        "finish_reason": "stop",
-        "created_at": 1735000002000
-      },
-      {
-        "id": "ver-003",
-        "node_id": "node-002",
-        "content": null,
-        "status": "committed",
-        "model_name": "gpt-4o",
-        "prompt_tokens": 25,
-        "completion_tokens": 280,
-        "finish_reason": "stop",
-        "created_at": 1735000003000
-      }
-    ],
-    "created_at": 1735000001000
-  }
-]
-```
-
-> 注意 `ver-003`（非 active）的 `content` 为 `null`，需要时再调用 `/versions/ver-003/content` 加载。
-
----
-
-### GET /versions/{versionId}/content — 按需加载版本内容
-
-**Tauri command:** `get_version_content`
-
-用于版本切换时加载非 active 版本的完整内容。
-
-```json
-// 成功响应 200
 {
-  "version_id": "ver-003",
-  "content": "这是另一个版本的完整内容...",
+  "channel_id_set": true,
+  "channel_id": "channel-1",
+  "channel_model_id_set": true,
+  "channel_model_id": "model-1"
+}
+```
+
+清空 Agent：
+
+```json
+{
+  "agent_id_set": true,
+  "agent_id": null
+}
+```
+
+启用工具：
+
+```json
+{
+  "enabled_tools_set": true,
+  "enabled_tools": ["fetch"]
+}
+```
+
+## 5. 消息查询
+
+### 5.1 `list_messages`
+
+当前接口返回：
+
+- 全部 `message node`
+- 每个 node 下全部 `version`
+- 只有 active version 带完整内容
+
+active version 现在不只包含 `content`，还可能带：
+
+- `thinking_content`
+- `images`
+- `files`
+- `tool_calls`
+- `tool_results`
+- `error_code`
+- `error_message`
+- `error_details`
+- `received_at`
+- `completed_at`
+
+示例：
+
+```json
+{
+  "id": "node-1",
+  "conversation_id": "conv-1",
+  "author_agent_id": null,
+  "role": "assistant",
+  "order_key": "0000001735000000000-1-a3f9",
+  "active_version_id": "ver-2",
+  "versions": [
+    {
+      "id": "ver-2",
+      "node_id": "node-1",
+      "content": "这是正文",
+      "thinking_content": "这是思考内容",
+      "images": [],
+      "files": [],
+      "tool_calls": [],
+      "tool_results": [],
+      "status": "committed",
+      "error_code": null,
+      "error_message": null,
+      "error_details": null,
+      "model_name": "gpt-4o",
+      "prompt_tokens": 123,
+      "completion_tokens": 456,
+      "finish_reason": "stop",
+      "received_at": 1735000001111,
+      "completed_at": 1735000002222,
+      "created_at": 1735000001000
+    }
+  ],
+  "created_at": 1735000001000
+}
+```
+
+### 5.2 `get_version_content`
+
+这个接口当前只返回纯正文：
+
+```json
+{
+  "version_id": "ver-2",
+  "content": "这是正文",
   "content_type": "text/plain"
 }
 ```
 
----
+它**不会**返回：
 
-### PUT /conversations/{id}/nodes/{nodeId}/active-version — 切换版本
+- `thinking_content`
+- 图片
+- 文件
+- 工具调用
+- 工具结果
 
-**Tauri command:** `set_active_version`
+## 6. 发送、重试、编辑
 
-立即写库，不做 debounce。
+### 6.1 `send_message`
+
+当前请求体支持：
+
+- `content`
+- `images`
+- `files`
+- `tool_results`
+- `stream`
+- `dry_run`
+
+也就是说，现在已经不是“只支持纯文本发送”。
+
+最小请求：
 
 ```json
-// 请求
-{ "version_id": "ver-003" }
-
-// 成功响应 200（无响应体）
-```
-
----
-
-### DELETE /conversations/{id}/nodes/{nodeId}/versions/{versionId} — 删除版本
-
-**Tauri command:** `delete_version`
-
-```json
-// 成功响应 200
 {
-  "node_deleted": false,
-  "new_active_version_id": "ver-001"
-}
-
-// 最后一个版本，node 一起删除
-{
-  "node_deleted": true,
-  "new_active_version_id": null
+  "content": "你好"
 }
 ```
 
----
+带图片和文件：
 
-## 7. AI 生成控制 (Generation)
-
-### POST /conversations/{id}/send — 发送消息
-
-**Tauri command:** `send_message`
-
-**参数说明：**
-
-| 参数 | 类型 | 默认值 | 说明 |
-|------|------|--------|------|
-| `content` | string | — | 必填，用户消息正文 |
-| `stream` | bool | true | 流式返回（通过 Tauri Channel 推送 chunk） |
-| `dry_run` | bool | false | 仅组装 prompt，不调用 AI，不创建消息 |
-
-**正常调用示例：**
 ```json
-// 请求
-{ "content": "用 Rust 写一个快速排序" }
-
-// 响应 200
 {
-  "user_node_id": "node-010",
-  "user_version_id": "ver-011",
-  "assistant_node_id": "node-012",
-  "assistant_version_id": "ver-013"
+  "content": "",
+  "images": [
+    { "base64": "...", "mime_type": "image/png" }
+  ],
+  "files": [
+    { "name": "notes.txt", "base64": "...", "mime_type": "text/plain" }
+  ]
 }
 ```
 
-**dry_run 调用示例：**
-```json
-// 请求
-{ "content": "测试问题", "dry_run": true }
+dry run 返回：
 
-// 响应 200
+```json
 {
   "messages": [
-    { "role": "system", "content": "你是一个有帮助的助手" },
-    { "role": "user", "content": "你好" },
-    { "role": "assistant", "content": "你好！有什么可以帮你的？" },
-    { "role": "user", "content": "测试问题" }
+    {
+      "role": "system",
+      "content": "你是一个有帮助的助手",
+      "images": [],
+      "files": [],
+      "tool_calls": [],
+      "tool_results": []
+    }
   ],
   "total_tokens_estimate": 156,
   "model": "gpt-4o"
 }
 ```
 
-**Tauri Channel 事件流（stream=true 时）：**
-```json
-{ "type": "chunk",     "conversation_id": "...", "node_id": "...", "version_id": "...", "delta": "当然" }
-{ "type": "chunk",     "conversation_id": "...", "node_id": "...", "version_id": "...", "delta": "，这是..." }
-{ "type": "completed", "conversation_id": "...", "node_id": "...", "version_id": "...", "prompt_tokens": 23, "completion_tokens": 312, "finish_reason": "stop", "model": "gpt-4o" }
-```
+### 6.2 `reroll`
 
-**业务错误 (422)：**
-```json
-{ "error_code": "NO_CHANNEL", "message": "conversation has no channel configured" }
-```
+当前行为：
 
----
+| 楼层角色 | 实际行为 |
+|------|------|
+| assistant | 在原 node 下创建一个新的 generating version |
+| user | 优先复用紧邻的 assistant node；如果没有，则插入新的 assistant node |
 
-### POST /conversations/{id}/nodes/{nodeId}/reroll — Reroll
+### 6.3 `edit_message`
 
-**Tauri command:** `reroll`
+这是当前代码里已经存在的能力。
 
-**行为差异：**
-
-| node.role | 行为 |
-|-----------|------|
-| assistant | 在同 node 新建 version，开始生成 |
-| user | 复制当前 active version 内容为新 user version → 创建新 assistant node → 开始生成 |
+请求体：
 
 ```json
-// assistant reroll 响应 200
 {
-  "new_user_version_id": null,
-  "assistant_node_id": "node-012",
-  "assistant_version_id": "ver-020"
-}
-
-// user reroll 响应 200
-{
-  "new_user_version_id": "ver-030",
-  "assistant_node_id": "node-031",
-  "assistant_version_id": "ver-032"
+  "content": "修改后的内容",
+  "resend": true,
+  "stream": true
 }
 ```
 
----
+语义：
 
-### POST /generations/{versionId}/cancel — 取消生成
+1. 先在当前 node 下创建一个新的 committed version
+2. 把它切为 active version
+3. 如果 `resend=true`
+   - 编辑 assistant 楼层时，相当于基于新内容重新 reroll
+   - 编辑 user 楼层时，会重新触发后续 assistant 回复
 
-**Tauri command:** `cancel_generation`
+响应：
 
-幂等：version 不存在或已终结时同样返回 200。
+```json
+{
+  "edited_version_id": "ver-edited",
+  "assistant_node_id": "node-assistant",
+  "assistant_version_id": "ver-assistant"
+}
+```
 
-**副作用：** 触发 CancellationToken → 后台写库 `status=cancelled` → 推送 `generation:cancelled` 事件
+如果 `resend=false`，后两个字段会是 `null`。
 
----
+## 7. 生成事件
 
-## 8. Tauri Channel 事件规范
+当前事件种类如下：
 
-所有 AI 生成事件通过 Tauri `Channel<GenerationEvent>` 推送（有序、有 back-pressure），不使用全局广播。
+| 事件 | 含义 |
+|------|------|
+| `chunk` | 流式正文 / thinking / tool call delta |
+| `completed` | 正常结束 |
+| `failed` | 失败结束 |
+| `cancelled` | 被取消 |
+| `empty_rollback` | 空响应自动回滚 |
+| `tool_call_start` | 工具调用开始 |
+| `tool_result` | 工具执行结果回填 |
 
-| 事件类型 | 触发时机 | 关键字段 |
-|----------|---------|---------|
-| `chunk` | 流式 chunk 到达 | `delta` |
-| `completed` | 生成正常完成 | `prompt_tokens`, `completion_tokens`, `finish_reason`, `model` |
-| `failed` | 生成失败 | `error` |
-| `cancelled` | 用户取消 | — |
-| `empty_rollback` | AI 返回空内容，自动回滚 | `node_deleted`, `fallback_version_id` |
+### 7.1 `chunk`
 
-**前端路由规则：** 按 `conversation_id` 路由到对应会话视图，按 `version_id` 匹配具体楼层。
+现在的 `chunk` 事件不仅有 `delta`，还有：
+
+- `reasoning_delta`
+- `tool_call_deltas`
+
+示例：
+
+```json
+{
+  "type": "chunk",
+  "conversation_id": "conv-1",
+  "node_id": "node-1",
+  "version_id": "ver-1",
+  "delta": "",
+  "reasoning_delta": "我先分析一下",
+  "tool_call_deltas": []
+}
+```
+
+### 7.2 `failed`
+
+当前失败事件字段为：
+
+```json
+{
+  "type": "failed",
+  "conversation_id": "conv-1",
+  "node_id": "node-1",
+  "version_id": "ver-1",
+  "error_code": "AI_REQUEST_FAILED",
+  "error_message": "upstream returned 503",
+  "error_details": {
+    "response_status": 503,
+    "raw_message": "service unavailable"
+  }
+}
+```
+
+### 7.3 工具事件
+
+工具调用开始：
+
+```json
+{
+  "type": "tool_call_start",
+  "conversation_id": "conv-1",
+  "node_id": "node-1",
+  "version_id": "ver-1",
+  "tool_calls": [
+    {
+      "id": "call-1",
+      "name": "fetch",
+      "arguments_json": "{\"url\":\"https://example.com\"}"
+    }
+  ]
+}
+```
+
+工具结果回填：
+
+```json
+{
+  "type": "tool_result",
+  "conversation_id": "conv-1",
+  "node_id": "node-1",
+  "version_id": "ver-1",
+  "results": [
+    {
+      "tool_call_id": "call-1",
+      "name": "fetch",
+      "content": "网页纯文本内容",
+      "is_error": false
+    }
+  ]
+}
+```
+
+## 8. 内置工具接口
+
+当前已存在：
+
+- `list_builtin_tools`
+
+返回值：
+
+```json
+[
+  {
+    "name": "fetch",
+    "description": "获取网页内容（HTML 转纯文本，最大 32KB）"
+  }
+]
+```
+
+这是当前接口的一部分。
+
+## 9. 当前常见错误码
+
+| 错误码 | 场景 |
+|------|------|
+| `VALIDATION_ERROR` | 输入校验失败 |
+| `INVALID_URL` | 渠道地址不合法 |
+| `MODEL_ID_CONFLICT` | 同渠道下模型 ID 冲突 |
+| `NOT_FOUND` | 资源不存在 |
+| `NO_AGENT` | 会话未绑定 Agent |
+| `AGENT_DISABLED` | 会话绑定的 Agent 已禁用 |
+| `NO_CHANNEL` | 会话未绑定渠道 |
+| `CHANNEL_DISABLED` | 渠道已禁用 |
+| `NO_MODEL` | 会话未绑定模型 |
+| `NOT_LAST_USER_NODE` | user reroll 不满足业务规则 |
+| `VERSION_NOT_IN_NODE` | 版本不属于指定楼层 |
+| `MESSAGE_STILL_GENERATING` | 不能编辑仍在生成中的版本 |
+| `CHANNEL_UNREACHABLE` | 渠道不可达 |
+| `AI_REQUEST_FAILED` | 上游模型请求失败 |
+| `INTERNAL_ERROR` | 内部错误 |
+
+## 10. 结论
+
+当前接口层最重要的变化有 5 个：
+
+1. 消息系统已经支持附件、thinking、工具调用和工具结果
+2. 会话更新接口必须使用 `*_set` 标记
+3. 生成事件已经扩展到工具相关事件
+4. 新增了 `edit_message`
+5. 新增了 `list_builtin_tools`
+
+如果后续代码继续演进，应优先同步：
+
+- `docs/03_database.md`
+- `docs/04_api_openapi.yaml`
+- `docs/05_api_reference.md`
