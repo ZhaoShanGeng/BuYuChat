@@ -319,43 +319,13 @@ jobs:
         run: pnpm tauri build --ci -c src-tauri/tauri.github-release.conf.json --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundles }}
 
       - name: Normalize desktop artifact names
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
-        run: |
-          version="${RELEASE_TAG#v}"
-          out_dir="release-assets"
-          mkdir -p "$out_dir"
-
-          mapfile -t built_files < <(find "src-tauri/target/${{ matrix.rust_target }}/release/bundle" -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" \) | sort)
-
-          if [ "${#built_files[@]}" -eq 0 ]; then
-            echo "No desktop bundles were produced." >&2
-            exit 1
-          fi
-
-          for file in "${built_files[@]}"; do
-            case "$file" in
-              *.exe)
-                target="BuYu_${version}_${{ matrix.platform }}_${{ matrix.arch }}_setup.exe"
-                ;;
-              *.AppImage)
-                target="BuYu_${version}_${{ matrix.platform }}_${{ matrix.arch }}.AppImage"
-                ;;
-              *.deb)
-                target="BuYu_${version}_${{ matrix.platform }}_${{ matrix.arch }}.deb"
-                ;;
-              *.dmg)
-                target="BuYu_${version}_${{ matrix.platform }}_${{ matrix.arch }}.dmg"
-                ;;
-              *)
-                echo "Unsupported desktop bundle: $file" >&2
-                exit 1
-                ;;
-            esac
-
-            cp "$file" "$out_dir/$target"
-          done
+        run: >
+          node scripts/normalize-release-assets.mjs desktop
+          --input-root "src-tauri/target/${{ matrix.rust_target }}/release/bundle"
+          --output-dir "release-assets"
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --version "${{ needs.plan.outputs.release_tag }}"
 
       - name: Show sccache stats
         shell: bash
@@ -566,23 +536,13 @@ jobs:
         run: sccache --show-stats || true
 
       - name: Normalize Android artifact names
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
-        run: |
-          version="${RELEASE_TAG#v}"
-          out_dir="release-assets"
-          mkdir -p "$out_dir"
-
-          mapfile -t apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name "*-signed.apk" | sort)
-
-          if [ "${#apks[@]}" -eq 0 ]; then
-            echo "No signed APKs found." >&2
-            exit 1
-          fi
-
-          target="BuYu_${version}_${{ matrix.platform }}_${{ matrix.arch }}.apk"
-          cp "${apks[0]}" "$out_dir/$target"
+        run: >
+          node scripts/normalize-release-assets.mjs android
+          --input-root "src-tauri/gen/android/app/build/outputs/apk"
+          --output-dir "release-assets"
+          --platform "${{ matrix.platform }}"
+          --arch "${{ matrix.arch }}"
+          --version "${{ needs.plan.outputs.release_tag }}"
 
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
@@ -640,22 +600,11 @@ jobs:
         run: pnpm tauri ios build --ci -c src-tauri/tauri.github-release.conf.json
 
       - name: Normalize iOS artifact names
-        shell: bash
-        env:
-          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
-        run: |
-          version="${RELEASE_TAG#v}"
-          out_dir="release-assets"
-          mkdir -p "$out_dir"
-
-          mapfile -t ipas < <(find src-tauri/gen/apple/build -type f -name "*.ipa" | sort)
-
-          if [ "${#ipas[@]}" -eq 0 ]; then
-            echo "No iOS IPA found." >&2
-            exit 1
-          fi
-
-          cp "${ipas[0]}" "$out_dir/BuYu_${version}_ios.ipa"
+        run: >
+          node scripts/normalize-release-assets.mjs ios
+          --input-root "src-tauri/gen/apple/build"
+          --output-dir "release-assets"
+          --version "${{ needs.plan.outputs.release_tag }}"
 
       - name: Show sccache stats
         shell: bash
