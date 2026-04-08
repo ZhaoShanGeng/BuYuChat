@@ -595,7 +595,7 @@ jobs:
 
   release:
     name: Create Release
-    if: ${{ needs.plan.outputs.publish_release == 'true' && (needs.build-desktop.result == 'success' || needs.build-desktop.result == 'skipped') && (needs.prepare-android.result == 'success' || needs.prepare-android.result == 'skipped') && (needs.build-android.result == 'success' || needs.build-android.result == 'skipped') && (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
+    if: ${{ always() && needs.plan.outputs.publish_release == 'true' && (needs.build-desktop.result == 'success' || needs.build-desktop.result == 'skipped') && (needs.prepare-android.result == 'success' || needs.prepare-android.result == 'skipped') && (needs.build-android.result == 'success' || needs.build-android.result == 'skipped') && (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
     needs: [plan, build-desktop, prepare-android, build-android, ios]
     runs-on: ubuntu-latest
     permissions:
