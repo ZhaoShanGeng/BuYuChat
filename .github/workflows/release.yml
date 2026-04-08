@@ -145,24 +145,24 @@ jobs:
 
           desktop_items=()
           if [ "$build_windows" = "true" ]; then
-            desktop_items+=('{"label":"windows-x64","runner":"windows-latest","rust_target":"x86_64-pc-windows-msvc","bundles":"nsis","artifact_name":"buyu-windows-x64","artifact_paths":"src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*-setup.exe"}')
-            desktop_items+=('{"label":"windows-arm64","runner":"windows-11-arm","rust_target":"aarch64-pc-windows-msvc","bundles":"nsis","artifact_name":"buyu-windows-arm64","artifact_paths":"src-tauri/target/aarch64-pc-windows-msvc/release/bundle/nsis/*-setup.exe"}')
+            desktop_items+=('{"label":"windows-x64","platform":"windows","arch":"x64","runner":"windows-latest","rust_target":"x86_64-pc-windows-msvc","bundles":"nsis","artifact_name":"buyu-windows-x64","artifact_paths":"release-assets/*"}')
+            desktop_items+=('{"label":"windows-arm64","platform":"windows","arch":"arm64","runner":"windows-11-arm","rust_target":"aarch64-pc-windows-msvc","bundles":"nsis","artifact_name":"buyu-windows-arm64","artifact_paths":"release-assets/*"}')
           fi
           if [ "$build_linux" = "true" ]; then
-            desktop_items+=('{"label":"linux-x64","runner":"ubuntu-22.04","rust_target":"x86_64-unknown-linux-gnu","bundles":"appimage,deb","artifact_name":"buyu-linux-x64","artifact_paths":"src-tauri/target/x86_64-unknown-linux-gnu/release/bundle/appimage/*.AppImage\nsrc-tauri/target/x86_64-unknown-linux-gnu/release/bundle/deb/*.deb"}')
-            desktop_items+=('{"label":"linux-arm64","runner":"ubuntu-22.04-arm","rust_target":"aarch64-unknown-linux-gnu","bundles":"appimage,deb","artifact_name":"buyu-linux-arm64","artifact_paths":"src-tauri/target/aarch64-unknown-linux-gnu/release/bundle/appimage/*.AppImage\nsrc-tauri/target/aarch64-unknown-linux-gnu/release/bundle/deb/*.deb"}')
+            desktop_items+=('{"label":"linux-x64","platform":"linux","arch":"x64","runner":"ubuntu-22.04","rust_target":"x86_64-unknown-linux-gnu","bundles":"appimage,deb","artifact_name":"buyu-linux-x64","artifact_paths":"release-assets/*"}')
+            desktop_items+=('{"label":"linux-arm64","platform":"linux","arch":"arm64","runner":"ubuntu-22.04-arm","rust_target":"aarch64-unknown-linux-gnu","bundles":"appimage,deb","artifact_name":"buyu-linux-arm64","artifact_paths":"release-assets/*"}')
           fi
           if [ "$build_macos" = "true" ]; then
-            desktop_items+=('{"label":"macos-x64","runner":"macos-15-intel","rust_target":"x86_64-apple-darwin","bundles":"dmg","artifact_name":"buyu-macos-x64","artifact_paths":"src-tauri/target/x86_64-apple-darwin/release/bundle/dmg/*.dmg"}')
-            desktop_items+=('{"label":"macos-arm64","runner":"macos-latest","rust_target":"aarch64-apple-darwin","bundles":"dmg","artifact_name":"buyu-macos-arm64","artifact_paths":"src-tauri/target/aarch64-apple-darwin/release/bundle/dmg/*.dmg"}')
+            desktop_items+=('{"label":"macos-x64","platform":"macos","arch":"x64","runner":"macos-15-intel","rust_target":"x86_64-apple-darwin","bundles":"dmg","artifact_name":"buyu-macos-x64","artifact_paths":"release-assets/*"}')
+            desktop_items+=('{"label":"macos-arm64","platform":"macos","arch":"arm64","runner":"macos-latest","rust_target":"aarch64-apple-darwin","bundles":"dmg","artifact_name":"buyu-macos-arm64","artifact_paths":"release-assets/*"}')
           fi
 
           android_items=()
           if [ "$build_android" = "true" ]; then
-            android_items+=('{"label":"arm64","tauri_target":"aarch64","rust_target":"aarch64-linux-android","artifact_name":"buyu-android-arm64"}')
-            android_items+=('{"label":"armv7","tauri_target":"armv7","rust_target":"armv7-linux-androideabi","artifact_name":"buyu-android-armv7"}')
-            android_items+=('{"label":"x86_64","tauri_target":"x86_64","rust_target":"x86_64-linux-android","artifact_name":"buyu-android-x86_64"}')
-            android_items+=('{"label":"x86","tauri_target":"i686","rust_target":"i686-linux-android","artifact_name":"buyu-android-x86"}')
+            android_items+=('{"label":"arm64","platform":"android","arch":"arm64","tauri_target":"aarch64","rust_target":"aarch64-linux-android","artifact_name":"buyu-android-arm64"}')
+            android_items+=('{"label":"armv7","platform":"android","arch":"armv7","tauri_target":"armv7","rust_target":"armv7-linux-androideabi","artifact_name":"buyu-android-armv7"}')
+            android_items+=('{"label":"x86_64","platform":"android","arch":"x86_64","tauri_target":"x86_64","rust_target":"x86_64-linux-android","artifact_name":"buyu-android-x86_64"}')
+            android_items+=('{"label":"x86","platform":"android","arch":"x86","tauri_target":"i686","rust_target":"i686-linux-android","artifact_name":"buyu-android-x86"}')
           fi
 
           desktop_joined=""
@@ -317,6 +317,45 @@ jobs:
 
       - name: Build desktop bundle
         run: pnpm tauri build --ci -c src-tauri/tauri.github-release.conf.json --target ${{ matrix.rust_target }} --bundles ${{ matrix.bundles }}
+
+      - name: Normalize desktop artifact names
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          out_dir="release-assets"
+          mkdir -p "$out_dir"
+
+          mapfile -t built_files < <(find "src-tauri/target/${{ matrix.rust_target }}/release/bundle" -type f \( -name "*.exe" -o -name "*.AppImage" -o -name "*.deb" -o -name "*.dmg" \) | sort)
+
+          if [ "${#built_files[@]}" -eq 0 ]; then
+            echo "No desktop bundles were produced." >&2
+            exit 1
+          fi
+
+          for file in "${built_files[@]}"; do
+            case "$file" in
+              *.exe)
+                target="BuYu_${version}_${{ matrix.platform }}_${{ matrix.arch }}_setup.exe"
+                ;;
+              *.AppImage)
+                target="BuYu_${version}_${{ matrix.platform }}_${{ matrix.arch }}.AppImage"
+                ;;
+              *.deb)
+                target="BuYu_${version}_${{ matrix.platform }}_${{ matrix.arch }}.deb"
+                ;;
+              *.dmg)
+                target="BuYu_${version}_${{ matrix.platform }}_${{ matrix.arch }}.dmg"
+                ;;
+              *)
+                echo "Unsupported desktop bundle: $file" >&2
+                exit 1
+                ;;
+            esac
+
+            cp "$file" "$out_dir/$target"
+          done
 
       - name: Show sccache stats
         shell: bash
@@ -526,11 +565,30 @@ jobs:
         shell: bash
         run: sccache --show-stats || true
 
+      - name: Normalize Android artifact names
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          out_dir="release-assets"
+          mkdir -p "$out_dir"
+
+          mapfile -t apks < <(find src-tauri/gen/android/app/build/outputs/apk -type f -name "*-signed.apk" | sort)
+
+          if [ "${#apks[@]}" -eq 0 ]; then
+            echo "No signed APKs found." >&2
+            exit 1
+          fi
+
+          target="BuYu_${version}_${{ matrix.platform }}_${{ matrix.arch }}.apk"
+          cp "${apks[0]}" "$out_dir/$target"
+
       - name: Upload build artifact
         uses: actions/upload-artifact@v4
         with:
           name: ${{ matrix.artifact_name }}
-          path: src-tauri/gen/android/app/build/outputs/apk/**/*-signed.apk
+          path: release-assets/*
           if-no-files-found: error
           retention-days: 7
 
@@ -581,6 +639,24 @@ jobs:
       - name: Build iOS bundle
         run: pnpm tauri ios build --ci -c src-tauri/tauri.github-release.conf.json
 
+      - name: Normalize iOS artifact names
+        shell: bash
+        env:
+          RELEASE_TAG: ${{ needs.plan.outputs.release_tag }}
+        run: |
+          version="${RELEASE_TAG#v}"
+          out_dir="release-assets"
+          mkdir -p "$out_dir"
+
+          mapfile -t ipas < <(find src-tauri/gen/apple/build -type f -name "*.ipa" | sort)
+
+          if [ "${#ipas[@]}" -eq 0 ]; then
+            echo "No iOS IPA found." >&2
+            exit 1
+          fi
+
+          cp "${ipas[0]}" "$out_dir/BuYu_${version}_ios.ipa"
+
       - name: Show sccache stats
         shell: bash
         run: sccache --show-stats || true
@@ -589,7 +665,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: buyu-ios-ipa
-          path: src-tauri/gen/apple/build/**/*.ipa
+          path: release-assets/*
           if-no-files-found: error
           retention-days: 7
 
